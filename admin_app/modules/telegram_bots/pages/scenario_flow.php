@@ -297,6 +297,24 @@ foreach ($blocks as $index => $block) {
     $deeplink = !$isStart ? ($deeplinksByBlock[$blockId] ?? null) : null;
     $deeplinkCode = is_array($deeplink) ? trim((string)($deeplink['code'] ?? $deeplink['token'] ?? '')) : '';
     $deeplinkUrl = is_array($deeplink) ? trim((string)($deeplink['url'] ?? '')) : '';
+
+    // v3.5.130: ссылка под блоком всегда должна быть полноценной Telegram deep link.
+    // Раньше в некоторых строках сохранялся только base-url бота или только код,
+    // из-за этого Telegram отправлял обычный /start без payload и сценарий не понимал,
+    // с какого блока нужно запускаться.
+    if ($deeplinkCode === '' && $deeplinkUrl !== '') {
+        $parts = @parse_url($deeplinkUrl);
+        if (is_array($parts) && !empty($parts['query'])) {
+            parse_str((string)$parts['query'], $q);
+            $deeplinkCode = trim((string)($q['start'] ?? $q['startapp'] ?? ''));
+        }
+    }
+    if ($deeplinkCode !== '') {
+        $botUsernameForDeeplink = ltrim(trim((string)($currentScenarioBot['bot_username'] ?? '')), '@');
+        if ($botUsernameForDeeplink !== '') {
+            $deeplinkUrl = 'https://t.me/' . rawurlencode($botUsernameForDeeplink) . '?start=' . rawurlencode($deeplinkCode);
+        }
+    }
     $nodes[] = [
         'id' => (string)$blockId,
         'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : 'messageNode'),

@@ -1694,10 +1694,50 @@ function asr_tg_runtime_extract_command(?string $text): string {
 function asr_tg_runtime_extract_start_payload(?string $text): string {
     $text = trim((string)$text);
     if ($text === '') return '';
-    if (!preg_match('/^\/start(?:@[a-zA-Z0-9_]{3,64})?(?:\s+(.+))?$/u', $text, $m)) return '';
-    $payload = trim((string)($m[1] ?? ''));
-    if ($payload === '') return '';
-    return mb_substr($payload, 0, 128, 'UTF-8');
+
+    // Нормальный Telegram deep link приходит в Bot API как: /start <payload>.
+    if (preg_match('/^\/start(?:@[a-zA-Z0-9_]{3,64})?(?:\s+(.+))?$/u', $text, $m)) {
+        $payload = trim((string)($m[1] ?? ''));
+        if ($payload !== '') return mb_substr(rawurldecode($payload), 0, 128, 'UTF-8');
+        return '';
+    }
+
+    // Страховка для случаев, когда в webhook/лог прилетает не команда, а кусок ссылки.
+    if (preg_match('/(?:[?&]|^)(?:start|startapp)=([^&\s]+)/u', $text, $m)) {
+        $payload = trim(rawurldecode((string)($m[1] ?? '')));
+        if ($payload !== '') return mb_substr($payload, 0, 128, 'UTF-8');
+    }
+
+    return '';
+}
+
+function asr_tg_runtime_deeplink_normalize_runtime_row(PDO $pdo, array $row, string $code): ?array {
+    if (function_exists('asr_tg_scenario_deeplink_normalize_row')) {
+        try { $row = asr_tg_scenario_deeplink_normalize_row($row); } catch (Throwable $ignored) {}
+    }
+
+    $scenarioId = 0;
+    foreach (['scenario_id','flow_id'] as $column) {
+        if (isset($row[$column]) && (int)$row[$column] > 0) { $scenarioId = (int)$row[$column]; break; }
+    }
+
+    $blockId = 0;
+    foreach (['block_id','scenario_block_id','target_block_id','start_block_id','step_id'] as $column) {
+        if (isset($row[$column]) && (int)$row[$column] > 0) { $blockId = (int)$row[$column]; break; }
+    }
+
+    if ($scenarioId <= 0 && $blockId > 0) {
+        $scenarioId = asr_tg_runtime_scenario_from_step($pdo, $blockId);
+    }
+
+    if ($scenarioId <= 0 || $blockId <= 0) return null;
+    $block = asr_tg_scenario_block_find($pdo, $blockId, $scenarioId);
+    if (!$block || (string)($block['type'] ?? '') === 'start') return null;
+
+    $row['scenario_id'] = $scenarioId;
+    $row['block_id'] = $blockId;
+    $row['code'] = (string)($row['code'] ?? $row['token'] ?? $code);
+    return $row;
 }
 
 function asr_tg_runtime_deeplink_find_by_code(PDO $pdo, string $code): ?array {
@@ -1705,26 +1745,39 @@ function asr_tg_runtime_deeplink_find_by_code(PDO $pdo, string $code): ?array {
     if (preg_match('/^\/start(?:@[a-zA-Z0-9_]{3,64})?\s+(.+)$/u', $code, $m)) {
         $code = trim((string)$m[1]);
     }
+    if (preg_match('/(?:[?&]|^)(?:start|startapp)=([^&\s]+)/u', $code, $m)) {
+        $code = trim(rawurldecode((string)$m[1]));
+    }
+    $code = trim($code);
     if ($code === '') return null;
 
     try {
         asr_tg_repository_ensure_scenario_schema($pdo);
-        if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_scenario_deeplinks')) return null;
-        $codeColumn = function_exists('asr_tg_scenario_deeplink_code_column') ? asr_tg_scenario_deeplink_code_column($pdo) : 'code';
-        $safeColumn = '`' . str_replace('`', '``', $codeColumn) . '`';
-        $isEnabledSql = asr_tg_column_exists($pdo, 'oca_telegram_bot_scenario_deeplinks', 'is_enabled') ? ' AND (is_enabled = 1 OR is_enabled IS NULL)' : '';
-        $stmt = $pdo->prepare("SELECT *, {$safeColumn} AS code FROM oca_telegram_bot_scenario_deeplinks WHERE {$safeColumn} = ?{$isEnabledSql} ORDER BY id ASC LIMIT 1");
-        $stmt->execute([$code]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row) {
-            if (function_exists('asr_tg_scenario_deeplink_normalize_row')) $row = asr_tg_scenario_deeplink_normalize_row($row);
-            return $row;
+        if (asr_tg_table_exists($pdo, 'oca_telegram_bot_scenario_deeplinks')) {
+            $lookupColumns = [];
+            if (function_exists('asr_tg_scenario_deeplink_code_column')) {
+                $lookupColumns[] = asr_tg_scenario_deeplink_code_column($pdo);
+            }
+            foreach (['code','token','payload','start_code'] as $column) {
+                if (asr_tg_column_exists($pdo, 'oca_telegram_bot_scenario_deeplinks', $column)) $lookupColumns[] = $column;
+            }
+            $lookupColumns = array_values(array_unique(array_filter(array_map('strval', $lookupColumns))));
+            $isEnabledSql = asr_tg_column_exists($pdo, 'oca_telegram_bot_scenario_deeplinks', 'is_enabled') ? ' AND (is_enabled = 1 OR is_enabled IS NULL)' : '';
+            foreach ($lookupColumns as $column) {
+                $safeColumn = '`' . str_replace('`', '``', $column) . '`';
+                $stmt = $pdo->prepare("SELECT *, {$safeColumn} AS code FROM oca_telegram_bot_scenario_deeplinks WHERE {$safeColumn} = ?{$isEnabledSql} ORDER BY id ASC LIMIT 1");
+                $stmt->execute([$code]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($row) {
+                    $normalized = asr_tg_runtime_deeplink_normalize_runtime_row($pdo, $row, $code);
+                    if ($normalized) return $normalized;
+                }
+            }
         }
 
         // Страховка: наши диплинки детерминированные — dl-{scenario_id}-{block_id}.
-        // Если строка диплинка почему-то не нашлась, но код валидный и блок существует,
-        // запускаем именно этот блок, а не откатываемся к /start и началу сценария.
-        if (preg_match('/^dl-(\d+)-(\d+)$/', $code, $m)) {
+        // Поддерживаем и старый вариант с подчёркиваниями: dl_1_23.
+        if (preg_match('/^dl[-_](\d+)[-_](\d+)$/', $code, $m)) {
             $scenarioId = (int)$m[1];
             $blockId = (int)$m[2];
             if ($scenarioId > 0 && $blockId > 0) {
