@@ -222,6 +222,9 @@ $findButtonHandleForLink = static function(array $cards, array $link): string {
 
 $scenarioId = (int)($_GET['scenario_id'] ?? 0);
 $scenario = $scenarioId > 0 ? asr_tg_scenario_find($pdo, $scenarioId) : null;
+if ($scenario && function_exists('asr_tg_scenario_normalize_single_bot')) {
+    try { asr_tg_scenario_normalize_single_bot($pdo, $scenarioId); } catch (Throwable $e) {}
+}
 if (!$scenario): ?>
     <section class="bg-white rounded-3xl border border-red-100 shadow-sm p-6">
         <h3 class="text-lg font-semibold text-red-700">Сценарий не найден</h3>
@@ -314,7 +317,7 @@ foreach ($blocks as $index => $block) {
             'missingNext' => false,
             'cards' => $flowCards,
             'cardsCount' => count($flowCards),
-            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.107',
+            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.114',
             'deleteAllowed' => !$isStart,
             'deeplinkCode' => $deeplinkCode,
             'deeplinkUrl' => $deeplinkUrl,
@@ -350,11 +353,12 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
 $flowData = [
     'scenarioId' => $scenarioId,
     'scenarioTitle' => (string)($scenario['title'] ?? 'Сценарий'),
+    'scenarioStatus' => (string)($scenario['status'] ?? 'draft'),
     'csrfToken' => $csrf,
     'nodes' => $nodes,
     'edges' => $edges,
     'returnUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
-        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.107',
+        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.114',
     'flowUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
     'blockLimit' => 550,
     'listUrl' => 'admin.php?tab=telegram_bots&page=scenarios',
@@ -781,13 +785,13 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     <div class="tg-flow-topbar">
         <div class="tg-flow-top-left">
             <button type="button" class="tg-flow-menu-btn" id="tg-flow-menu-btn" aria-label="Открыть меню">☰</button>
-            <div class="tg-flow-title"><?php echo $h($scenario['title'] ?? 'Сценарий'); ?> <span style="font-size:11px;color:#9ca3af;font-weight:650">Flow v3.5.107</span> <span id="tg-flow-boot-status" class="tg-flow-boot-status">PHP: <?php echo count($nodes); ?> блоков / <?php echo count($edges); ?> связей · React: запуск…</span></div>
+            <div class="tg-flow-title"><?php echo $h($scenario['title'] ?? 'Сценарий'); ?> <span style="font-size:11px;color:#9ca3af;font-weight:650">Flow v3.5.114</span> <span id="tg-flow-boot-status" class="tg-flow-boot-status">PHP: <?php echo count($nodes); ?> блоков / <?php echo count($edges); ?> связей · React: запуск…</span></div>
         </div>
         <div class="tg-flow-top-right">
             <button type="button" class="tg-flow-top-btn is-primary" id="tg-flow-add-block-btn">+ Блок</button>
             <button type="button" class="tg-flow-top-btn" id="tg-flow-save-btn">Сохранить</button>
-            <button type="button" class="tg-flow-top-btn is-muted" disabled>Тестировать</button>
-            <button type="button" class="tg-flow-top-btn is-muted" disabled>Остановить</button>
+            <?php $scenarioIsActive = (string)($scenario['status'] ?? 'draft') === 'active'; ?>
+            <button type="button" class="tg-flow-top-btn is-muted" id="tg-flow-stop-btn" data-flow-status-action="<?php echo $scenarioIsActive ? 'pause' : 'resume'; ?>"><?php echo $scenarioIsActive ? 'Остановить' : 'Запустить'; ?></button>
         </div>
     </div>
     <div class="tg-flow-canvas-wrap">
@@ -831,7 +835,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     errorEl.style.display = 'block';
     var p = errorEl.querySelector('p');
     var msg = event && event.message ? event.message : 'неизвестная ошибка JS';
-    if (p) p.textContent = 'Ошибка запуска React Flow: ' + msg + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.107.';
+    if (p) p.textContent = 'Ошибка запуска React Flow: ' + msg + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.114.';
   }, true);
   window.addEventListener('unhandledrejection', function(event){
     if (window.__tgScenarioFlowBoot && window.__tgScenarioFlowBoot.started) return;
@@ -840,7 +844,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     errorEl.style.display = 'block';
     var reason = event.reason && (event.reason.message || String(event.reason));
     var p = errorEl.querySelector('p');
-    if (p) p.textContent = 'Не загрузился JS-модуль редактора: ' + (reason || 'неизвестная ошибка') + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.107.';
+    if (p) p.textContent = 'Не загрузился JS-модуль редактора: ' + (reason || 'неизвестная ошибка') + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.114.';
   });
   setTimeout(function(){
     if (window.__tgScenarioFlowBoot && window.__tgScenarioFlowBoot.started) return;
@@ -848,7 +852,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     if (!errorEl) return;
     errorEl.style.display = 'block';
     var p = errorEl.querySelector('p');
-    if (p) p.textContent = 'React Flow-скрипт не стартовал. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия патча: 3.5.107.';
+    if (p) p.textContent = 'React Flow-скрипт не стартовал. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия патча: 3.5.114.';
   }, 2200);
 })();
 </script>
@@ -860,7 +864,7 @@ const errorEl = document.getElementById('tg-scenario-flow-error');
 if (errorEl) {
   errorEl.style.display = 'block';
   const p = errorEl.querySelector('p');
-  if (p) p.textContent = 'Файл scenario-flow-cdn.js не найден на сервере. Проверьте путь admin_app/modules/telegram_bots/scenario_flow/dist/scenario-flow-cdn.js. Версия патча: 3.5.107.';
+  if (p) p.textContent = 'Файл scenario-flow-cdn.js не найден на сервере. Проверьте путь admin_app/modules/telegram_bots/scenario_flow/dist/scenario-flow-cdn.js. Версия патча: 3.5.114.';
 }
 console.error('Scenario Flow script file not found');
 <?php endif; ?>

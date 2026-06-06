@@ -3555,6 +3555,35 @@ function asr_tg_scenario_default_bot_id(PDO $pdo, int $scenarioId): int {
     return (int)($stmt->fetchColumn() ?: 0);
 }
 
+function asr_tg_scenario_bot_id(PDO $pdo, int $scenarioId): int {
+    return asr_tg_scenario_default_bot_id($pdo, $scenarioId);
+}
+
+function asr_tg_scenario_normalize_single_bot(PDO $pdo, int $scenarioId): int {
+    if ($scenarioId <= 0) return 0;
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $botId = asr_tg_scenario_default_bot_id($pdo, $scenarioId);
+    if ($botId <= 0) {
+        $stmt = $pdo->prepare('SELECT bot_id FROM oca_telegram_bot_scenario_bots WHERE scenario_id = ? ORDER BY bot_id ASC LIMIT 1');
+        $stmt->execute([$scenarioId]);
+        $botId = (int)($stmt->fetchColumn() ?: 0);
+    }
+    $pdo->prepare('DELETE FROM oca_telegram_bot_scenario_bots WHERE scenario_id = ?')->execute([$scenarioId]);
+    if ($botId > 0) {
+        $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_bots (scenario_id, bot_id, is_enabled, is_default, created_at, updated_at) VALUES (?, ?, 1, 1, NOW(), NOW())');
+        $stmt->execute([$scenarioId, $botId]);
+    }
+    return $botId;
+}
+
+function asr_tg_scenario_normalize_all_single_bot(PDO $pdo): void {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $stmt = $pdo->query('SELECT scenario_id, COUNT(*) AS cnt FROM oca_telegram_bot_scenario_bots GROUP BY scenario_id HAVING cnt > 1');
+    foreach (($stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []) as $row) {
+        asr_tg_scenario_normalize_single_bot($pdo, (int)($row['scenario_id'] ?? 0));
+    }
+}
+
 function asr_tg_scenario_save(PDO $pdo, array $data): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $scenarioId = max(0, (int)($data['id'] ?? 0));
@@ -3564,11 +3593,13 @@ function asr_tg_scenario_save(PDO $pdo, array $data): int {
     if (!isset(asr_tg_scenario_status_labels()[$status])) $status = 'draft';
     if ($title === '') throw new InvalidArgumentException('Укажите название сценария.');
 
-    $botIds = array_values(array_unique(array_filter(array_map('intval', (array)($data['bot_ids'] ?? [])), static fn($id) => $id > 0)));
-    $defaultBotId = (int)($data['default_bot_id'] ?? 0);
-    if (!in_array($defaultBotId, $botIds, true)) $defaultBotId = $botIds[0] ?? 0;
-    if ($status === 'active' && !$botIds) {
-        throw new InvalidArgumentException('Для активного сценария нужно подключить хотя бы один канал.');
+    $botId = (int)($data['bot_id'] ?? $data['default_bot_id'] ?? 0);
+    if ($botId <= 0) {
+        $botIds = array_values(array_unique(array_filter(array_map('intval', (array)($data['bot_ids'] ?? [])), static fn($id) => $id > 0)));
+        $botId = (int)($botIds[0] ?? 0);
+    }
+    if ($status === 'active' && $botId <= 0) {
+        throw new InvalidArgumentException('Для активного сценария нужно выбрать канал.');
     }
 
     $userId = function_exists('asr_current_user_id') ? (int)asr_current_user_id() : (int)($_SESSION['user_id'] ?? 0);
@@ -3582,11 +3613,9 @@ function asr_tg_scenario_save(PDO $pdo, array $data): int {
     }
 
     $pdo->prepare('DELETE FROM oca_telegram_bot_scenario_bots WHERE scenario_id = ?')->execute([$scenarioId]);
-    if ($botIds) {
-        $insert = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_bots (scenario_id, bot_id, is_enabled, is_default, created_at, updated_at) VALUES (?, ?, 1, ?, NOW(), NOW())');
-        foreach ($botIds as $botId) {
-            $insert->execute([$scenarioId, $botId, $botId === $defaultBotId ? 1 : 0]);
-        }
+    if ($botId > 0) {
+        $insert = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_bots (scenario_id, bot_id, is_enabled, is_default, created_at, updated_at) VALUES (?, ?, 1, 1, NOW(), NOW())');
+        $insert->execute([$scenarioId, $botId]);
     }
 
     return $scenarioId;
@@ -3596,6 +3625,9 @@ function asr_tg_scenario_set_status(PDO $pdo, int $scenarioId, string $status): 
     asr_tg_repository_ensure_scenario_schema($pdo);
     if ($scenarioId <= 0) throw new InvalidArgumentException('Сценарий не выбран.');
     if (!isset(asr_tg_scenario_status_labels()[$status])) throw new InvalidArgumentException('Некорректный статус сценария.');
+    if ($status === 'active' && asr_tg_scenario_default_bot_id($pdo, $scenarioId) <= 0) {
+        throw new InvalidArgumentException('Для запуска сценария нужно выбрать канал.');
+    }
     $stmt = $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET status = ?, archived_at = CASE WHEN ? = \'archived\' THEN COALESCE(archived_at, NOW()) ELSE NULL END, updated_at = NOW() WHERE id = ?');
     $stmt->execute([$status, $status, $scenarioId]);
 }
@@ -4160,95 +4192,10 @@ function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): i
     }
 
     $type = (string)($data['block_type'] ?? 'message');
-    if (!in_array($type, ['message', 'delay'], true)) $type = 'message';
+    // Стартовый блок создаётся системой отдельно. Через эту форму сохраняются только сообщения.
+    if ($type !== 'message') $type = 'message';
     $title = trim((string)($data['block_title'] ?? ''));
-    if ($title === '') $title = $type === 'delay' ? 'Задержка' : 'Сообщение';
-
-    if ($type === 'delay') {
-        $delayMode = (string)($data['delay_mode'] ?? 'after');
-        if (!in_array($delayMode, ['after', 'tomorrow', 'at'], true)) $delayMode = 'after';
-        $delayValue = max(1, min(999, (int)($data['delay_value'] ?? 1)));
-        $delayUnit = (string)($data['delay_unit'] ?? 'days');
-        if (!in_array($delayUnit, ['seconds', 'minutes', 'hours', 'days'], true)) $delayUnit = 'days';
-        $sendTimeMode = (string)($data['send_time_mode'] ?? 'any');
-        if (!in_array($sendTimeMode, ['any', 'exact', 'interval'], true)) $sendTimeMode = 'any';
-        if ($delayMode !== 'after') $sendTimeMode = 'exact';
-        $normalizeTime = static function($value, string $fallback = '00:00'): string {
-            $time = trim((string)$value);
-            if (!preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $time)) return $fallback;
-            [$h, $m] = array_map('intval', explode(':', $time));
-            return sprintf('%02d:%02d', $h, $m);
-        };
-        $timezone = trim((string)($data['timezone'] ?? 'Europe/Moscow')) ?: 'Europe/Moscow';
-        try {
-            $timezoneIds = timezone_identifiers_list();
-            if (!in_array($timezone, $timezoneIds, true)) $timezone = 'Europe/Moscow';
-            $tzObject = new DateTimeZone($timezone);
-            $tzOffsetSeconds = $tzObject->getOffset(new DateTimeImmutable('now', $tzObject));
-        } catch (Throwable $e) {
-            $timezone = 'Europe/Moscow';
-            $tzOffsetSeconds = 10800;
-        }
-        $allowedWeekdays = ['mon','tue','wed','thu','fri','sat','sun'];
-        $weekdaysRaw = $data['weekdays'] ?? $allowedWeekdays;
-        if (!is_array($weekdaysRaw)) $weekdaysRaw = [$weekdaysRaw];
-        $weekdays = [];
-        foreach ($weekdaysRaw as $day) {
-            $day = (string)$day;
-            if (in_array($day, $allowedWeekdays, true) && !in_array($day, $weekdays, true)) $weekdays[] = $day;
-        }
-        if (!$weekdays) $weekdays = $allowedWeekdays;
-        $sendTimeExact = $normalizeTime($data['send_time_exact'] ?? '00:00');
-        $sendTimeFrom = $normalizeTime($data['send_time_from'] ?? '00:00');
-        $sendTimeTo = $normalizeTime($data['send_time_to'] ?? '00:00');
-        $baseDelaySeconds = $delayMode === 'after' ? ($delayValue * ['seconds' => 1, 'minutes' => 60, 'hours' => 3600, 'days' => 86400][$delayUnit]) : 0;
-        $runtimePlan = [
-            'status' => 'draft_ready',
-            'next_block_required' => true,
-            'mode' => $delayMode,
-            'base_delay_seconds' => $baseDelaySeconds,
-            'time_policy' => $sendTimeMode,
-            'exact_time' => $sendTimeExact,
-            'interval_from' => $sendTimeFrom,
-            'interval_to' => $sendTimeTo,
-            'timezone' => $timezone,
-            'timezone_offset_seconds' => $tzOffsetSeconds,
-            'weekdays' => $weekdays,
-        ];
-        $settingsJson = json_encode([
-            'version' => 3,
-            'delay_mode' => $delayMode,
-            'delay_value' => $delayValue,
-            'delay_unit' => $delayUnit,
-            'send_time_mode' => $sendTimeMode,
-            'send_time_exact' => $sendTimeExact,
-            'send_time_from' => $sendTimeFrom,
-            'send_time_to' => $sendTimeTo,
-            'timezone' => $timezone,
-            'weekdays' => $weekdays,
-            'runtime_plan' => $runtimePlan,
-        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить данные задержки.');
-        if ($blockId > 0) {
-            $stmt = $pdo->prepare('UPDATE oca_telegram_bot_scenario_blocks SET type = ?, title = ?, settings_json = ?, updated_at = NOW() WHERE id = ? AND scenario_id = ?');
-            $stmt->execute([$type, $title, $settingsJson, $blockId, $scenarioId]);
-            return $blockId;
-        }
-        asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
-        $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
-        $stmt->execute([$scenarioId]);
-        $sortOrder = (int)($stmt->fetchColumn() ?: 100);
-        $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type <> 'start'");
-        $stmt->execute([$scenarioId]);
-        $blockCount = (int)($stmt->fetchColumn() ?: 0);
-        $positionX = 430 + (($blockCount % 4) * 330);
-        $positionY = 140 + ((int)floor($blockCount / 4) * 250);
-        $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
-        $stmt->execute([$scenarioId, $type, $title, $settingsJson, $positionX, $positionY, $sortOrder]);
-        $blockId = (int)$pdo->lastInsertId();
-        asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
-        return $blockId;
-    }
+    if ($title === '') $title = 'Сообщение';
 
     $cards = asr_tg_scenario_normalize_block_cards((string)($data['scenario_cards_json'] ?? ''));
     $cards = asr_tg_scenario_apply_card_uploads($cards, $files);
@@ -4637,7 +4584,6 @@ function asr_tg_scenario_quick_message_create_from_post(PDO $pdo, array $post): 
     return $blockId;
 }
 
-
 function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $scenarioId = max(0, (int)($post['scenario_id'] ?? 0));
@@ -4645,10 +4591,10 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
     if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
     if ($fromBlockId > 0 && !asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId)) throw new InvalidArgumentException('Исходный блок не найден.');
 
-    $x = max(40, min(2600, (int)($post['position_x'] ?? 430)));
-    $y = max(80, min(1800, (int)($post['position_y'] ?? 140)));
+    $x = (int)($post['position_x'] ?? 430);
+    $y = (int)($post['position_y'] ?? 140);
     $settingsJson = json_encode([
-        'version' => 3,
+        'version' => 2,
         'delay_mode' => 'after',
         'delay_value' => 1,
         'delay_unit' => 'days',
@@ -4656,8 +4602,12 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
         'send_time_exact' => '00:00',
         'send_time_from' => '00:00',
         'send_time_to' => '00:00',
-        'timezone' => 'Europe/Moscow',
+        'timezone' => 'Asia/Almaty',
         'weekdays' => ['mon','tue','wed','thu','fri','sat','sun'],
+        'runtime_plan' => [
+            'enabled' => false,
+            'prepared_for' => 'delay_runner',
+        ],
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить новый блок задержки.');
 

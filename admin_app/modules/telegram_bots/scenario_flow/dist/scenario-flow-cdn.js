@@ -20,7 +20,7 @@ import {
 (function(){
   const boot = window.__tgScenarioFlowBoot || (window.__tgScenarioFlowBoot = {});
   boot.evaluated = true;
-  boot.version = '3.5.105';
+  boot.version = '3.5.114';
   const status = document.getElementById('tg-flow-boot-status');
   if (status) status.textContent = 'PHP: ' + (boot.nodes ?? '?') + ' блоков / ' + (boot.edges ?? '?') + ' связей · React: модуль загружен';
 })();
@@ -374,11 +374,12 @@ window.tgScenarioFlowOpenDrawer = async function(url) {
 async function postAction(action, payload = {}) {
   const actionMap = {
     tg_scenario_quick_message_create: 'tg_scenario_quick_message_create',
-    tg_scenario_quick_delay_create: 'tg_scenario_quick_delay_create',
     tg_scenario_link_save: 'tg_scenario_link_save',
     tg_scenario_blocks_positions_save: 'tg_scenario_blocks_positions_save',
     tg_scenario_duplicate_block: 'tg_scenario_block_duplicate',
-    tg_scenario_block_delete: 'tg_scenario_block_delete'
+    tg_scenario_block_delete: 'tg_scenario_block_delete',
+    tg_scenario_pause: 'tg_scenario_pause',
+    tg_scenario_resume: 'tg_scenario_resume'
   };
   const realAction = actionMap[action] || action;
   const fd = new FormData();
@@ -460,6 +461,7 @@ function flowCardTitle(type) {
   return {text: 'Сообщение', image: 'Картинка', file: 'Файл', audio: 'Аудио', video: 'Видео', video_note: 'Видео-заметка', gallery: 'Галерея', question: 'Вопрос'}[type] || 'Сообщение';
 }
 function NodeShell({id, data, isStart}) {
+  const isDelay = String(data && data.blockType ? data.blockType : '') === 'delay';
   const edit = (event) => {
     if (event) {
       event.preventDefault();
@@ -505,7 +507,6 @@ function NodeShell({id, data, isStart}) {
     }
   };
   const cards = Array.isArray(data.cards) ? data.cards : [];
-  const isDelay = String(data.blockType || '') === 'delay';
   const renderButton = (button) => {
     const handleId = button.handleId || ('btn-' + Math.random().toString(16).slice(2));
     const remember = () => tgFlowRememberSourceHandle(id, handleId);
@@ -584,19 +585,7 @@ function NodeShell({id, data, isStart}) {
       buttons.length ? React.createElement('div', {className: 'tg-flow-preview-buttons'}, buttons.map(renderButton)) : null
     );
   };
-  const nodeClassName = 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '');
-  const delayPreview = React.createElement('div', {className: 'tg-flow-node-card tg-flow-delay-preview'},
-    React.createElement('div', {className: 'tg-flow-delay-preview-col'},
-      React.createElement('span', {className: 'tg-flow-delay-preview-label'}, 'Отправить'),
-      React.createElement('span', {className: 'tg-flow-delay-preview-main'}, data.delaySendLabel || data.preview || 'Через 1 день')
-    ),
-    React.createElement('div', {className: 'tg-flow-delay-preview-col is-right'},
-      React.createElement('span', {className: 'tg-flow-delay-preview-label'}, 'Время отправки'),
-      React.createElement('span', {className: 'tg-flow-delay-preview-main'}, data.delayTimeLabel || 'Любое')
-    ),
-    React.createElement('div', {className: 'tg-flow-delay-preview-days'}, data.delayWeekdaysTitle || 'Пн, Вт, Ср, Чт, Пт, Сб, Вс')
-  );
-  return React.createElement('div', {className: nodeClassName},
+  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
     !isStart && React.createElement(Handle, {id: 'in', type: 'target', position: Position.Left, className: 'tg-flow-in-handle', isConnectable: true}),
     React.createElement('div', {className: 'tg-flow-node-head'},
       React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : 'Сообщение')),
@@ -611,7 +600,17 @@ function NodeShell({id, data, isStart}) {
       isStart
         ? React.createElement('div', {className: 'tg-flow-node-card'}, data.preview || 'По кнопке «Начать»')
         : (isDelay
-          ? delayPreview
+          ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-delay-preview'},
+            React.createElement('div', {className: 'tg-flow-delay-preview-col'},
+              React.createElement('span', {className: 'tg-flow-delay-preview-label'}, 'Отправить'),
+              React.createElement('span', {className: 'tg-flow-delay-preview-main'}, data.delaySendLabel || data.preview || 'Через 1 день')
+            ),
+            React.createElement('div', {className: 'tg-flow-delay-preview-col is-right'},
+              React.createElement('span', {className: 'tg-flow-delay-preview-label'}, 'Время отправки'),
+              React.createElement('span', {className: 'tg-flow-delay-preview-main'}, data.delayTimeLabel || 'Любое')
+            ),
+            React.createElement('div', {className: 'tg-flow-delay-preview-days'}, data.delayWeekdaysTitle || 'Пн, Вт, Ср, Чт, Пт, Сб, Вс')
+          )
           : (cards.length
             ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
             : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение'))),
@@ -732,16 +731,6 @@ function ScenarioFlow() {
     latestNodesRef.current = nodes;
   }, [nodes]);
 
-  React.useEffect(() => {
-    const outgoing = new Set((Array.isArray(edges) ? edges : []).filter((edge) => String(edge.sourceHandle || 'out') === 'out').map((edge) => String(edge.source || '')));
-    setNodes((currentNodes) => currentNodes.map((node) => {
-      if (!node || !node.data || String(node.data.blockType || '') !== 'delay') return node;
-      const missingNext = !outgoing.has(String(node.id));
-      if (!!node.data.missingNext === missingNext) return node;
-      return {...node, data: {...node.data, missingNext}};
-    }));
-  }, [edges, setNodes]);
-
   const flushPositions = useCallback((nextNodes, silent = true) => {
     const snapshot = Array.isArray(nextNodes) ? nextNodes : latestNodesRef.current;
     latestNodesRef.current = snapshot;
@@ -764,10 +753,38 @@ function ScenarioFlow() {
   React.useEffect(() => {
     window.tgScenarioFlowSaveNow = () => flushPositions(latestNodesRef.current, false);
     const saveBtn = document.getElementById('tg-flow-save-btn');
-    const handler = () => flushPositions(latestNodesRef.current, false);
-    if (saveBtn) saveBtn.addEventListener('click', handler);
+    const stopBtn = document.getElementById('tg-flow-stop-btn');
+    const scenariosUrl = 'admin.php?tab=telegram_bots&page=scenarios';
+    const saveHandler = async (event) => {
+      if (event) event.preventDefault();
+      if (saveBtn) saveBtn.disabled = true;
+      try {
+        await flushPositions(latestNodesRef.current, false);
+        window.location.href = scenariosUrl;
+      } catch (error) {
+        if (saveBtn) saveBtn.disabled = false;
+      }
+    };
+    const stopHandler = async (event) => {
+      if (event) event.preventDefault();
+      const shouldResume = (stopBtn && stopBtn.getAttribute('data-flow-status-action') === 'resume') || String(cfg.scenarioStatus || '') !== 'active';
+      const action = shouldResume ? 'tg_scenario_resume' : 'tg_scenario_pause';
+      if (stopBtn) stopBtn.disabled = true;
+      try {
+        await flushPositions(latestNodesRef.current, true);
+        await postAction(action, {scenario_id: cfg.scenarioId || ''});
+        showFlowToast(shouldResume ? 'Сценарий запущен.' : 'Сценарий поставлен на паузу. Новые подписчики не будут запускать его.', 'success');
+        window.location.href = scenariosUrl;
+      } catch (error) {
+        if (stopBtn) stopBtn.disabled = false;
+        showFlowToast(error && error.message ? error.message : (shouldResume ? 'Не удалось запустить сценарий.' : 'Не удалось остановить сценарий.'), 'error');
+      }
+    };
+    if (saveBtn) saveBtn.addEventListener('click', saveHandler);
+    if (stopBtn) stopBtn.addEventListener('click', stopHandler);
     return () => {
-      if (saveBtn) saveBtn.removeEventListener('click', handler);
+      if (saveBtn) saveBtn.removeEventListener('click', saveHandler);
+      if (stopBtn) stopBtn.removeEventListener('click', stopHandler);
       if (window.tgScenarioFlowSaveNow) delete window.tgScenarioFlowSaveNow;
     };
   }, [nodes, flushPositions]);
@@ -816,7 +833,7 @@ function ScenarioFlow() {
       if (expectedNodes > 0 && drawnNodes === 0 && errorEl) {
         errorEl.style.display = 'block';
         const p = errorEl.querySelector('p');
-        if (p) p.textContent = 'React Flow запустился, но в DOM не появилось ни одного узла. Версия: 3.5.105. Вероятная причина — конфликт ESM-зависимостей React/React Flow или CSS холста.';
+        if (p) p.textContent = 'React Flow запустился, но в DOM не появилось ни одного узла. Версия: 3.5.92. Вероятная причина — конфликт ESM-зависимостей React/React Flow или CSS холста.';
       }
     };
     const t1 = window.setTimeout(check, 350);
@@ -989,10 +1006,24 @@ function ScenarioFlow() {
     event.preventDefault();
   }, []);
 
+  const renderedNodes = useMemo(() => {
+    const outgoing = new Set(edges.filter((edge) => String(edge.sourceHandle || 'out') === 'out').map((edge) => String(edge.source)));
+    return nodes.map((node) => {
+      if (!node || node.type !== 'delayNode') return node;
+      return {
+        ...node,
+        data: {
+          ...(node.data || {}),
+          missingNext: !outgoing.has(String(node.id))
+        }
+      };
+    });
+  }, [nodes, edges]);
+
   return React.createElement(React.Fragment, null,
     React.createElement(ReactFlow, {
       className: isRightPanning ? 'is-right-panning' : '',
-      nodes,
+      nodes: renderedNodes,
       edges,
       nodeTypes,
       edgeTypes,
@@ -1044,7 +1075,7 @@ try {
   if ((!Array.isArray(cfg.nodes) || cfg.nodes.length === 0) && errorEl) {
     errorEl.style.display = 'block';
     const p = errorEl.querySelector('p');
-    if (p) p.textContent = 'React Flow запустился, но PHP передал 0 блоков. Значит надо смотреть запрос блоков сценария. Версия: 3.5.105.';
+    if (p) p.textContent = 'React Flow запустился, но PHP передал 0 блоков. Значит надо смотреть запрос блоков сценария. Версия: 3.5.92.';
   }
 } catch (error) {
   console.error(error);
@@ -1056,6 +1087,6 @@ try {
   if (errorEl) {
     errorEl.style.display = 'block';
     const p = errorEl.querySelector('p');
-    if (p) p.textContent = 'Ошибка запуска React Flow: ' + (error && error.message ? error.message : 'неизвестная ошибка') + '. Версия: 3.5.105.';
+    if (p) p.textContent = 'Ошибка запуска React Flow: ' + (error && error.message ? error.message : 'неизвестная ошибка') + '. Версия: 3.5.92.';
   }
 }

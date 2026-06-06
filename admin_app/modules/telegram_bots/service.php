@@ -1726,15 +1726,19 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
 
 function asr_tg_scenario_save_from_post(PDO $pdo, array $post): int {
     if (!asr_tg_can('flows')) throw new RuntimeException('Недостаточно прав для управления сценариями.');
-    $botIds = $post['scenario_bot_ids'] ?? [];
-    if (!is_array($botIds)) $botIds = [$botIds];
+    $botId = (int)($post['scenario_bot_id'] ?? 0);
+    if ($botId <= 0) {
+        $legacyBotIds = $post['scenario_bot_ids'] ?? [];
+        if (!is_array($legacyBotIds)) $legacyBotIds = [$legacyBotIds];
+        $legacyBotIds = array_values(array_filter(array_map('intval', $legacyBotIds), static fn($id) => $id > 0));
+        $botId = (int)($legacyBotIds[0] ?? 0);
+    }
     return asr_tg_scenario_save($pdo, [
         'id' => (int)($post['scenario_id'] ?? 0),
         'title' => (string)($post['title'] ?? ''),
         'description' => (string)($post['description'] ?? ''),
         'status' => (string)($post['status'] ?? 'draft'),
-        'bot_ids' => $botIds,
-        'default_bot_id' => (int)($post['default_bot_id'] ?? 0),
+        'bot_id' => $botId,
     ]);
 }
 
