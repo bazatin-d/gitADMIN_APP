@@ -184,6 +184,19 @@ function asr_tg_handle_dialog_ajax(PDO $pdo, array $source): void {
 }
 
 
+
+function asr_tg_handle_runtime_diagnostic(PDO $pdo, array $source): void {
+    try {
+        if (!asr_tg_can('flows')) throw new RuntimeException('Недостаточно прав.');
+        $scenarioId = (int)($source['scenario_id'] ?? 0);
+        $botId = (int)($source['bot_id'] ?? 0);
+        $command = (string)($source['command'] ?? 'help');
+        asr_tg_json_response(asr_tg_runtime_diagnostic($pdo, $scenarioId, $botId, $command));
+    } catch (Throwable $e) {
+        asr_tg_json_response(['ok' => false, 'error' => $e->getMessage()], 400);
+    }
+}
+
 function asr_tg_handle_broadcast_process_ajax(PDO $pdo, array $source): void {
     try {
         if (!asr_tg_can('broadcast')) throw new RuntimeException('Недостаточно прав для обработки рассылок.');
@@ -212,6 +225,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_b
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_bots' && ($_GET['tg_ajax'] ?? '') === 'segment_count') {
     asr_tg_handle_segment_count($pdo, $_GET);
+}
+
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_bots' && ($_GET['tg_ajax'] ?? '') === 'scenario_runtime_diag') {
+    asr_tg_handle_runtime_diagnostic($pdo, $_GET);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_bots' && ($_GET['page'] ?? '') === 'messages' && in_array((string)($_GET['tg_ajax'] ?? ''), ['dialogs_state','dialog_messages','dialog_panel'], true)) {
