@@ -1674,6 +1674,39 @@ function asr_tg_runtime_extract_command(?string $text): string {
     return asr_tg_normalize_command_name((string)($m[1] ?? ''));
 }
 
+function asr_tg_runtime_extract_start_payload(?string $text): string {
+    $text = trim((string)$text);
+    if ($text === '') return '';
+    if (!preg_match('/^\/start(?:@[a-zA-Z0-9_]{3,64})?(?:\s+(.+))?$/u', $text, $m)) return '';
+    $payload = trim((string)($m[1] ?? ''));
+    if ($payload === '') return '';
+    return mb_substr($payload, 0, 128, 'UTF-8');
+}
+
+function asr_tg_runtime_deeplink_find_by_code(PDO $pdo, string $code): ?array {
+    $code = trim($code);
+    if ($code === '') return null;
+    try {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_scenario_deeplinks')) return null;
+        $codeColumn = function_exists('asr_tg_scenario_deeplink_code_column') ? asr_tg_scenario_deeplink_code_column($pdo) : 'code';
+        $stmt = $pdo->prepare("SELECT *, `{$codeColumn}` AS code FROM oca_telegram_bot_scenario_deeplinks WHERE `{$codeColumn}` = ? AND is_enabled = 1 ORDER BY id ASC LIMIT 1");
+        $stmt->execute([$code]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        if (function_exists('asr_tg_scenario_deeplink_normalize_row')) {
+            $row = asr_tg_scenario_deeplink_normalize_row($row);
+        }
+        return $row;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function asr_tg_runtime_is_service_command_text(?string $text): bool {
+    return asr_tg_runtime_extract_command($text) !== '';
+}
+
 function asr_tg_runtime_command_find(PDO $pdo, int $botId, string $command): ?array {
     if ($botId <= 0 || $command === '') return null;
     asr_tg_repository_ensure_schema($pdo);
@@ -2294,30 +2327,62 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
     $from = is_array($message['from'] ?? null) ? $message['from'] : [];
     $chat = is_array($message['chat'] ?? null) ? $message['chat'] : [];
     $chatId = $chat['id'] ?? ($from['id'] ?? 0);
+    $text = isset($message['text']) ? (string)$message['text'] : null;
+    $isServiceCommand = asr_tg_runtime_is_service_command_text($text);
     $subscriberId = asr_tg_subscriber_upsert($pdo, $botId, $from, $chatId);
     if ($subscriberId > 0) {
         try {
             $blockedCheck = $pdo->prepare("SELECT status FROM oca_telegram_bot_subscribers WHERE id = ? LIMIT 1");
             $blockedCheck->execute([$subscriberId]);
-            if ((string)$blockedCheck->fetchColumn() === 'blocked') {
-                $blockedText = isset($message['text']) ? (string)$message['text'] : '';
-                asr_tg_log($pdo, $botId, 'info', 'webhook_blocked_subscriber_ignored', 'Сообщение от заблокированного подписчика не добавлено в диалоги.', [
-                    'subscriber_id' => $subscriberId,
-                    'text_preview' => mb_substr($blockedText, 0, 120, 'UTF-8'),
-                    'command' => asr_tg_runtime_extract_command($blockedText),
-                ]);
-                return;
+            $currentSubscriberStatus = (string)$blockedCheck->fetchColumn();
+            if ($currentSubscriberStatus === 'blocked') {
+                if ($isServiceCommand) {
+                    $pdo->prepare("UPDATE oca_telegram_bot_subscribers SET status = 'active', last_seen_at = NOW(), updated_at = NOW() WHERE id = ? AND bot_id = ?")->execute([$subscriberId, $botId]);
+                    asr_tg_log($pdo, $botId, 'info', 'webhook_blocked_subscriber_reactivated_for_command', 'Заблокированный подписчик активирован для служебной команды сценария.', [
+                        'subscriber_id' => $subscriberId,
+                        'command' => asr_tg_runtime_extract_command($text),
+                    ]);
+                } else {
+                    $blockedText = isset($message['text']) ? (string)$message['text'] : '';
+                    asr_tg_log($pdo, $botId, 'info', 'webhook_blocked_subscriber_ignored', 'Сообщение от заблокированного подписчика не добавлено в диалоги.', [
+                        'subscriber_id' => $subscriberId,
+                        'text_preview' => mb_substr($blockedText, 0, 120, 'UTF-8'),
+                        'command' => asr_tg_runtime_extract_command($blockedText),
+                    ]);
+                    return;
+                }
             }
         } catch (Throwable $e) {}
     }
-    $text = isset($message['text']) ? (string)$message['text'] : null;
-    $messageType = $text !== null ? 'text' : 'other';
-    asr_tg_message_add($pdo, $botId, $subscriberId ?: null, 'in', $messageType, $text, isset($message['message_id']) ? (int)$message['message_id'] : null, $message);
 
     $scenarioRuntimeHandled = false;
     if ($subscriberId > 0 && $text !== null) {
         try {
-            $scenarioRuntimeHandled = asr_tg_runtime_try_command($pdo, $bot, $botId, $chatId, (int)$subscriberId, $text);
+            $startPayload = asr_tg_runtime_extract_start_payload($text);
+            if ($startPayload !== '') {
+                $deeplink = asr_tg_runtime_deeplink_find_by_code($pdo, $startPayload);
+                if ($deeplink) {
+                    $deeplinkScenarioId = (int)($deeplink['scenario_id'] ?? 0);
+                    $deeplinkBlockId = (int)($deeplink['block_id'] ?? 0);
+                    asr_tg_log($pdo, $botId, 'info', 'scenario_deeplink_received', 'Получен диплинк сценария.', [
+                        'subscriber_id' => (int)$subscriberId,
+                        'code' => $startPayload,
+                        'scenario_id' => $deeplinkScenarioId,
+                        'block_id' => $deeplinkBlockId,
+                    ]);
+                    if ($deeplinkScenarioId > 0 && $deeplinkBlockId > 0) {
+                        $scenarioRuntimeHandled = asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, (int)$subscriberId, $deeplinkScenarioId, $deeplinkBlockId, 'telegram_deeplink', ['code' => $startPayload]);
+                    }
+                } else {
+                    asr_tg_log($pdo, $botId, 'warning', 'scenario_deeplink_not_found', 'Диплинк сценария не найден или отключён.', [
+                        'subscriber_id' => (int)$subscriberId,
+                        'code' => $startPayload,
+                    ]);
+                }
+            }
+            if (!$scenarioRuntimeHandled) {
+                $scenarioRuntimeHandled = asr_tg_runtime_try_command($pdo, $bot, $botId, $chatId, (int)$subscriberId, $text);
+            }
         } catch (Throwable $e) {
             asr_tg_bot_update($pdo, $botId, ['last_error' => $e->getMessage()]);
             asr_tg_log($pdo, $botId, 'error', 'scenario_runtime_failed', $e->getMessage(), ['subscriber_id' => (int)$subscriberId, 'text' => $text]);
@@ -2325,31 +2390,27 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
         }
     }
 
-    if ($subscriberId > 0) {
+    if (!$isServiceCommand) {
+        $messageType = $text !== null ? 'text' : 'other';
+        asr_tg_message_add($pdo, $botId, $subscriberId ?: null, 'in', $messageType, $text, isset($message['message_id']) ? (int)$message['message_id'] : null, $message);
+    } else {
+        asr_tg_log($pdo, $botId, 'info', 'webhook_service_command_hidden', 'Служебная команда не добавлена в диалоги и не отправлена в технический бот.', [
+            'subscriber_id' => (int)$subscriberId,
+            'command' => asr_tg_runtime_extract_command($text),
+            'text_preview' => mb_substr((string)$text, 0, 120, 'UTF-8'),
+        ]);
+    }
+
+    if (!$isServiceCommand && $subscriberId > 0) {
         asr_tg_notify_technical_bot_about_dialog($pdo, $bot, $botId, (int)$subscriberId, $message, $text);
     }
 
-    if (!$scenarioRuntimeHandled && $subscriberId > 0) {
+    if (!$scenarioRuntimeHandled && !$isServiceCommand && $subscriberId > 0) {
         asr_tg_send_dialog_auto_reply_if_needed($pdo, $bot, $botId, (int)$subscriberId, $chatId, $text);
     }
 
-    if (!$scenarioRuntimeHandled && $text !== null && preg_match('/^\/start(?:\s|$)/u', trim($text))) {
-        $token = asr_tg_decrypt_token((string)$bot['bot_token_encrypted']);
-        if ($token !== '') {
-            $welcome = trim((string)($bot['welcome_text'] ?? '')) ?: 'Здравствуйте! Бот подключён и готов к работе.';
-            try {
-                $sent = asr_tg_api_send_message($token, $chatId, $welcome);
-                $sentMessage = is_array($sent['result'] ?? null) ? $sent['result'] : [];
-                asr_tg_message_add($pdo, $botId, $subscriberId ?: null, 'out', 'text', $welcome, isset($sentMessage['message_id']) ? (int)$sentMessage['message_id'] : null, [
-                    'dialog_system_reply' => 'welcome',
-                    'telegram' => $sentMessage,
-                ]);
-            } catch (Throwable $e) {
-                asr_tg_bot_update($pdo, $botId, ['last_error' => $e->getMessage()]);
-                asr_tg_log($pdo, $botId, 'error', 'send_welcome_failed', $e->getMessage());
-            }
-        }
-    }
+    // Стартовое сообщение Telegram-бота больше не отправляем автоматически.
+    // /start используется как служебная команда и как транспорт для диплинков сценариев.
 
     http_response_code(200);
 }

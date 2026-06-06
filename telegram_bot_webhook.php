@@ -153,6 +153,8 @@ function asr_tg_webhook_runtime_fallback(PDO $pdo, int $botId, string $rawBody):
             ]);
         } catch (Throwable $ignored) {}
         if ($command === '' || !$message) return;
+        // /start и диплинки обрабатываются штатно в service.php. Wrapper нужен только как страховка для меню-команд вроде /help.
+        if ($command === 'start') return;
 
         $chat = is_array($message['chat'] ?? null) ? $message['chat'] : [];
         $from = is_array($message['from'] ?? null) ? $message['from'] : [];
