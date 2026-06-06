@@ -1638,6 +1638,264 @@ function asr_tg_notify_technical_bot_about_dialog(PDO $pdo, array $bot, int $bot
     }
 }
 
+
+
+function asr_tg_runtime_log_event(PDO $pdo, int $botId, int $subscriberId, int $scenarioId, int $blockId, string $eventType, string $eventText = '', array $payload = []): void {
+    try {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        $telegramUserId = null;
+        if ($subscriberId > 0) {
+            try {
+                $stmt = $pdo->prepare('SELECT telegram_user_id FROM oca_telegram_bot_subscribers WHERE id = ? LIMIT 1');
+                $stmt->execute([$subscriberId]);
+                $value = $stmt->fetchColumn();
+                if ($value !== false && $value !== null && $value !== '') $telegramUserId = (int)$value;
+            } catch (Throwable $ignored) {}
+        }
+        $json = $payload ? json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null;
+        $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_events (scenario_id, subscriber_id, telegram_user_id, bot_id, block_id, event_type, event_text, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+        $stmt->execute([
+            $scenarioId > 0 ? $scenarioId : null,
+            $subscriberId > 0 ? $subscriberId : null,
+            $telegramUserId,
+            $botId > 0 ? $botId : null,
+            $blockId > 0 ? $blockId : null,
+            mb_substr($eventType, 0, 80, 'UTF-8'),
+            $eventText !== '' ? mb_substr($eventText, 0, 5000, 'UTF-8') : null,
+            $json,
+        ]);
+    } catch (Throwable $ignored) {}
+}
+
+function asr_tg_runtime_extract_command(?string $text): string {
+    $text = trim((string)$text);
+    if ($text === '') return '';
+    if (!preg_match('/^\/([a-zA-Z0-9_]{1,32})(?:@[a-zA-Z0-9_]{3,64})?(?:\s|$)/u', $text, $m)) return '';
+    return asr_tg_normalize_command_name((string)($m[1] ?? ''));
+}
+
+function asr_tg_runtime_command_find(PDO $pdo, int $botId, string $command): ?array {
+    if ($botId <= 0 || $command === '') return null;
+    asr_tg_repository_ensure_schema($pdo);
+    if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_commands')) return null;
+    $stmt = $pdo->prepare('SELECT * FROM oca_telegram_bot_commands WHERE bot_id = ? AND command = ? AND is_active = 1 LIMIT 1');
+    $stmt->execute([$botId, $command]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
+function asr_tg_runtime_first_block_after(PDO $pdo, int $scenarioId, int $fromBlockId): int {
+    if ($scenarioId <= 0 || $fromBlockId <= 0) return 0;
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $stmt = $pdo->prepare("SELECT to_block_id FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND to_block_id IS NOT NULL AND to_block_id > 0 ORDER BY CASE WHEN link_type IN ('start','next') THEN 0 ELSE 1 END, sort_order ASC, id ASC LIMIT 1");
+    $stmt->execute([$scenarioId, $fromBlockId]);
+    return (int)($stmt->fetchColumn() ?: 0);
+}
+
+function asr_tg_runtime_resolve_entry_block(PDO $pdo, int $scenarioId, int $blockId = 0): int {
+    if ($scenarioId <= 0) return 0;
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    if ($blockId > 0) {
+        $block = asr_tg_scenario_block_find($pdo, $blockId, $scenarioId);
+        if (!$block) return 0;
+        if ((string)($block['type'] ?? '') !== 'start') return $blockId;
+        return asr_tg_runtime_first_block_after($pdo, $scenarioId, $blockId);
+    }
+    $scenario = asr_tg_scenario_find($pdo, $scenarioId);
+    $startBlockId = (int)($scenario['start_block_id'] ?? 0);
+    if ($startBlockId <= 0) {
+        $start = asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+        $startBlockId = (int)($start['id'] ?? 0);
+    }
+    if ($startBlockId > 0) return asr_tg_runtime_first_block_after($pdo, $scenarioId, $startBlockId);
+    $stmt = $pdo->prepare("SELECT id FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type <> 'start' ORDER BY sort_order ASC, id ASC LIMIT 1");
+    $stmt->execute([$scenarioId]);
+    return (int)($stmt->fetchColumn() ?: 0);
+}
+
+function asr_tg_runtime_remember_position(PDO $pdo, int $botId, int $subscriberId, int $scenarioId, int $blockId, string $status = 'active', ?string $nextRunAt = null, string $lastError = ''): void {
+    if ($botId <= 0 || $subscriberId <= 0 || $scenarioId <= 0) return;
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $telegramUserId = 0;
+    try {
+        $stmt = $pdo->prepare('SELECT telegram_user_id FROM oca_telegram_bot_subscribers WHERE id = ? AND bot_id = ? LIMIT 1');
+        $stmt->execute([$subscriberId, $botId]);
+        $telegramUserId = (int)($stmt->fetchColumn() ?: 0);
+    } catch (Throwable $ignored) {}
+    try {
+        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET current_block_id = ?, status = ?, next_run_at = ?, last_error = ?, stopped_at = CASE WHEN ? IN ('stopped','finished','error') THEN NOW() ELSE stopped_at END, finished_at = CASE WHEN ? = 'finished' THEN NOW() ELSE finished_at END, updated_at = NOW() WHERE scenario_id = ? AND subscriber_id = ? AND bot_id = ? AND status IN ('active','waiting','error') ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$blockId > 0 ? $blockId : null, $status, $nextRunAt, $lastError !== '' ? $lastError : null, $status, $status, $scenarioId, $subscriberId, $botId]);
+        if ($stmt->rowCount() > 0) return;
+    } catch (Throwable $ignored) {}
+    $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_subscriber_scenarios (scenario_id, subscriber_id, telegram_user_id, bot_id, current_block_id, status, next_run_at, last_error, started_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), NOW())');
+    $stmt->execute([$scenarioId, $subscriberId, $telegramUserId, $botId, $blockId > 0 ? $blockId : null, $status, $nextRunAt, $lastError !== '' ? $lastError : null]);
+}
+
+function asr_tg_runtime_card_text_to_telegram(string $html): string {
+    $text = trim($html);
+    if ($text === '') return '';
+
+    // Редактор хранит HTML для админки, но Telegram принимает только ограниченный набор тегов.
+    // Поэтому нормализуем переносы и убираем лишнюю разметку, иначе sendMessage может молча
+    // упасть на неподдерживаемых <div>, <p>, <br> и похожих тегах.
+    $text = preg_replace('/<\s*br\s*\/?>/iu', "
+", $text) ?: $text;
+    $text = preg_replace('/<\s*\/\s*(p|div)\s*>/iu', "
+", $text) ?: $text;
+    $text = preg_replace('/<\s*(p|div)(?:\s+[^>]*)?>/iu', '', $text) ?: $text;
+    $text = preg_replace('/<\s*strong(?:\s+[^>]*)?>/iu', '<b>', $text) ?: $text;
+    $text = preg_replace('/<\s*\/\s*strong\s*>/iu', '</b>', $text) ?: $text;
+    $text = preg_replace('/<\s*em(?:\s+[^>]*)?>/iu', '<i>', $text) ?: $text;
+    $text = preg_replace('/<\s*\/\s*em\s*>/iu', '</i>', $text) ?: $text;
+    $text = preg_replace('/<\s*(strike|del)(?:\s+[^>]*)?>/iu', '<s>', $text) ?: $text;
+    $text = preg_replace('/<\s*\/\s*(strike|del)\s*>/iu', '</s>', $text) ?: $text;
+    $text = preg_replace('/<\s*span\s+class=["\']tg-spoiler["\'][^>]*>/iu', '<tg-spoiler>', $text) ?: $text;
+    $text = preg_replace('/<\s*\/\s*span\s*>/iu', '</tg-spoiler>', $text) ?: $text;
+
+    $text = strip_tags($text, '<b><i><u><s><code><pre><blockquote><a><tg-spoiler>');
+    $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = preg_replace("/
+{4,}/u", "
+
+
+", $text) ?: $text;
+    return trim($text);
+}
+
+function asr_tg_runtime_plain_text(string $html): string {
+    $text = preg_replace('/<\s*br\s*\/?>/iu', "
+", $html) ?: $html;
+    $text = preg_replace('/<\s*\/\s*(p|div)\s*>/iu', "
+", $text) ?: $text;
+    $text = trim(html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    $text = preg_replace('/[ 	]+/u', ' ', $text) ?: $text;
+    $text = preg_replace("/
+{4,}/u", "
+
+
+", $text) ?: $text;
+    return trim($text);
+}
+
+function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block): bool {
+    $token = asr_tg_decrypt_token((string)($bot['bot_token_encrypted'] ?? ''));
+    if ($token === '') throw new RuntimeException('Не удалось расшифровать токен Telegram-канала.');
+    $subscriber = asr_tg_subscriber_find($pdo, $subscriberId, $botId);
+    if (!$subscriber) throw new RuntimeException('Подписчик не найден для выполнения сценария.');
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    $cards = is_array($settings) && isset($settings['cards']) && is_array($settings['cards']) ? array_values($settings['cards']) : [];
+    if (!$cards) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, (int)$block['id'], 'runtime_message_empty', 'В блоке сообщения нет карточек.');
+        return false;
+    }
+    $sentAny = false;
+    foreach ($cards as $index => $card) {
+        if (!is_array($card)) continue;
+        $type = (string)($card['type'] ?? 'text');
+        if ($type !== 'text') {
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, (int)$block['id'], 'runtime_card_skipped', 'Runtime v0.1 пока отправляет только текстовые карточки.', ['card_index' => $index, 'card_type' => $type]);
+            continue;
+        }
+        $rawText = asr_tg_runtime_card_text_to_telegram((string)($card['text'] ?? ''));
+        if ($rawText === '') continue;
+        $text = asr_tg_render_subscriber_macros($pdo, $rawText, $subscriber);
+        $plainText = asr_tg_runtime_plain_text($text);
+        if (mb_strlen(trim($plainText), 'UTF-8') === 0) continue;
+        if (mb_strlen($plainText, 'UTF-8') > 4096 || mb_strlen($text, 'UTF-8') > 4096) {
+            throw new RuntimeException('Текст блока #' . (int)$block['id'] . ' длиннее лимита Telegram 4096 символов.');
+        }
+        try {
+            $sent = asr_tg_api_send_broadcast_payload($token, $chatId, $text, 'HTML', '', '', true, '', [], !empty($card['protect_content']));
+        } catch (Throwable $sendHtmlError) {
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, (int)$block['id'], 'runtime_message_html_retry_plain', 'Telegram не принял HTML-разметку, повторяем отправку обычным текстом.', ['card_index' => $index, 'error' => $sendHtmlError->getMessage()]);
+            $sent = asr_tg_api_send_broadcast_payload($token, $chatId, $plainText, '', '', '', true, '', [], !empty($card['protect_content']));
+        }
+        $sentMessage = is_array($sent['result'] ?? null) ? $sent['result'] : [];
+        asr_tg_message_add($pdo, $botId, $subscriberId, 'out', 'text', $plainText, isset($sentMessage['message_id']) ? (int)$sentMessage['message_id'] : null, [
+            'scenario_id' => $scenarioId,
+            'block_id' => (int)$block['id'],
+            'card_index' => $index,
+            'telegram' => $sentMessage,
+        ]);
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, (int)$block['id'], 'runtime_message_sent', 'Отправлена текстовая карточка блока.', ['card_index' => $index]);
+        $sentAny = true;
+    }
+    return $sentAny;
+}
+
+function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, int $entryBlockId = 0, string $source = 'manual', array $sourcePayload = []): bool {
+    if ($botId <= 0 || $subscriberId <= 0 || $scenarioId <= 0) return false;
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenario = asr_tg_scenario_find($pdo, $scenarioId);
+    if (!$scenario) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, 0, 'runtime_scenario_missing', 'Сценарий не найден.', $sourcePayload);
+        return false;
+    }
+    if ((string)($scenario['status'] ?? '') !== 'active') {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, 0, 'runtime_scenario_not_active', 'Сценарий не запущен, потому что он не активен.', ['status' => (string)($scenario['status'] ?? ''), 'source' => $source] + $sourcePayload);
+        return true;
+    }
+    $scenarioBotId = asr_tg_scenario_bot_id($pdo, $scenarioId);
+    if ($scenarioBotId !== $botId) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, 0, 'runtime_bot_mismatch', 'Сценарий привязан к другому каналу.', ['scenario_bot_id' => $scenarioBotId, 'source' => $source] + $sourcePayload);
+        return true;
+    }
+    $blockId = asr_tg_runtime_resolve_entry_block($pdo, $scenarioId, $entryBlockId);
+    if ($blockId <= 0) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, 0, 'runtime_entry_missing', 'Не найден стартовый блок сценария.', ['source' => $source] + $sourcePayload);
+        return true;
+    }
+    $block = asr_tg_scenario_block_find($pdo, $blockId, $scenarioId);
+    if (!$block) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_missing', 'Блок сценария не найден.', ['source' => $source] + $sourcePayload);
+        return true;
+    }
+    asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'active');
+    asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_started', 'Сценарий запущен.', ['source' => $source] + $sourcePayload);
+
+    $type = (string)($block['type'] ?? '');
+    try {
+        if ($type === 'message') {
+            $sent = asr_tg_runtime_execute_message_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block);
+            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, $sent ? 'active' : 'error', null, $sent ? '' : 'В блоке сообщения нет отправленных текстовых карточек.');
+            return true;
+        }
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.1 пока выполняет только блок «Сообщение».', ['block_type' => $type, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.1 пока выполняет только блок «Сообщение».');
+        return true;
+    } catch (Throwable $e) {
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $e->getMessage());
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_failed', $e->getMessage(), ['source' => $source]);
+        throw $e;
+    }
+}
+
+function asr_tg_runtime_try_command(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, ?string $text): bool {
+    $command = asr_tg_runtime_extract_command($text);
+    if ($command === '') return false;
+    try {
+        asr_tg_log($pdo, $botId, 'info', 'scenario_command_received', 'Получена команда для runtime сценариев.', ['subscriber_id' => $subscriberId, 'command' => $command]);
+    } catch (Throwable $ignored) {}
+    $commandRow = asr_tg_runtime_command_find($pdo, $botId, $command);
+    if (!$commandRow) {
+        try {
+            asr_tg_log($pdo, $botId, 'warning', 'scenario_command_not_linked', 'Команда Telegram не найдена в меню команд канала или неактивна.', ['subscriber_id' => $subscriberId, 'command' => $command]);
+        } catch (Throwable $ignored) {}
+        return false;
+    }
+    $scenarioId = (int)($commandRow['scenario_id'] ?? 0);
+    $stepId = (int)($commandRow['step_id'] ?? 0);
+    if ($scenarioId <= 0) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, 0, 0, 'runtime_command_without_scenario', 'Команда Telegram найдена, но к ней не привязан сценарий.', ['command' => $command, 'command_id' => (int)($commandRow['id'] ?? 0)]);
+        try { asr_tg_log($pdo, $botId, 'warning', 'scenario_command_without_scenario', 'Команда найдена, но сценарий не выбран.', ['subscriber_id' => $subscriberId, 'command' => $command, 'command_id' => (int)($commandRow['id'] ?? 0)]); } catch (Throwable $ignored) {}
+        return false;
+    }
+    try {
+        asr_tg_log($pdo, $botId, 'info', 'scenario_command_link_found', 'Команда Telegram привязана к сценарию.', ['subscriber_id' => $subscriberId, 'command' => $command, 'scenario_id' => $scenarioId, 'step_id' => $stepId]);
+    } catch (Throwable $ignored) {}
+    return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $stepId, 'telegram_command', ['command' => $command, 'command_id' => (int)($commandRow['id'] ?? 0)]);
+}
+
 function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $rawBody, string $headerSecret = ''): void {
     asr_tg_repository_ensure_schema($pdo);
     if ($botId <= 0 || $urlSecret === '') {
@@ -1695,15 +1953,26 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
     $messageType = $text !== null ? 'text' : 'other';
     asr_tg_message_add($pdo, $botId, $subscriberId ?: null, 'in', $messageType, $text, isset($message['message_id']) ? (int)$message['message_id'] : null, $message);
 
+    $scenarioRuntimeHandled = false;
+    if ($subscriberId > 0 && $text !== null) {
+        try {
+            $scenarioRuntimeHandled = asr_tg_runtime_try_command($pdo, $bot, $botId, $chatId, (int)$subscriberId, $text);
+        } catch (Throwable $e) {
+            asr_tg_bot_update($pdo, $botId, ['last_error' => $e->getMessage()]);
+            asr_tg_log($pdo, $botId, 'error', 'scenario_runtime_failed', $e->getMessage(), ['subscriber_id' => (int)$subscriberId, 'text' => $text]);
+            $scenarioRuntimeHandled = true;
+        }
+    }
+
     if ($subscriberId > 0) {
         asr_tg_notify_technical_bot_about_dialog($pdo, $bot, $botId, (int)$subscriberId, $message, $text);
     }
 
-    if ($subscriberId > 0) {
+    if (!$scenarioRuntimeHandled && $subscriberId > 0) {
         asr_tg_send_dialog_auto_reply_if_needed($pdo, $bot, $botId, (int)$subscriberId, $chatId, $text);
     }
 
-    if ($text !== null && preg_match('/^\/start(?:\s|$)/u', trim($text))) {
+    if (!$scenarioRuntimeHandled && $text !== null && preg_match('/^\/start(?:\s|$)/u', trim($text))) {
         $token = asr_tg_decrypt_token((string)$bot['bot_token_encrypted']);
         if ($token !== '') {
             $welcome = trim((string)($bot['welcome_text'] ?? '')) ?: 'Здравствуйте! Бот подключён и готов к работе.';

@@ -20,11 +20,7 @@ import {
 (function(){
   const boot = window.__tgScenarioFlowBoot || (window.__tgScenarioFlowBoot = {});
   boot.evaluated = true;
-<<<<<<< Updated upstream
-  boot.version = '3.5.114';
-=======
-  boot.version = '3.5.111';
->>>>>>> Stashed changes
+  boot.version = '3.5.120';
   const status = document.getElementById('tg-flow-boot-status');
   if (status) status.textContent = 'PHP: ' + (boot.nodes ?? '?') + ' блоков / ' + (boot.edges ?? '?') + ' связей · React: модуль загружен';
 })();
@@ -160,6 +156,35 @@ function bindDrawerChrome() {
     if (event.target === drawerEl) closeDrawer();
   }, {once: true});
 }
+function syncStepPickersFromFlowData(flowData) {
+  const nodes = Array.isArray(flowData && flowData.nodes) ? flowData.nodes : [];
+  const steps = nodes
+    .map((node) => {
+      const id = String(node && node.id ? node.id : '').trim();
+      const data = node && node.data && typeof node.data === 'object' ? node.data : {};
+      const title = String(data.title || (data.blockType === 'delay' ? 'Задержка' : (data.blockType === 'start' ? 'Старт' : 'Сообщение'))).trim() || 'Без названия';
+      return {id, title, text: title + ' - Блок #' + id};
+    })
+    .filter((step) => step.id && step.id !== '0');
+  if (!steps.length) return;
+  document.querySelectorAll('select[data-step-picker-select]').forEach((select) => {
+    const selected = String(select.value || '0');
+    select.innerHTML = '';
+    const first = document.createElement('option');
+    first.value = '0';
+    first.textContent = 'Сначала сценария';
+    select.appendChild(first);
+    steps.forEach((step) => {
+      const option = document.createElement('option');
+      option.value = step.id;
+      option.textContent = step.text;
+      select.appendChild(option);
+    });
+    select.value = Array.from(select.options).some((option) => option.value === selected) ? selected : '0';
+    select.dispatchEvent(new Event('change', {bubbles: true}));
+  });
+}
+
 async function refreshFlowFromServer() {
   if (!cfg.flowUrl || typeof window.tgScenarioFlowApplyData !== 'function') return;
   const response = await fetch(cfg.flowUrl + '&_=' + Date.now(), {credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}});
@@ -169,6 +194,7 @@ async function refreshFlowFromServer() {
   if (!dataEl) return;
   const next = JSON.parse(dataEl.textContent || '{}') || {};
   window.tgScenarioFlowApplyData(next);
+  syncStepPickersFromFlowData(next);
 }
 function bindDrawerForm() {
   if (!drawerEl) return;
@@ -589,11 +615,7 @@ function NodeShell({id, data, isStart}) {
       buttons.length ? React.createElement('div', {className: 'tg-flow-preview-buttons'}, buttons.map(renderButton)) : null
     );
   };
-<<<<<<< Updated upstream
   return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
-=======
-  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '')},
->>>>>>> Stashed changes
     !isStart && React.createElement(Handle, {id: 'in', type: 'target', position: Position.Left, className: 'tg-flow-in-handle', isConnectable: true}),
     React.createElement('div', {className: 'tg-flow-node-head'},
       React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : 'Сообщение')),
@@ -607,7 +629,6 @@ function NodeShell({id, data, isStart}) {
     React.createElement('div', {className: 'tg-flow-node-body'},
       isStart
         ? React.createElement('div', {className: 'tg-flow-node-card'}, data.preview || 'По кнопке «Начать»')
-<<<<<<< Updated upstream
         : (isDelay
           ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-delay-preview'},
             React.createElement('div', {className: 'tg-flow-delay-preview-col'},
@@ -623,11 +644,6 @@ function NodeShell({id, data, isStart}) {
           : (cards.length
             ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
             : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение'))),
-=======
-        : (cards.length
-          ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
-          : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение')),
->>>>>>> Stashed changes
       React.createElement('div', {className: 'tg-flow-next-row'},
         React.createElement('span', {className: 'tg-flow-node-muted'}, isStart ? 'Начало сценария' : 'Следующий шаг'),
         React.createElement(Handle, {id: 'out', type: 'source', position: Position.Right, className: 'tg-flow-main-out-handle', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'out')})
@@ -637,8 +653,9 @@ function NodeShell({id, data, isStart}) {
 }
 function StartNode(props) { return React.createElement(NodeShell, {...props, isStart: true}); }
 function MessageNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
+function DelayNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 
-function AddMenu({menu, onClose, onCreateMessage}) {
+function AddMenu({menu, onClose, onCreateMessage, onCreateDelay}) {
   if (!menu) return null;
   const item = (type, glyph, name, disabled, onClick) => React.createElement('button', {
     type: 'button',
@@ -661,7 +678,7 @@ function AddMenu({menu, onClose, onCreateMessage}) {
   },
     item('message', '≣', 'Сообщение', false, onCreateMessage),
     item('actions', '⚡', 'Действия', true),
-    item('delay', '◴', 'Задержка', true),
+    item('delay', '◴', 'Задержка', false, onCreateDelay),
     item('condition', '⇄', 'Условие', true),
     item('schedule', '□', 'Расписание', true),
     item('random', '✦', 'Случайный выбор', true),
@@ -692,7 +709,7 @@ function ScenarioSmoothEdge(props) {
 }
 
 function ScenarioFlow() {
-  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode}), []);
+  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, delayNode: DelayNode}), []);
   const edgeTypes = useMemo(() => ({scenarioSmooth: ScenarioSmoothEdge}), []);
   const blockLimit = Number(cfg.blockLimit || 550);
   const initialNodes = Array.isArray(cfg.nodes) ? cfg.nodes : [];
@@ -962,7 +979,7 @@ function ScenarioFlow() {
     });
   }, []);
 
-  const createMessageFromMenu = useCallback(async () => {
+  const createBlockFromMenu = useCallback(async (kind) => {
     if (!menu) return;
     if (nodes.length >= blockLimit) {
       showFlowToast('В сценарии уже ' + nodes.length + ' из ' + blockLimit + ' блоков. Новые блоки пока нельзя добавить.', 'error');
@@ -972,9 +989,10 @@ function ScenarioFlow() {
     const flowPos = flow.screenToFlowPosition({x: menu.screenX, y: menu.screenY});
     const placeX = Math.round(flowPos.x);
     const placeY = Math.round(menu.source ? (flowPos.y - 86) : flowPos.y);
+    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : 'tg_scenario_quick_message_create';
     setMenu(null);
     try {
-      await postAction('tg_scenario_quick_message_create', {
+      await postAction(action, {
         from_block_id: menu.source || '',
         source_handle: menu.sourceHandle || 'out',
         position_x: placeX,
@@ -982,10 +1000,13 @@ function ScenarioFlow() {
       });
       await refreshFlowFromServer();
     } catch (e) {
-      console.error('Scenario quick message create error', e);
+      console.error('Scenario quick block create error', e);
       showFlowToast(e && e.message ? e.message : 'Не удалось создать блок.', 'error');
     }
   }, [menu, flow, nodes.length, blockLimit]);
+
+  const createMessageFromMenu = useCallback(() => createBlockFromMenu('message'), [createBlockFromMenu]);
+  const createDelayFromMenu = useCallback(() => createBlockFromMenu('delay'), [createBlockFromMenu]);
 
   const isValidConnection = useCallback((connection) => {
     if (!connection || !connection.source || !connection.target) return false;
@@ -1067,7 +1088,7 @@ function ScenarioFlow() {
       React.createElement(Controls, {showInteractive: false})
     ),
     React.createElement('div', {className: 'tg-flow-block-counter'}, nodes.length + '/' + blockLimit + ' блоков использовано'),
-    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu})
+    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateDelay: createDelayFromMenu})
   );
 }
 
