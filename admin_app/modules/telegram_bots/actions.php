@@ -369,6 +369,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             if ($action === 'tg_scenario_save') {
                 $scenarioId = asr_tg_scenario_save_from_post($pdo, $_POST);
+                if (($_POST['return_page'] ?? '') === 'scenario_flow') {
+                    asr_tg_redirect('Сценарий сохранён.', '', ['page' => 'scenario_flow', 'scenario_id' => $scenarioId]);
+                }
                 asr_tg_redirect('Сценарий сохранён.', '', ['page' => 'scenarios']);
             }
 
@@ -521,6 +524,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $result = asr_tg_save_bot_commands_from_post($pdo, $_POST);
                 $count = (int)($result['count'] ?? 0);
                 $warning = (string)($result['warning'] ?? '');
+                if (($_POST['return_page'] ?? '') === 'scenario_flow') {
+                    $scenarioId = (int)($_POST['return_scenario_id'] ?? $_POST['scenario_id_single'] ?? 0);
+                    asr_tg_redirect('Меню команд сохранено. Команд: ' . $count . '.', $warning, ['page' => 'scenario_flow', 'scenario_id' => $scenarioId]);
+                }
                 asr_tg_redirect('Меню команд сохранено. Команд: ' . $count . '.', $warning, ['page' => 'bots', 'bot_id' => $botId]);
             }
 
@@ -787,6 +794,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $extra['page'] = 'subscribers';
                 $extra['bot_id'] = null;
                 $extra['tags_modal'] = 1;
+            }
+            if ((($_POST['return_page'] ?? '') === 'scenario_flow') && in_array($action, ['tg_scenario_save','tg_bot_commands_save'], true)) {
+                $extra['page'] = 'scenario_flow';
+                $extra['scenario_id'] = (int)($_POST['return_scenario_id'] ?? $_POST['scenario_id'] ?? $_POST['scenario_id_single'] ?? 0);
             }
             asr_tg_redirect('', $e->getMessage(), $extra);
         }

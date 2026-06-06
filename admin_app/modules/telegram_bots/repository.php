@@ -3612,13 +3612,47 @@ function asr_tg_scenario_save(PDO $pdo, array $data): int {
         $scenarioId = (int)$pdo->lastInsertId();
     }
 
+    $previousBotIds = asr_tg_scenario_bot_ids($pdo, $scenarioId, false);
+
     $pdo->prepare('DELETE FROM oca_telegram_bot_scenario_bots WHERE scenario_id = ?')->execute([$scenarioId]);
     if ($botId > 0) {
         $insert = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_bots (scenario_id, bot_id, is_enabled, is_default, created_at, updated_at) VALUES (?, ?, 1, 1, NOW(), NOW())');
         $insert->execute([$scenarioId, $botId]);
     }
 
+    if (function_exists('asr_tg_bot_commands_detach_scenario_for_other_bots')) {
+        asr_tg_bot_commands_detach_scenario_for_other_bots($pdo, $scenarioId, $botId);
+    }
+
     return $scenarioId;
+}
+
+
+function asr_tg_bot_commands_detach_scenario_for_other_bots(PDO $pdo, int $scenarioId, int $currentBotId = 0): void {
+    if ($scenarioId <= 0 || !asr_tg_table_exists($pdo, 'oca_telegram_bot_commands')) return;
+    if ($currentBotId > 0) {
+        $stmt = $pdo->prepare('UPDATE oca_telegram_bot_commands SET scenario_id = NULL, step_id = NULL, updated_at = NOW() WHERE scenario_id = ? AND bot_id <> ?');
+        $stmt->execute([$scenarioId, $currentBotId]);
+    } else {
+        $stmt = $pdo->prepare('UPDATE oca_telegram_bot_commands SET scenario_id = NULL, step_id = NULL, updated_at = NOW() WHERE scenario_id = ?');
+        $stmt->execute([$scenarioId]);
+    }
+}
+
+function asr_tg_scenarios_for_bot(PDO $pdo, int $botId): array {
+    if ($botId <= 0) return [];
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $stmt = $pdo->prepare("SELECT s.* FROM oca_telegram_bot_scenarios s JOIN oca_telegram_bot_scenario_bots sb ON sb.scenario_id = s.id AND sb.is_enabled = 1 WHERE sb.bot_id = ? AND s.status <> 'archived' ORDER BY FIELD(s.status, 'active', 'draft', 'paused'), s.title ASC, s.id DESC");
+    $stmt->execute([$botId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+}
+
+function asr_tg_scenario_blocks_select(PDO $pdo, int $scenarioId): array {
+    if ($scenarioId <= 0) return [];
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $stmt = $pdo->prepare("SELECT id, type, title, sort_order FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? ORDER BY CASE WHEN type = 'start' THEN 0 ELSE 1 END, sort_order ASC, id ASC");
+    $stmt->execute([$scenarioId]);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function asr_tg_scenario_set_status(PDO $pdo, int $scenarioId, string $status): void {

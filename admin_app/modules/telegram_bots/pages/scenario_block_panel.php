@@ -75,18 +75,33 @@ if ($type === 'delay') {
     $sendTimeFrom = $normalizeTime($settings['send_time_from'] ?? '00:00');
     $sendTimeTo = $normalizeTime($settings['send_time_to'] ?? '00:00');
     $timezone = trim((string)($settings['timezone'] ?? 'Europe/Moscow')) ?: 'Europe/Moscow';
-    $timezoneChoices = [
+    $timezonePriorityLabels = [
         'Asia/Almaty' => 'Asia/Almaty — Алматы, Астана',
         'Europe/Moscow' => 'Europe/Moscow — Москва',
         'Asia/Yekaterinburg' => 'Asia/Yekaterinburg — Екатеринбург',
         'Asia/Tashkent' => 'Asia/Tashkent — Ташкент',
         'Asia/Dubai' => 'Asia/Dubai — Дубай',
         'Europe/Istanbul' => 'Europe/Istanbul — Стамбул',
-        'Europe/Berlin' => 'Europe/Berlin — Берлин',
-        'Europe/London' => 'Europe/London — Лондон',
         'UTC' => 'UTC — всемирное время',
     ];
-    if (!isset($timezoneChoices[$timezone])) $timezoneChoices = [$timezone => $timezone] + $timezoneChoices;
+    $timezoneIds = [];
+    try {
+        $timezoneIds = timezone_identifiers_list(DateTimeZone::ALL);
+    } catch (Throwable $e) {
+        $timezoneIds = timezone_identifiers_list();
+    }
+    if (!in_array('UTC', $timezoneIds, true)) $timezoneIds[] = 'UTC';
+    if (!in_array($timezone, $timezoneIds, true)) $timezoneIds[] = $timezone;
+    $timezoneChoices = [];
+    foreach ($timezonePriorityLabels as $tzCode => $tzLabel) {
+        if (in_array($tzCode, $timezoneIds, true)) $timezoneChoices[$tzCode] = ['label' => $tzLabel, 'popular' => true];
+    }
+    sort($timezoneIds, SORT_NATURAL | SORT_FLAG_CASE);
+    foreach ($timezoneIds as $tzCode) {
+        $tzCode = trim((string)$tzCode);
+        if ($tzCode === '' || isset($timezoneChoices[$tzCode])) continue;
+        $timezoneChoices[$tzCode] = ['label' => $tzCode, 'popular' => false];
+    }
     $tzOffset = static function(string $tz): string {
         try {
             $zone = new DateTimeZone($tz);
@@ -99,6 +114,9 @@ if ($type === 'delay') {
         }
     };
     $timezoneTitle = '(' . $tzOffset($timezone) . ') ' . $timezone;
+    $lower = static function(string $value): string {
+        return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    };
     $allowedWeekdays = ['mon' => 'Пн', 'tue' => 'Вт', 'wed' => 'Ср', 'thu' => 'Чт', 'fri' => 'Пт', 'sat' => 'Сб', 'sun' => 'Вс'];
     $weekdays = $settings['weekdays'] ?? array_keys($allowedWeekdays);
     if (!is_array($weekdays) || !$weekdays) $weekdays = array_keys($allowedWeekdays);
@@ -118,6 +136,11 @@ if ($type === 'delay') {
     $deeplinkCode = is_array($deeplink) ? trim((string)($deeplink['code'] ?? $deeplink['token'] ?? '')) : '';
     $deeplinkUrl = is_array($deeplink) ? trim((string)($deeplink['url'] ?? '')) : '';
     $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
+    $blockMeta = [
+        'scenarioId' => $scenarioId,
+        'blockId' => $blockId,
+        'hasDeeplink' => ($deeplinkCode !== '' || $deeplinkUrl !== ''),
+    ];
     ?>
     <section id="tg-flow-panel" class="tg-flow-panel">
         <form method="POST" id="scenario-message-form" class="tg-flow-panel-form">
@@ -130,9 +153,6 @@ if ($type === 'delay') {
                     <div class="tg-flow-panel-menu-wrap">
                         <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
                         <div class="tg-flow-panel-dropdown" data-panel-menu>
-                            <button type="button" data-panel-deeplink <?php echo $deeplinkCode !== '' || $deeplinkUrl !== '' ? 'disabled' : ''; ?>>
-                                <span class="tg-flow-panel-dropdown-ico">🔗</span><span><span class="tg-flow-panel-menu-main"><?php echo $deeplinkCode !== '' || $deeplinkUrl !== '' ? 'Диплинк уже создан' : 'Добавить диплинк'; ?></span><?php if ($deeplinkCode !== '' || $deeplinkUrl !== ''): ?><span class="tg-flow-panel-menu-note">Ссылка уже есть под блоком</span><?php endif; ?></span>
-                            </button>
                             <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
@@ -222,14 +242,25 @@ if ($type === 'delay') {
                     <div class="tg-delay-tz-card" role="dialog" aria-modal="true" aria-label="Часовой пояс задержки">
                         <div class="tg-delay-tz-head"><h3>Часовой пояс</h3><button type="button" data-tz-close aria-label="Закрыть">×</button></div>
                         <p>Выберите, по какому времени считать точное время и интервалы отправки.</p>
-                        <label class="tg-flow-panel-field">
-                            <span class="tg-flow-panel-label">Часовой пояс</span>
-                            <select class="tg-flow-panel-input" data-tz-select>
-                                <?php foreach ($timezoneChoices as $tzCode => $tzLabel): ?>
-                                    <option value="<?php echo $h($tzCode); ?>" data-title="<?php echo $h('(' . $tzOffset($tzCode) . ') ' . $tzCode); ?>" <?php echo $tzCode === $timezone ? 'selected' : ''; ?>><?php echo $h('(' . $tzOffset($tzCode) . ') ' . $tzLabel); ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                        <label class="tg-flow-panel-field tg-delay-tz-search-field">
+                            <span class="tg-flow-panel-label">Поиск</span>
+                            <input class="tg-flow-panel-input" type="search" data-tz-search placeholder="Например: Алматы, Moscow, GMT+05 или Asia/Almaty" autocomplete="off">
                         </label>
+                        <div class="tg-delay-tz-list" data-tz-list>
+                            <?php foreach ($timezoneChoices as $tzCode => $tzInfo): ?>
+                                <?php
+                                $tzLabel = is_array($tzInfo) ? (string)($tzInfo['label'] ?? $tzCode) : (string)$tzInfo;
+                                $tzPopular = is_array($tzInfo) && !empty($tzInfo['popular']);
+                                $tzTitle = '(' . $tzOffset($tzCode) . ') ' . $tzCode;
+                                $tzSearch = $lower($tzCode . ' ' . $tzLabel . ' ' . $tzTitle);
+                                ?>
+                                <button type="button" class="tg-delay-tz-option<?php echo $tzCode === $timezone ? ' is-selected' : ''; ?><?php echo $tzPopular ? ' is-popular' : ''; ?>" data-tz-option value="<?php echo $h($tzCode); ?>" data-title="<?php echo $h($tzTitle); ?>" data-search="<?php echo $h($tzSearch); ?>">
+                                    <span><?php echo $h($tzTitle); ?></span>
+                                    <small><?php echo $h($tzLabel); ?><?php echo $tzPopular ? ' · часто используется' : ''; ?></small>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="tg-delay-tz-empty" data-tz-empty>Ничего не найдено. Попробуйте город, регион или GMT-смещение.</div>
                         <div class="tg-delay-tz-actions"><button type="button" class="tg-flow-panel-secondary" data-tz-close>Отмена</button><button type="button" class="tg-flow-panel-primary" data-tz-apply>Применить</button></div>
                     </div>
                 </div>
@@ -239,10 +270,10 @@ if ($type === 'delay') {
             </div>
         </form>
     </section>
-    <style data-flow-panel-style="scenario-delay-panel-v3.5.107">
-    .tg-flow-delay-box{border:1px solid #e7ebf1;background:#fff;border-radius:18px;padding:18px;margin-top:8px;box-shadow:0 10px 24px rgba(15,23,42,.04)}
-    .tg-flow-delay-box h3,.tg-flow-delay-section h3{font-size:16px;font-weight:720;color:#1f2937;margin:0 0 8px}.tg-flow-delay-box p,.tg-flow-delay-section p{font-size:13px;color:#6b7280;margin:0 0 14px;line-height:1.45}.tg-flow-delay-row{display:grid;grid-template-columns:minmax(90px,140px) minmax(0,1fr);gap:12px;align-items:start;margin-bottom:16px}.tg-flow-delay-section{margin-top:22px}.tg-flow-delay-time-grid{display:grid;grid-template-columns:104px minmax(0,1fr);gap:12px;align-items:center}.tg-flow-delay-time-grid.is-interval{grid-template-columns:90px 16px 90px minmax(0,1fr)}.tg-flow-delay-time{max-width:110px}.tg-flow-delay-dash{color:#9ca3af;text-align:center}.tg-flow-delay-tz{font-size:13px;color:#6b7280;line-height:1.35}.tg-flow-delay-tz button{display:block;border:0;background:transparent;color:#d97706;padding:2px 0 0;font-size:12px;font-weight:700;cursor:pointer}.tg-flow-delay-weekdays{display:flex;flex-wrap:wrap;gap:12px}.tg-flow-delay-weekdays label{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:650;color:#374151}.tg-flow-delay-weekdays input{width:18px;height:18px;accent-color:#FFA048}.tg-flow-delay-help{margin-top:11px;font-size:12px;color:#6b7280;line-height:1.4}.tg-flow-delay-runtime-note{margin-top:16px;border-radius:14px;background:#f8fafc;color:#64748b;border:1px solid #e5e7eb;padding:10px 12px;font-size:12px;line-height:1.45}.tg-delay-tz-modal{position:fixed;inset:0;z-index:10050;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.36);padding:18px}.tg-delay-tz-modal.is-open{display:flex}.tg-delay-tz-card{width:min(460px,100%);background:#fff;border-radius:22px;box-shadow:0 24px 70px rgba(15,23,42,.24);padding:18px}.tg-delay-tz-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}.tg-delay-tz-head h3{margin:0;font-size:17px;font-weight:720;color:#1f2937}.tg-delay-tz-head button{border:0;background:#f3f4f6;color:#6b7280;border-radius:12px;width:34px;height:34px;font-size:22px;line-height:1;cursor:pointer}.tg-delay-tz-card p{margin:0 0 14px;color:#6b7280;font-size:13px;line-height:1.45}.tg-delay-tz-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}.tg-flow-delay-warn{display:none;margin-top:14px;border-radius:14px;background:#fff7ed;color:#5f4630;padding:12px 14px;font-size:13px;line-height:1.45}.tg-flow-delay-warn::before{content:'ⓘ';color:#d97706;font-weight:800;margin-right:8px}.tg-flow-delay-box[data-mode="tomorrow"] [data-delay-after],.tg-flow-delay-box[data-mode="at"] [data-delay-after]{display:none}.tg-flow-delay-box[data-mode="tomorrow"] [data-delay-time-mode-wrap],.tg-flow-delay-box[data-mode="at"] [data-delay-time-mode-wrap]{display:none}.tg-flow-delay-box[data-mode="after"] [data-delay-exact],.tg-flow-delay-box[data-time-mode="any"] [data-delay-exact],.tg-flow-delay-box[data-time-mode="any"] [data-delay-interval],.tg-flow-delay-box[data-time-mode="exact"] [data-delay-interval],.tg-flow-delay-box[data-time-mode="interval"] [data-delay-exact]{display:none}.tg-flow-delay-box[data-time-mode="interval"] [data-delay-interval-warn]{display:block}.tg-flow-delay-box[data-mode="tomorrow"] [data-delay-exact],.tg-flow-delay-box[data-mode="at"] [data-delay-exact]{display:grid}
-    @media(max-width:620px){.tg-flow-delay-row,.tg-flow-delay-time-grid,.tg-flow-delay-time-grid.is-interval{grid-template-columns:1fr}.tg-flow-delay-dash{text-align:left}.tg-flow-delay-time{max-width:none}}
+    <style data-flow-panel-style="scenario-delay-panel-v3.5.110">
+    .tg-flow-delay-box{border:1px solid #e7ebf1;background:#fff;border-radius:18px;padding:20px;margin-top:12px;box-shadow:0 10px 24px rgba(15,23,42,.04)}
+    .tg-flow-delay-box h3,.tg-flow-delay-section h3{font-size:16px;font-weight:720;color:#1f2937;margin:0 0 10px;line-height:1.3}.tg-flow-delay-box p,.tg-flow-delay-section p{font-size:13px;color:#6b7280;margin:0 0 18px;line-height:1.5}.tg-flow-delay-box .tg-flow-panel-field{display:flex;flex-direction:column;gap:8px;margin:0 0 18px}.tg-flow-delay-box .tg-flow-panel-label{display:block;margin:0!important;line-height:1.25!important}.tg-flow-delay-box .tg-flow-panel-input{min-height:44px}.tg-flow-delay-row{display:grid;grid-template-columns:minmax(110px,176px) minmax(0,1fr);gap:16px;align-items:start;margin:2px 0 24px}.tg-flow-delay-row .tg-flow-panel-field{margin-bottom:0}.tg-flow-delay-section{margin-top:28px;padding-top:4px}.tg-flow-delay-section:first-of-type{margin-top:26px}.tg-flow-delay-time-grid{display:grid;grid-template-columns:112px minmax(0,1fr);gap:14px;align-items:center;margin-top:10px}.tg-flow-delay-time-grid.is-interval{grid-template-columns:112px 18px 112px minmax(0,1fr)}.tg-flow-delay-time{max-width:120px}.tg-flow-delay-dash{color:#9ca3af;text-align:center}.tg-flow-delay-tz{font-size:13px;color:#6b7280;line-height:1.45;min-width:0}.tg-flow-delay-tz button{display:block;border:0;background:transparent;color:#d97706;padding:3px 0 0;font-size:12px;font-weight:700;cursor:pointer;text-align:left}.tg-flow-delay-weekdays{display:flex;flex-wrap:wrap;gap:14px 16px;margin-top:10px}.tg-flow-delay-weekdays label{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:650;color:#374151}.tg-flow-delay-weekdays input{width:18px;height:18px;accent-color:#FFA048}.tg-flow-delay-help{margin-top:14px;font-size:12px;color:#6b7280;line-height:1.45}.tg-flow-delay-runtime-note{margin-top:18px;border-radius:14px;background:#f8fafc;color:#64748b;border:1px solid #e5e7eb;padding:10px 12px;font-size:12px;line-height:1.45}.tg-delay-tz-modal{position:fixed;inset:0;z-index:10050;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.36);padding:18px}.tg-delay-tz-modal.is-open{display:flex}.tg-delay-tz-card{width:min(520px,100%);background:#fff;border-radius:22px;box-shadow:0 24px 70px rgba(15,23,42,.24);padding:18px}.tg-delay-tz-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}.tg-delay-tz-head h3{margin:0;font-size:17px;font-weight:720;color:#1f2937}.tg-delay-tz-head button{border:0;background:#f3f4f6;color:#6b7280;border-radius:12px;width:34px;height:34px;font-size:22px;line-height:1;cursor:pointer}.tg-delay-tz-card p{margin:0 0 14px;color:#6b7280;font-size:13px;line-height:1.45}.tg-delay-tz-search-field{margin-bottom:10px}.tg-delay-tz-list{max-height:min(52vh,430px);overflow-y:auto;overflow-x:hidden;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc;padding:6px;scrollbar-gutter:stable}.tg-delay-tz-option{width:100%;max-width:100%;box-sizing:border-box;border:0;background:transparent;border-radius:12px;padding:10px 12px;text-align:left;cursor:pointer;display:block;color:#1f2937;white-space:normal;overflow:hidden}.tg-delay-tz-option:hover{background:#fff7ed}.tg-delay-tz-option.is-selected{background:#ffedd5;box-shadow:inset 0 0 0 1px rgba(249,115,22,.24)}.tg-delay-tz-option span{display:block;font-size:13px;font-weight:700;color:#1f2937;text-align:left;white-space:normal;overflow-wrap:anywhere;word-break:break-word}.tg-delay-tz-option small{display:block;margin-top:3px;font-size:12px;color:#6b7280;line-height:1.35;text-align:left;white-space:normal;overflow-wrap:anywhere;word-break:break-word}.tg-delay-tz-option.is-popular small{color:#9a5a09}.tg-delay-tz-empty{display:none;margin-top:10px;border-radius:14px;background:#f8fafc;border:1px dashed #d1d5db;padding:12px;color:#6b7280;font-size:13px;line-height:1.4}.tg-delay-tz-empty.is-visible{display:block}.tg-delay-tz-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}.tg-flow-delay-warn{display:none;margin-top:16px;border-radius:14px;background:#fff7ed;color:#5f4630;padding:12px 14px;font-size:13px;line-height:1.5}.tg-flow-delay-warn::before{content:'ⓘ';color:#d97706;font-weight:800;margin-right:8px}.tg-flow-delay-box[data-mode="tomorrow"] [data-delay-after],.tg-flow-delay-box[data-mode="at"] [data-delay-after]{display:none}.tg-flow-delay-box[data-mode="tomorrow"] [data-delay-time-mode-wrap],.tg-flow-delay-box[data-mode="at"] [data-delay-time-mode-wrap]{display:none}.tg-flow-delay-box[data-time-mode="any"] [data-delay-exact],.tg-flow-delay-box[data-time-mode="any"] [data-delay-interval],.tg-flow-delay-box[data-time-mode="exact"] [data-delay-interval],.tg-flow-delay-box[data-time-mode="interval"] [data-delay-exact]{display:none}.tg-flow-delay-box[data-time-mode="interval"] [data-delay-interval-warn]{display:block}.tg-flow-delay-box[data-mode="tomorrow"] [data-delay-exact],.tg-flow-delay-box[data-mode="at"] [data-delay-exact]{display:grid}
+    @media(max-width:620px){.tg-flow-delay-box{padding:16px}.tg-flow-delay-row,.tg-flow-delay-time-grid,.tg-flow-delay-time-grid.is-interval{grid-template-columns:1fr}.tg-flow-delay-dash{text-align:left}.tg-flow-delay-time{max-width:none}.tg-delay-tz-actions{flex-direction:column-reverse}.tg-delay-tz-actions button{width:100%}}
     </style>
     <script data-flow-panel-script>
     (function(){
@@ -260,14 +291,44 @@ if ($type === 'delay') {
       if (mode) mode.addEventListener('change', sync);
       if (timeMode) timeMode.addEventListener('change', sync);
       var tzModal = document.querySelector('[data-tz-modal]');
-      var tzSelect = tzModal ? tzModal.querySelector('[data-tz-select]') : null;
+      var tzSearch = tzModal ? tzModal.querySelector('[data-tz-search]') : null;
+      var tzList = tzModal ? tzModal.querySelector('[data-tz-list]') : null;
+      var tzEmpty = tzModal ? tzModal.querySelector('[data-tz-empty]') : null;
       var tzInput = box.querySelector('[data-tz-value]');
+      var selectedTz = tzInput && tzInput.value ? tzInput.value : 'Europe/Moscow';
+      function tzOptions(){ return tzModal ? Array.prototype.slice.call(tzModal.querySelectorAll('[data-tz-option]')) : []; }
+      function markSelected(value){
+        selectedTz = value || selectedTz || 'Europe/Moscow';
+        tzOptions().forEach(function(option){ option.classList.toggle('is-selected', option.getAttribute('value') === selectedTz); });
+      }
+      function filterTz(){
+        var q = tzSearch ? (tzSearch.value || '').trim().toLowerCase() : '';
+        var visible = 0;
+        tzOptions().forEach(function(option){
+          var haystack = (option.getAttribute('data-search') || option.textContent || '').toLowerCase();
+          var show = !q || haystack.indexOf(q) !== -1;
+          option.style.display = show ? '' : 'none';
+          if (show) visible++;
+        });
+        if (tzEmpty) tzEmpty.classList.toggle('is-visible', visible === 0);
+        if (tzList) tzList.scrollLeft = 0;
+      }
       function openTz(){
-        if (!tzModal || !tzSelect) return;
-        if (tzInput && tzInput.value) tzSelect.value = tzInput.value;
+        if (!tzModal || !tzList) return;
+        if (tzInput && tzInput.value) selectedTz = tzInput.value;
+        if (tzSearch) tzSearch.value = '';
+        markSelected(selectedTz);
+        filterTz();
         tzModal.classList.add('is-open');
         tzModal.setAttribute('aria-hidden', 'false');
-        setTimeout(function(){ try { tzSelect.focus(); } catch(e){} }, 0);
+        setTimeout(function(){
+          try {
+            if (tzSearch) tzSearch.focus();
+            var selected = tzModal.querySelector('[data-tz-option].is-selected');
+            if (selected) selected.scrollIntoView({ block: 'center', inline: 'nearest' });
+            if (tzList) tzList.scrollLeft = 0;
+          } catch(e){}
+        }, 0);
       }
       function closeTz(){
         if (!tzModal) return;
@@ -275,22 +336,99 @@ if ($type === 'delay') {
         tzModal.setAttribute('aria-hidden', 'true');
       }
       function applyTz(){
-        if (!tzSelect || !tzInput) { closeTz(); return; }
-        var option = tzSelect.options[tzSelect.selectedIndex];
-        var value = tzSelect.value || 'Europe/Moscow';
+        if (!tzInput) { closeTz(); return; }
+        var option = tzModal ? tzModal.querySelector('[data-tz-option].is-selected') : null;
+        var value = option ? (option.getAttribute('value') || selectedTz) : selectedTz;
         var title = option ? (option.getAttribute('data-title') || option.textContent || value) : value;
-        tzInput.value = value;
+        tzInput.value = value || 'Europe/Moscow';
         box.querySelectorAll('[data-tz-current]').forEach(function(el){ el.textContent = title; });
         closeTz();
       }
       box.querySelectorAll('[data-tz-open]').forEach(function(btn){ btn.addEventListener('click', openTz); });
       if (tzModal) {
+        tzOptions().forEach(function(option){ option.addEventListener('click', function(){ markSelected(option.getAttribute('value') || 'Europe/Moscow'); }); });
+        if (tzSearch) tzSearch.addEventListener('input', filterTz);
         tzModal.querySelectorAll('[data-tz-close]').forEach(function(btn){ btn.addEventListener('click', closeTz); });
         var applyBtn = tzModal.querySelector('[data-tz-apply]');
         if (applyBtn) applyBtn.addEventListener('click', applyTz);
         tzModal.addEventListener('click', function(event){ if (event.target === tzModal) closeTz(); });
       }
       document.addEventListener('keydown', function(event){ if (event.key === 'Escape') closeTz(); });
+
+      var blockMeta = <?php echo $safeJson($blockMeta); ?>;
+      var panel = document.getElementById('tg-flow-panel');
+      var form = document.getElementById('scenario-message-form');
+      var panelMenu = panel ? panel.querySelector('[data-panel-menu]') : null;
+      var panelMenuToggle = panel ? panel.querySelector('[data-panel-menu-toggle]') : null;
+      function closePanelMenu(){ if (panelMenu) panelMenu.classList.remove('is-open'); }
+      function showPanelAlert(message){
+        var alertBox = panel ? panel.querySelector('#scenario-message-alert') : null;
+        if (alertBox) {
+          alertBox.textContent = String(message || 'Ошибка');
+          alertBox.classList.add('is-open');
+          alertBox.scrollIntoView({block:'nearest', behavior:'smooth'});
+        } else if (typeof window.tgScenarioFlowToast === 'function') {
+          window.tgScenarioFlowToast(String(message || 'Ошибка'), 'error');
+        }
+      }
+      async function postBlockAction(action, payload){
+        payload = payload || {};
+        if (typeof window.tgScenarioFlowPostAction === 'function') return window.tgScenarioFlowPostAction(action, payload);
+        var actionMap = {tg_scenario_duplicate_block: 'tg_scenario_block_duplicate'};
+        var fd = new FormData();
+        fd.set('action', actionMap[action] || action);
+        fd.set('return_page', 'scenario_flow');
+        fd.set('tg_ajax', '1');
+        fd.set('scenario_id', String(blockMeta.scenarioId || ''));
+        Object.keys(payload).forEach(function(key){ fd.set(key, String(payload[key] == null ? '' : payload[key])); });
+        var csrf = form ? form.querySelector('input[name="csrf_token"]') : null;
+        if (csrf && csrf.value) fd.set('csrf_token', csrf.value);
+        var response = await fetch('admin.php?tab=telegram_bots', {method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        var text = await response.text();
+        var json = null;
+        try { json = text ? JSON.parse(text) : null; } catch(e) { json = null; }
+        if (!response.ok || !json || json.ok === false) throw new Error((json && json.error) || 'Сервер не вернул JSON.');
+        return json;
+      }
+      if (panelMenuToggle) {
+        panelMenuToggle.addEventListener('click', function(event){ event.preventDefault(); event.stopPropagation(); if (panelMenu) panelMenu.classList.toggle('is-open'); });
+      }
+      if (panelMenu) panelMenu.addEventListener('click', function(event){ event.stopPropagation(); });
+      document.addEventListener('click', closePanelMenu);
+      var deeplinkBtn = panel ? panel.querySelector('[data-panel-deeplink]') : null;
+      if (deeplinkBtn) deeplinkBtn.addEventListener('click', async function(event){
+        event.preventDefault(); event.stopPropagation(); closePanelMenu();
+        if (blockMeta.hasDeeplink) return;
+        try {
+          await postBlockAction('tg_scenario_block_deeplink_create', {block_id: blockMeta.blockId || ''});
+          if (typeof window.tgScenarioFlowRefresh === 'function') await window.tgScenarioFlowRefresh();
+          if (typeof window.tgScenarioFlowToast === 'function') window.tgScenarioFlowToast('Диплинк создан. Ссылка появилась под блоком.');
+          if (typeof window.tgScenarioFlowCloseDrawer === 'function') window.tgScenarioFlowCloseDrawer();
+        } catch(error) { showPanelAlert(error && error.message ? error.message : 'Не удалось создать диплинк.'); }
+      });
+      var duplicateBtn = panel ? panel.querySelector('[data-panel-duplicate]') : null;
+      if (duplicateBtn) duplicateBtn.addEventListener('click', async function(event){
+        event.preventDefault(); event.stopPropagation(); closePanelMenu();
+        try {
+          await postBlockAction('tg_scenario_duplicate_block', {block_id: blockMeta.blockId || ''});
+          if (typeof window.tgScenarioFlowRefresh === 'function') await window.tgScenarioFlowRefresh();
+          if (typeof window.tgScenarioFlowCloseDrawer === 'function') window.tgScenarioFlowCloseDrawer();
+        } catch(error) { showPanelAlert(error && error.message ? error.message : 'Не удалось дублировать блок.'); }
+      });
+      var deleteBtn = panel ? panel.querySelector('[data-panel-delete]') : null;
+      if (deleteBtn) deleteBtn.addEventListener('click', async function(event){
+        event.preventDefault(); event.stopPropagation(); closePanelMenu();
+        var ok = true;
+        if (typeof window.tgScenarioFlowConfirm === 'function') {
+          ok = await window.tgScenarioFlowConfirm({title:'Удалить блок?', text:'Вы уверены, что хотите удалить этот блок? Это действие нельзя отменить.', dangerText:'Удалить', cancelText:'Отмена'});
+        }
+        if (!ok) return;
+        try {
+          await postBlockAction('tg_scenario_block_delete', {block_id: blockMeta.blockId || ''});
+          if (typeof window.tgScenarioFlowRefresh === 'function') await window.tgScenarioFlowRefresh();
+          if (typeof window.tgScenarioFlowCloseDrawer === 'function') window.tgScenarioFlowCloseDrawer();
+        } catch(error) { showPanelAlert(error && error.message ? error.message : 'Не удалось удалить блок.'); }
+      });
       sync();
     })();
     </script>

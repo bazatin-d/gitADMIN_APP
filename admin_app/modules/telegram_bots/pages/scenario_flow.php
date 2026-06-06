@@ -317,7 +317,7 @@ foreach ($blocks as $index => $block) {
             'missingNext' => false,
             'cards' => $flowCards,
             'cardsCount' => count($flowCards),
-            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.114',
+            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.118',
             'deleteAllowed' => !$isStart,
             'deeplinkCode' => $deeplinkCode,
             'deeplinkUrl' => $deeplinkUrl,
@@ -350,6 +350,34 @@ foreach ($links as $link) {
 }
 
 $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
+$botsLight = function_exists('asr_tg_bots_all_light') ? asr_tg_bots_all_light($pdo) : [];
+$currentScenarioBotId = function_exists('asr_tg_scenario_bot_id') ? asr_tg_scenario_bot_id($pdo, $scenarioId) : 0;
+$currentScenarioBot = $currentScenarioBotId > 0 && function_exists('asr_tg_bot_find_light') ? asr_tg_bot_find_light($pdo, $currentScenarioBotId) : null;
+$currentChannelType = function_exists('asr_tg_channel_type_of') && is_array($currentScenarioBot) ? asr_tg_channel_type_of($currentScenarioBot) : (string)($currentScenarioBot['channel_type'] ?? 'telegram');
+$currentChannelType = $currentChannelType === 'vk' ? 'vk' : 'telegram';
+$currentScenarioBotUsername = is_array($currentScenarioBot) ? trim((string)($currentScenarioBot['bot_username'] ?? '')) : '';
+$currentScenarioBotUsername = ltrim($currentScenarioBotUsername, '@');
+$currentScenarioBotUrl = ($currentChannelType === 'telegram' && $currentScenarioBotUsername !== '') ? ('https://t.me/' . rawurlencode($currentScenarioBotUsername)) : '';
+$scenarioCommandRows = [];
+if ($currentScenarioBotId > 0 && function_exists('asr_tg_bot_commands_all')) {
+    try { $scenarioCommandRows = asr_tg_bot_commands_all($pdo, $currentScenarioBotId); } catch (Throwable $e) { $scenarioCommandRows = []; }
+}
+if (!$scenarioCommandRows && $currentChannelType === 'telegram') {
+    $scenarioCommandRows = [['command' => 'help', 'description' => 'помощь', 'scenario_id' => $scenarioId, 'step_id' => 0]];
+}
+$scenarioStepOptions = [];
+if (function_exists('asr_tg_scenario_blocks_select')) {
+    try { $scenarioStepOptions = asr_tg_scenario_blocks_select($pdo, $scenarioId); } catch (Throwable $e) { $scenarioStepOptions = []; }
+} else {
+    $scenarioStepOptions = $blocks;
+}
+$scenarioEditData = [
+    'id' => $scenarioId,
+    'title' => (string)($scenario['title'] ?? ''),
+    'description' => (string)($scenario['description'] ?? ''),
+    'status' => (string)($scenario['status'] ?? 'draft'),
+    'bot_id' => $currentScenarioBotId,
+];
 $flowData = [
     'scenarioId' => $scenarioId,
     'scenarioTitle' => (string)($scenario['title'] ?? 'Сценарий'),
@@ -358,7 +386,7 @@ $flowData = [
     'nodes' => $nodes,
     'edges' => $edges,
     'returnUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
-        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.114',
+        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.118',
     'flowUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
     'blockLimit' => 550,
     'listUrl' => 'admin.php?tab=telegram_bots&page=scenarios',
@@ -779,15 +807,44 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 .tg-flow-node-card.tg-flow-delay-preview{background:#fff;color:#374151;border:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;min-height:74px;padding:10px 10px 2px}
 .tg-flow-delay-preview-col{min-width:0}.tg-flow-delay-preview-col.is-right{text-align:right}.tg-flow-delay-preview-label{display:block;color:#a3aab5;font-size:10px;font-weight:800;line-height:1.2;margin-bottom:5px}.tg-flow-delay-preview-main{display:block;font-size:12px;font-weight:760;color:#374151;line-height:1.25;white-space:normal}.tg-flow-delay-preview-days{grid-column:1 / -1;text-align:right;font-size:12px;font-weight:650;color:#4b5563;line-height:1.25;margin-top:2px}
 
+/* v3.5.115: scenario gear menu and command/settings modals */
+.tg-flow-gear-wrap{position:relative;display:inline-flex;align-items:center}.tg-flow-gear-btn{width:38px;height:38px;border:1px solid #e5e7eb;background:#fff;border-radius:14px;color:#6b7280;font-size:18px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.tg-flow-gear-btn:hover{background:#fff7ed;border-color:#fed7aa;color:#9a5a1f}.tg-flow-gear-menu{position:absolute;right:0;top:46px;z-index:1030;display:none;width:270px;padding:8px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 18px 45px rgba(15,23,42,.18)}.tg-flow-gear-menu.is-open{display:block}.tg-flow-gear-menu button{width:100%;min-height:44px;border:0;background:#fff;border-radius:13px;padding:10px 12px;display:flex;align-items:center;gap:11px;color:#374151;font-size:14px;font-weight:650;text-align:left;cursor:pointer}.tg-flow-gear-menu button:hover{background:#fff7ed;color:#9a5a1f}.tg-flow-gear-menu button[disabled]{color:#b8c0cc;cursor:not-allowed;background:#fff}.tg-flow-gear-ico{width:24px;color:#8a929e;text-align:center;font-weight:800}.tg-flow-modal-backdrop{position:fixed;inset:0;z-index:6100;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.38);backdrop-filter:blur(2px);padding:18px}.tg-flow-modal-backdrop.is-open{display:flex}.tg-flow-modal{width:min(940px,100%);max-height:min(760px,calc(100vh - 36px));overflow:hidden;background:#fff;border:1px solid #edf0f2;border-radius:24px;box-shadow:0 28px 80px rgba(15,23,42,.24);display:flex;flex-direction:column}.tg-flow-modal-head{padding:22px 28px 18px;border-bottom:1px solid #edf0f2;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.tg-flow-modal-title{font-size:20px;font-weight:750;color:#1f2937;line-height:1.25}.tg-flow-modal-note{margin-top:6px;color:#6b7280;font-size:13px;font-weight:600;line-height:1.45}.tg-flow-modal-close{width:40px;height:40px;border:0;border-radius:14px;background:#f3f4f6;color:#6b7280;font-size:22px;cursor:pointer}.tg-flow-modal-body{padding:22px 28px;overflow:auto;display:grid;gap:16px}.tg-flow-modal-actions{padding:16px 28px;border-top:1px solid #edf0f2;display:flex;justify-content:flex-end;gap:10px;background:#fff}.tg-flow-field span{display:block;margin-bottom:7px;font-size:12px;font-weight:650;color:#8b929e}.tg-flow-field input,.tg-flow-field textarea,.tg-flow-field select{width:100%;border:1px solid #e5e7eb;background:#fff;border-radius:16px;padding:12px 14px;color:#374151;font-size:14px;font-weight:650;outline:none}.tg-flow-field textarea{min-height:92px;resize:vertical;line-height:1.45}.tg-flow-command-list{display:grid;gap:10px}.tg-flow-command-row{display:grid;grid-template-columns:minmax(130px,.7fr) minmax(190px,1fr) minmax(190px,1fr) 44px;gap:10px;align-items:end;border:1px solid #edf0f2;border-radius:18px;background:#fbfbfc;padding:12px}.tg-flow-command-prefix{position:relative}.tg-flow-command-prefix input{padding-left:28px}.tg-flow-command-prefix:before{content:'/';position:absolute;left:13px;bottom:13px;color:#9ca3af;font-weight:800}.tg-flow-command-delete{width:42px;height:42px;border:1px solid #fee2e2;background:#fff;border-radius:14px;color:#ef4444;font-size:20px;font-weight:750;cursor:pointer}.tg-flow-command-add{width:100%;min-height:42px;border:1px dashed #fed7aa;background:#fffaf4;border-radius:16px;color:#c96f2b;font-size:13px;font-weight:750;cursor:pointer}.tg-flow-btn-main{border:0;background:#FFA048;color:#fff;border-radius:15px;padding:0 18px;min-height:42px;font-size:13px;font-weight:750;cursor:pointer}.tg-flow-btn-ghost{border:0;background:#f3f4f6;color:#6b7280;border-radius:15px;padding:0 18px;min-height:42px;font-size:13px;font-weight:750;cursor:pointer}@media(max-width:760px){.tg-flow-top-right{gap:5px}.tg-flow-top-btn{padding:0 9px}.tg-flow-gear-menu{right:auto;left:0;width:250px}.tg-flow-command-row{grid-template-columns:1fr}.tg-flow-command-delete{width:100%}.tg-flow-modal{max-height:calc(100vh - 20px);border-radius:20px}.tg-flow-modal-backdrop{padding:10px}.tg-flow-modal-head,.tg-flow-modal-body,.tg-flow-modal-actions{padding-left:18px;padding-right:18px}}
+
+
+
+/* v3.5.117: dropdown items must be left-aligned and normal-weight */
+.tg-flow-gear-menu,.tg-flow-gear-menu *{text-align:left!important}.tg-flow-gear-menu button{justify-content:flex-start!important;font-weight:500!important}
+/* v3.5.118: bot link inside gear menu */
+.tg-flow-gear-menu a.tg-flow-gear-link{width:100%;min-height:44px;border:0;background:#fff;border-radius:13px;padding:10px 12px;display:flex;align-items:center;justify-content:flex-start!important;gap:11px;color:#374151;font-size:14px;font-weight:500!important;text-align:left!important;text-decoration:none;box-sizing:border-box}.tg-flow-gear-menu a.tg-flow-gear-link:hover{background:#fff7ed;color:#9a5a1f}.tg-flow-gear-menu .tg-flow-gear-disabled{width:100%;min-height:44px;border:0;background:#fff;border-radius:13px;padding:10px 12px;display:flex;align-items:center;justify-content:flex-start!important;gap:11px;color:#b8c0cc;font-size:14px;font-weight:500!important;text-align:left!important;box-sizing:border-box}
+.tg-step-native{display:none!important}.tg-step-picker{position:relative;width:100%;text-align:left!important}.tg-step-picker *{box-sizing:border-box}.tg-step-picker-btn{width:100%;min-height:46px;border:1px solid #e5e7eb;background:#fff;border-radius:16px;padding:11px 42px 11px 14px;color:#374151;font-size:14px;font-weight:500!important;text-align:left!important;cursor:pointer;position:relative;justify-content:flex-start!important}.tg-step-picker-btn:after{content:'⌄';position:absolute;right:15px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:18px}.tg-step-picker.is-open .tg-step-picker-btn{border-color:#FFA048;box-shadow:0 0 0 3px rgba(255,160,72,.14)}.tg-step-picker-panel{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:6200;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 22px 55px rgba(15,23,42,.18);padding:10px;text-align:left!important}.tg-step-picker.is-open .tg-step-picker-panel{display:block}.tg-step-picker-search{width:100%;border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px;margin-bottom:8px;color:#374151;font-size:14px;font-weight:400!important;outline:none;text-align:left!important}.tg-step-picker-search:focus{border-color:#FFA048;box-shadow:0 0 0 3px rgba(255,160,72,.12)}.tg-step-picker-list{max-height:260px;overflow:auto;display:grid;gap:4px;text-align:left!important}.tg-step-picker-option{width:100%;border:0;background:#fff;border-radius:12px;padding:10px 12px!important;text-align:left!important;color:#374151;font-size:14px;font-weight:400!important;line-height:1.35;cursor:pointer;display:block!important;white-space:normal}.tg-step-picker-option:hover,.tg-step-picker-option.is-selected{background:#fff7ed;color:#9a5a1f}.tg-step-picker-empty{padding:12px;color:#9ca3af;font-size:13px;font-weight:400!important;text-align:left!important}
+
 </style>
 
 <div class="tg-flow-app">
     <div class="tg-flow-topbar">
         <div class="tg-flow-top-left">
             <button type="button" class="tg-flow-menu-btn" id="tg-flow-menu-btn" aria-label="Открыть меню">☰</button>
-            <div class="tg-flow-title"><?php echo $h($scenario['title'] ?? 'Сценарий'); ?> <span style="font-size:11px;color:#9ca3af;font-weight:650">Flow v3.5.114</span> <span id="tg-flow-boot-status" class="tg-flow-boot-status">PHP: <?php echo count($nodes); ?> блоков / <?php echo count($edges); ?> связей · React: запуск…</span></div>
+            <div class="tg-flow-title"><?php echo $h($scenario['title'] ?? 'Сценарий'); ?> <span style="font-size:11px;color:#9ca3af;font-weight:650">Flow v3.5.118</span> <span id="tg-flow-boot-status" class="tg-flow-boot-status">PHP: <?php echo count($nodes); ?> блоков / <?php echo count($edges); ?> связей · React: запуск…</span></div>
         </div>
         <div class="tg-flow-top-right">
+            <div class="tg-flow-gear-wrap">
+                <button type="button" class="tg-flow-gear-btn" id="tg-flow-gear-btn" aria-label="Настройки сценария">⚙</button>
+                <div class="tg-flow-gear-menu" id="tg-flow-gear-menu">
+                    <button type="button" data-flow-open-settings><span class="tg-flow-gear-ico">☷</span><span>Настройки</span></button>
+                    <?php if ($currentScenarioBotId > 0 && $currentChannelType === 'telegram'): ?>
+                        <button type="button" data-flow-open-commands><span class="tg-flow-gear-ico">///</span><span>Telegram меню для канала</span></button>
+                    <?php else: ?>
+                        <button type="button" disabled><span class="tg-flow-gear-ico">///</span><span>Telegram меню для канала</span></button>
+                    <?php endif; ?>
+                    <?php if ($currentScenarioBotUrl !== ''): ?>
+                        <a class="tg-flow-gear-link" href="<?php echo $h($currentScenarioBotUrl); ?>" target="_blank" rel="noopener"><span class="tg-flow-gear-ico">↗</span><span>Открыть бот в Telegram</span></a>
+                    <?php else: ?>
+                        <div class="tg-flow-gear-disabled"><span class="tg-flow-gear-ico">↗</span><span>Ссылка на бот недоступна</span></div>
+                    <?php endif; ?>
+                    <button type="button" disabled><span class="tg-flow-gear-ico">↻</span><span>Сбросить статистику</span></button>
+                    <button type="button" disabled><span class="tg-flow-gear-ico">↔</span><span>Конвертировать бота</span></button>
+                </div>
+            </div>
             <button type="button" class="tg-flow-top-btn is-primary" id="tg-flow-add-block-btn">+ Блок</button>
             <button type="button" class="tg-flow-top-btn" id="tg-flow-save-btn">Сохранить</button>
             <?php $scenarioIsActive = (string)($scenario['status'] ?? 'draft') === 'active'; ?>
@@ -803,6 +860,175 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     </div>
 </div>
 <div id="tg-flow-block-drawer" class="tg-flow-block-drawer" aria-live="polite"></div>
+<div class="tg-flow-modal-backdrop" id="tg-flow-settings-modal" aria-hidden="true">
+    <div class="tg-flow-modal" role="dialog" aria-modal="true">
+        <div class="tg-flow-modal-head">
+            <div>
+                <div class="tg-flow-modal-title">Настройки сценария</div>
+                <div class="tg-flow-modal-note">Название, описание, статус и канал сценария.</div>
+            </div>
+            <button type="button" class="tg-flow-modal-close" data-flow-close-modal>×</button>
+        </div>
+        <form method="POST">
+            <input type="hidden" name="action" value="tg_scenario_save">
+            <input type="hidden" name="return_page" value="scenario_flow">
+            <input type="hidden" name="scenario_id" value="<?php echo $scenarioId; ?>">
+            <div class="tg-flow-modal-body">
+                <label class="tg-flow-field"><span>Название</span><input type="text" name="title" value="<?php echo $h($scenario['title'] ?? ''); ?>" required></label>
+                <label class="tg-flow-field"><span>Описание</span><textarea name="description"><?php echo $h($scenario['description'] ?? ''); ?></textarea></label>
+                <label class="tg-flow-field"><span>Статус</span><select name="status">
+                    <?php foreach (asr_tg_scenario_status_labels() as $statusKey => $statusLabel): if ($statusKey === 'archived') continue; ?>
+                        <option value="<?php echo $h($statusKey); ?>" <?php echo (string)($scenario['status'] ?? 'draft') === $statusKey ? 'selected' : ''; ?>><?php echo $h($statusLabel); ?></option>
+                    <?php endforeach; ?>
+                </select></label>
+                <label class="tg-flow-field"><span>Канал сценария</span><select name="scenario_bot_id">
+                    <option value="0">Без канала</option>
+                    <?php foreach ($botsLight as $bot): $botId = (int)($bot['id'] ?? 0); $channelType = function_exists('asr_tg_channel_label') ? asr_tg_channel_label((string)($bot['channel_type'] ?? 'telegram')) : 'Telegram'; $label = (string)($bot['title'] ?? ('Канал #' . $botId)); $meta = $channelType . (!empty($bot['bot_username']) ? ' · @' . (string)$bot['bot_username'] : ''); ?>
+                        <option value="<?php echo $botId; ?>" <?php echo $currentScenarioBotId === $botId ? 'selected' : ''; ?>><?php echo $h($label . ' — ' . $meta); ?></option>
+                    <?php endforeach; ?>
+                </select></label>
+            </div>
+            <div class="tg-flow-modal-actions"><button type="button" class="tg-flow-btn-ghost" data-flow-close-modal>Отмена</button><button type="submit" class="tg-flow-btn-main">Сохранить</button></div>
+        </form>
+    </div>
+</div>
+
+<div class="tg-flow-modal-backdrop" id="tg-flow-commands-modal" aria-hidden="true">
+    <div class="tg-flow-modal" role="dialog" aria-modal="true">
+        <div class="tg-flow-modal-head">
+            <div>
+                <div class="tg-flow-modal-title">Telegram меню для канала<?php echo $currentScenarioBot ? ': ' . $h($currentScenarioBot['title'] ?? '') : ''; ?></div>
+                <div class="tg-flow-modal-note">Команда сохраняется в меню Telegram выбранного канала. Шаги привязаны к текущему сценарию.</div>
+            </div>
+            <button type="button" class="tg-flow-modal-close" data-flow-close-modal>×</button>
+        </div>
+        <form method="POST" class="tg-flow-command-form">
+            <input type="hidden" name="action" value="tg_bot_commands_save">
+            <input type="hidden" name="return_page" value="scenario_flow">
+            <input type="hidden" name="return_scenario_id" value="<?php echo $scenarioId; ?>">
+            <input type="hidden" name="bot_id" value="<?php echo $currentScenarioBotId; ?>">
+            <div class="tg-flow-modal-body">
+                <?php if ($currentScenarioBotId <= 0 || $currentChannelType !== 'telegram'): ?>
+                    <div class="tg-flow-modal-note">Для меню команд нужно выбрать Telegram-канал в настройках сценария.</div>
+                <?php else: ?>
+                    <div class="tg-flow-command-list" data-flow-command-list>
+                        <?php foreach ($scenarioCommandRows as $cmd): $cmdScenarioId = (int)($cmd['scenario_id'] ?? 0); $cmdStepId = (int)($cmd['step_id'] ?? 0); if ($cmdScenarioId > 0 && $cmdScenarioId !== $scenarioId) { $cmdStepId = 0; } ?>
+                            <div class="tg-flow-command-row" data-flow-command-row>
+                                <input type="hidden" name="scenario_id[]" value="<?php echo $scenarioId; ?>">
+                                <label class="tg-flow-field tg-flow-command-prefix"><span>Команда</span><input name="command[]" value="<?php echo $h($cmd['command'] ?? ''); ?>" placeholder="help" maxlength="32"></label>
+                                <label class="tg-flow-field"><span>Описание</span><input name="description[]" value="<?php echo $h($cmd['description'] ?? ''); ?>" placeholder="помощь" maxlength="256"></label>
+                                <label class="tg-flow-field"><span>Запустить с шага</span><select name="step_id[]" class="tg-step-native js-flow-step-select" data-step-picker-select><option value="0">Сначала сценария</option><?php foreach ($scenarioStepOptions as $step): $sid = (int)($step['id'] ?? 0); if ($sid <= 0) continue; $st = trim((string)($step['title'] ?? '')) ?: 'Без названия'; ?><option value="<?php echo $sid; ?>" <?php echo $cmdStepId === $sid ? 'selected' : ''; ?>><?php echo $h($st . ' - Блок #' . $sid); ?></option><?php endforeach; ?></select></label>
+                                <button type="button" class="tg-flow-command-delete" data-flow-command-delete>×</button>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <button type="button" class="tg-flow-command-add" data-flow-command-add>+ Добавить команду</button>
+                    <template data-flow-command-template>
+                        <div class="tg-flow-command-row" data-flow-command-row>
+                            <input type="hidden" name="scenario_id[]" value="<?php echo $scenarioId; ?>">
+                            <label class="tg-flow-field tg-flow-command-prefix"><span>Команда</span><input name="command[]" placeholder="start" maxlength="32"></label>
+                            <label class="tg-flow-field"><span>Описание</span><input name="description[]" placeholder="описание команды" maxlength="256"></label>
+                            <label class="tg-flow-field"><span>Запустить с шага</span><select name="step_id[]" class="tg-step-native js-flow-step-select" data-step-picker-select><option value="0">Сначала сценария</option><?php foreach ($scenarioStepOptions as $step): $sid = (int)($step['id'] ?? 0); if ($sid <= 0) continue; $st = trim((string)($step['title'] ?? '')) ?: 'Без названия'; ?><option value="<?php echo $sid; ?>"><?php echo $h($st . ' - Блок #' . $sid); ?></option><?php endforeach; ?></select></label>
+                            <button type="button" class="tg-flow-command-delete" data-flow-command-delete>×</button>
+                        </div>
+                    </template>
+                <?php endif; ?>
+            </div>
+            <?php if ($currentScenarioBotId > 0 && $currentChannelType === 'telegram'): ?><div class="tg-flow-modal-actions"><button type="button" class="tg-flow-btn-ghost" data-flow-close-modal>Отмена</button><button type="submit" class="tg-flow-btn-main">Сохранить меню</button></div><?php endif; ?>
+        </form>
+    </div>
+</div>
+<script>
+(function(){
+  const gearBtn = document.getElementById('tg-flow-gear-btn');
+  const gearMenu = document.getElementById('tg-flow-gear-menu');
+  const settingsModal = document.getElementById('tg-flow-settings-modal');
+  const commandsModal = document.getElementById('tg-flow-commands-modal');
+  function closeGear(){ if (gearMenu) gearMenu.classList.remove('is-open'); }
+  function openModal(modal){ if (!modal) return; closeGear(); modal.classList.add('is-open'); modal.setAttribute('aria-hidden','false'); document.body.style.overflow='hidden'; }
+  function closeModals(){ document.querySelectorAll('.tg-flow-modal-backdrop.is-open').forEach(m => { m.classList.remove('is-open'); m.setAttribute('aria-hidden','true'); }); document.body.style.overflow='hidden'; }
+  if (gearBtn && gearMenu) {
+    gearBtn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); gearMenu.classList.toggle('is-open'); });
+    document.addEventListener('click', function(e){ if (!e.target.closest('.tg-flow-gear-wrap')) closeGear(); });
+  }
+  document.querySelectorAll('[data-flow-open-settings]').forEach(btn => btn.addEventListener('click', () => openModal(settingsModal)));
+  document.querySelectorAll('[data-flow-open-commands]').forEach(btn => btn.addEventListener('click', () => openModal(commandsModal)));
+  document.querySelectorAll('[data-flow-close-modal]').forEach(btn => btn.addEventListener('click', closeModals));
+  document.querySelectorAll('.tg-flow-modal-backdrop').forEach(backdrop => backdrop.addEventListener('click', function(e){ if (e.target === this) closeModals(); }));
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') { closeGear(); closeModals(); } });
+  function initStepPickers(scope){
+    (scope || document).querySelectorAll('select[data-step-picker-select]').forEach(function(select){
+      if (select.dataset.stepPickerReady === '1') return;
+      select.dataset.stepPickerReady = '1';
+      const wrap = document.createElement('div');
+      wrap.className = 'tg-step-picker';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tg-step-picker-btn';
+      const panel = document.createElement('div');
+      panel.className = 'tg-step-picker-panel';
+      const search = document.createElement('input');
+      search.type = 'text';
+      search.className = 'tg-step-picker-search';
+      search.placeholder = 'Поиск по названию или номеру блока';
+      const list = document.createElement('div');
+      list.className = 'tg-step-picker-list';
+      panel.appendChild(search); panel.appendChild(list); wrap.appendChild(btn); wrap.appendChild(panel);
+      select.insertAdjacentElement('afterend', wrap);
+      function selectedText(){ const opt = select.options[select.selectedIndex]; return opt ? opt.textContent : 'Сначала сценария'; }
+      function render(){
+        const q = (search.value || '').trim().toLowerCase();
+        list.innerHTML = '';
+        let count = 0;
+        Array.from(select.options).forEach(function(opt){
+          if (opt.disabled || opt.hidden) return;
+          const text = opt.textContent || '';
+          if (q && text.toLowerCase().indexOf(q) === -1) return;
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'tg-step-picker-option' + (opt.selected ? ' is-selected' : '');
+          item.textContent = text;
+          item.addEventListener('click', function(){
+            select.value = opt.value;
+            select.dispatchEvent(new Event('change', { bubbles:true }));
+            btn.textContent = selectedText();
+            wrap.classList.remove('is-open');
+          });
+          list.appendChild(item); count++;
+        });
+        if (!count) { const empty = document.createElement('div'); empty.className = 'tg-step-picker-empty'; empty.textContent = 'Ничего не найдено'; list.appendChild(empty); }
+        btn.textContent = selectedText();
+      }
+      btn.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); document.querySelectorAll('.tg-step-picker.is-open').forEach(x => { if (x !== wrap) x.classList.remove('is-open'); }); wrap.classList.toggle('is-open'); if (wrap.classList.contains('is-open')) { render(); setTimeout(() => search.focus(), 20); } });
+      search.addEventListener('input', render);
+      select.addEventListener('change', render);
+      document.addEventListener('click', function(e){ if (!wrap.contains(e.target)) wrap.classList.remove('is-open'); });
+      render();
+    });
+  }
+  initStepPickers(document);
+  document.addEventListener('click', function(e){
+    const add = e.target.closest('[data-flow-command-add]');
+    if (add) {
+      e.preventDefault();
+      const form = add.closest('.tg-flow-command-form');
+      const list = form ? form.querySelector('[data-flow-command-list]') : null;
+      const tpl = form ? form.querySelector('template[data-flow-command-template]') : null;
+      if (list && tpl && tpl.content) { const frag = tpl.content.cloneNode(true); list.appendChild(frag); initStepPickers(list); }
+      return;
+    }
+    const del = e.target.closest('[data-flow-command-delete]');
+    if (del) {
+      e.preventDefault();
+      const row = del.closest('[data-flow-command-row]');
+      const list = row ? row.closest('[data-flow-command-list]') : null;
+      if (row && list && list.querySelectorAll('[data-flow-command-row]').length > 1) row.remove();
+      else if (row) row.querySelectorAll('input').forEach(input => { if (input.type !== 'hidden') input.value = ''; });
+    }
+  });
+})();
+</script>
+
 <script type="application/json" id="scenario-flow-data"><?php echo $safeJson($flowData); ?></script>
 <script>
 (function(){
@@ -823,7 +1049,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 <script>
 (function(){
   window.__tgScenarioFlowBoot = {
-    version: '3.5.88',
+    version: '3.5.117',
     started: false,
     nodes: <?php echo (int)count($nodes); ?>,
     edges: <?php echo (int)count($edges); ?>
@@ -835,7 +1061,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     errorEl.style.display = 'block';
     var p = errorEl.querySelector('p');
     var msg = event && event.message ? event.message : 'неизвестная ошибка JS';
-    if (p) p.textContent = 'Ошибка запуска React Flow: ' + msg + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.114.';
+    if (p) p.textContent = 'Ошибка запуска React Flow: ' + msg + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.117.';
   }, true);
   window.addEventListener('unhandledrejection', function(event){
     if (window.__tgScenarioFlowBoot && window.__tgScenarioFlowBoot.started) return;
@@ -844,7 +1070,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     errorEl.style.display = 'block';
     var reason = event.reason && (event.reason.message || String(event.reason));
     var p = errorEl.querySelector('p');
-    if (p) p.textContent = 'Не загрузился JS-модуль редактора: ' + (reason || 'неизвестная ошибка') + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.114.';
+    if (p) p.textContent = 'Не загрузился JS-модуль редактора: ' + (reason || 'неизвестная ошибка') + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.117.';
   });
   setTimeout(function(){
     if (window.__tgScenarioFlowBoot && window.__tgScenarioFlowBoot.started) return;
@@ -852,7 +1078,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     if (!errorEl) return;
     errorEl.style.display = 'block';
     var p = errorEl.querySelector('p');
-    if (p) p.textContent = 'React Flow-скрипт не стартовал. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия патча: 3.5.114.';
+    if (p) p.textContent = 'React Flow-скрипт не стартовал. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия патча: 3.5.118.';
   }, 2200);
 })();
 </script>
@@ -864,7 +1090,7 @@ const errorEl = document.getElementById('tg-scenario-flow-error');
 if (errorEl) {
   errorEl.style.display = 'block';
   const p = errorEl.querySelector('p');
-  if (p) p.textContent = 'Файл scenario-flow-cdn.js не найден на сервере. Проверьте путь admin_app/modules/telegram_bots/scenario_flow/dist/scenario-flow-cdn.js. Версия патча: 3.5.114.';
+  if (p) p.textContent = 'Файл scenario-flow-cdn.js не найден на сервере. Проверьте путь admin_app/modules/telegram_bots/scenario_flow/dist/scenario-flow-cdn.js. Версия патча: 3.5.118.';
 }
 console.error('Scenario Flow script file not found');
 <?php endif; ?>
