@@ -1678,10 +1678,38 @@ function asr_tg_runtime_command_find(PDO $pdo, int $botId, string $command): ?ar
     if ($botId <= 0 || $command === '') return null;
     asr_tg_repository_ensure_schema($pdo);
     if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_commands')) return null;
-    $stmt = $pdo->prepare('SELECT * FROM oca_telegram_bot_commands WHERE bot_id = ? AND command = ? AND is_active = 1 LIMIT 1');
-    $stmt->execute([$botId, $command]);
+
+    $command = asr_tg_normalize_command_name($command);
+    if ($command === '') return null;
+
+    // Runtime v0.1.2: ищем устойчиво. В старых строках команда могла лежать как /help,
+    // а в новых — как help. Также не считаем NULL в is_active выключением команды.
+    $stmt = $pdo->prepare("
+        SELECT *
+        FROM oca_telegram_bot_commands
+        WHERE bot_id = ?
+          AND (command = ? OR command = ? OR TRIM(LEADING '/' FROM command) = ?)
+          AND (is_active = 1 OR is_active IS NULL)
+        ORDER BY
+          CASE WHEN scenario_id IS NOT NULL AND scenario_id > 0 THEN 0 ELSE 1 END,
+          CASE WHEN step_id IS NOT NULL AND step_id > 0 THEN 0 ELSE 1 END,
+          sort_order ASC, id ASC
+        LIMIT 1
+    " );
+    $stmt->execute([$botId, $command, '/' . $command, $command]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     return $row ?: null;
+}
+
+function asr_tg_runtime_command_snapshot(PDO $pdo, int $botId): array {
+    if ($botId <= 0 || !asr_tg_table_exists($pdo, 'oca_telegram_bot_commands')) return [];
+    try {
+        $stmt = $pdo->prepare('SELECT id, command, description, scenario_id, step_id, is_active FROM oca_telegram_bot_commands WHERE bot_id = ? ORDER BY sort_order ASC, id ASC LIMIT 20');
+        $stmt->execute([$botId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {
+        return [['error' => $e->getMessage()]];
+    }
 }
 
 function asr_tg_runtime_first_block_after(PDO $pdo, int $scenarioId, int $fromBlockId): int {
@@ -1836,6 +1864,19 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
         return true;
     }
     $scenarioBotId = asr_tg_scenario_bot_id($pdo, $scenarioId);
+    if ($scenarioBotId <= 0) {
+        // Если команда уже сохранена именно в этом канале, но у сценария потерялась строка связи,
+        // восстанавливаем её мягко: один сценарий всё равно должен иметь один канал.
+        try {
+            $pdo->prepare('DELETE FROM oca_telegram_bot_scenario_bots WHERE scenario_id = ?')->execute([$scenarioId]);
+            $stmtRepair = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_bots (scenario_id, bot_id, is_enabled, is_default, created_at, updated_at) VALUES (?, ?, 1, 1, NOW(), NOW())');
+            $stmtRepair->execute([$scenarioId, $botId]);
+            $scenarioBotId = asr_tg_scenario_bot_id($pdo, $scenarioId);
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, 0, 'runtime_bot_link_repaired', 'Связь сценария с каналом восстановлена при запуске команды.', ['source' => $source] + $sourcePayload);
+        } catch (Throwable $repairError) {
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, 0, 'runtime_bot_link_repair_failed', $repairError->getMessage(), ['source' => $source] + $sourcePayload);
+        }
+    }
     if ($scenarioBotId !== $botId) {
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, 0, 'runtime_bot_mismatch', 'Сценарий привязан к другому каналу.', ['scenario_bot_id' => $scenarioBotId, 'source' => $source] + $sourcePayload);
         return true;
@@ -1878,8 +1919,9 @@ function asr_tg_runtime_try_command(PDO $pdo, array $bot, int $botId, int|string
     } catch (Throwable $ignored) {}
     $commandRow = asr_tg_runtime_command_find($pdo, $botId, $command);
     if (!$commandRow) {
+        $snapshot = asr_tg_runtime_command_snapshot($pdo, $botId);
         try {
-            asr_tg_log($pdo, $botId, 'warning', 'scenario_command_not_linked', 'Команда Telegram не найдена в меню команд канала или неактивна.', ['subscriber_id' => $subscriberId, 'command' => $command]);
+            asr_tg_log($pdo, $botId, 'warning', 'scenario_command_not_linked', 'Команда Telegram не найдена в меню команд канала или неактивна.', ['subscriber_id' => $subscriberId, 'command' => $command, 'saved_commands' => $snapshot]);
         } catch (Throwable $ignored) {}
         return false;
     }

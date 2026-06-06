@@ -20,7 +20,7 @@ import {
 (function(){
   const boot = window.__tgScenarioFlowBoot || (window.__tgScenarioFlowBoot = {});
   boot.evaluated = true;
-  boot.version = '3.5.120';
+  boot.version = '3.5.121';
   const status = document.getElementById('tg-flow-boot-status');
   if (status) status.textContent = 'PHP: ' + (boot.nodes ?? '?') + ' блоков / ' + (boot.edges ?? '?') + ' связей · React: модуль загружен';
 })();

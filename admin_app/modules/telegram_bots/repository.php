@@ -242,6 +242,12 @@ function asr_tg_repository_ensure_schema(PDO $pdo): void {
         KEY `idx_bot_order` (`bot_id`, `sort_order`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+    // Runtime v0.1.2: таблица команд могла быть создана раньше, когда в ней ещё не было
+    // привязки к сценарию и шагу. Не делаем runtime-ALTER на тяжёлых страницах,
+    // но лёгкая проверка справочника команд нужна перед сохранением/исполнением команд.
+    asr_tg_add_column_if_missing($pdo, 'oca_telegram_bot_commands', 'scenario_id', 'BIGINT UNSIGNED NULL DEFAULT NULL AFTER `description`');
+    asr_tg_add_column_if_missing($pdo, 'oca_telegram_bot_commands', 'step_id', 'BIGINT UNSIGNED NULL DEFAULT NULL AFTER `scenario_id`');
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS `oca_telegram_bot_messages` (
         `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         `bot_id` INT UNSIGNED NOT NULL,
