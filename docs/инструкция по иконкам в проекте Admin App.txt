@@ -1,0 +1,506 @@
+Инструкция по использованию иконок Admin App
+1. Главный принцип
+
+В Admin App используются только уже утверждённые SVG-иконки из папки:
+
+assets/admin/icons/
+
+Нельзя самовольно:
+
+рисовать новые иконки в другом стиле;
+использовать emoji как управляющие иконки интерфейса;
+возвращать старые символы •, ✎, 🗑, 🔔, 👥, 🔒, ☰, ×, ▶, ▼;
+использовать синие иконки;
+использовать разноцветные иконки без явного решения.
+
+Стиль иконок:
+
+серый / графитовый;
+толстая округлая линия;
+без лишних деталей;
+без синего цвета;
+без яркого оранжевого внутри самих иконок, кроме случаев, где это уже принято в кнопке;
+размер обычно 16–24 px;
+в кнопках иконка и текст всегда в одну строку.
+2. Как вставлять иконку
+
+Основной способ - обычный <img>:
+
+<img class="admin-icon" src="/assets/admin/icons/имя-иконки.svg" alt="" aria-hidden="true">
+
+Для кнопки:
+
+<button class="btn-with-icon">
+    <img class="admin-icon admin-icon--sm" src="/assets/admin/icons/rs2-download-white.svg" alt="" aria-hidden="true">
+    <span>Скачать</span>
+</button>
+
+Обязательное правило для кнопок с иконкой:
+
+.btn-with-icon {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    white-space: nowrap;
+    line-height: 1;
+}
+
+Иконка не должна становиться над текстом.
+
+3. Что запрещено
+
+Не использовать:
+
+asr_admin_icon()
+
+Не добавлять новые helper-функции для иконок.
+
+Не подключать иконки через:
+
+file_get_contents()
+
+Не вставлять SVG inline через PHP.
+
+Не подключать иконки глобально через:
+
+bootstrap.php
+
+Не менять bootstrap.php ради иконок.
+
+Не делать массовую замену иконок по всему проекту одним патчем.
+
+4. Размеры
+Обычная иконка
+.admin-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+    vertical-align: middle;
+    object-fit: contain;
+    flex: 0 0 auto;
+}
+Маленькая иконка в кнопке
+.admin-icon--sm {
+    width: 14px;
+    height: 14px;
+}
+Иконка заголовка блока
+.admin-icon--title {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+}
+Иконка в карточке / крупном блоке
+.admin-icon--lg {
+    width: 28px;
+    height: 28px;
+}
+5. Иконка + заголовок
+
+Заголовок с иконкой должен быть строго в одну строку:
+
+<div class="section-title-with-icon">
+    <img class="admin-icon admin-icon--title" src="/assets/admin/icons/tb2-telegram-gray.svg" alt="" aria-hidden="true">
+    <div>
+        <h3>Telegram-боты</h3>
+        <p>Описание раздела</p>
+    </div>
+</div>
+
+CSS:
+
+.section-title-with-icon {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+}
+
+.section-title-with-icon h2,
+.section-title-with-icon h3 {
+    margin: 0;
+    line-height: 1.15;
+}
+
+Если есть описание под заголовком, оно остаётся внутри правого блока, а не под иконкой.
+
+6. Иконки по назначению
+Меню
+
+Использовать серию:
+
+mn4-*.svg
+
+Назначения:
+
+mn4-tests-gray.svg              тесты / результаты
+mn4-marketing-gray.svg          маркетинг
+mn4-settings-gray.svg           настройки
+mn4-link-gray.svg               ссылки / URL
+mn4-key-gray.svg                ключ / доступы, если нужен ключ
+mn4-lock-gray.svg               Secure / доступы / закрыто / безопасность
+mn4-telegram-gray.svg           Telegram
+mn4-chevron-right-gray.svg      подпункт / стрелка
+
+Для пункта Secure использовать:
+
+mn4-lock-gray.svg
+
+а не ключ.
+
+7. Шапка и боковая панель
+
+Использовать серию:
+
+ly2-*.svg
+
+Назначения:
+
+ly2-menu-white.svg              бургер меню в шапке
+ly2-close-gray.svg              закрыть боковое меню
+ly2-download-white.svg          установить приложение
+ly2-sun-gray.svg                светлая тема
+ly2-moon-gray.svg               тёмная тема
+ly2-help-gray.svg               справочная информация
+ly2-logout-gray.svg             выйти
+
+В шапке и меню ничего не подключать через helper. Только обычный <img>.
+
+8. Модальные окна и экран входа
+
+Использовать серию:
+
+mo2-*.svg
+
+Назначения:
+
+mo2-close-gray.svg              закрыть модальное окно
+mo2-back-gray.svg               назад / вернуться ко входу
+
+Крестик закрытия:
+
+<button type="button" onclick="closeModal()">
+    <img src="/assets/admin/icons/mo2-close-gray.svg" alt="" aria-hidden="true">
+</button>
+9. Доступы
+
+Использовать серию:
+
+av2-*.svg
+
+Назначения:
+
+av2-more-vertical-gray.svg      меню ⋮
+av2-bell-gray.svg               оповещение об оплате
+av2-auto-payment-gray.svg       автооплата
+av2-users-gray.svg              сотрудники / доступ выдан людям
+av2-lock-gray.svg               закрытый / ограниченный доступ
+av2-drag-gray.svg               сортировка / перетаскивание
+av2-eye-gray.svg                показать пароль
+av2-close-gray.svg              закрыть окно
+av2-delete-gray.svg             удалить / в архив
+
+Группы в «Доступах» по умолчанию закрыты.
+
+Иконки 👥 и 🔒 должны быть на уровне конкретного доступа, не ресурса.
+
+10. Пользователи
+
+Использовать серию:
+
+us2-*.svg
+
+Если нужна иконка пользователя, архива, редактирования, удаления, блокировки, восстановления - сначала искать в us2-*.
+
+Если подходящей нет, использовать уже имеющиеся близкие:
+
+mo2-close-gray.svg;
+rs2-edit-gray.svg;
+rs2-delete-gray.svg;
+tb2-users-gray.svg.
+
+Новые иконки создавать только после согласования.
+
+11. Настройки
+
+Использовать серию:
+
+st2-*.svg
+
+Назначения:
+
+st2-settings-gray.svg           настройки системы
+st2-telegram-gray.svg           Telegram-бот
+st2-bitrix-gray.svg             Bitrix24
+st2-help-gray.svg               справочная информация
+st2-link-gray.svg               ссылка / URL Shortener
+st2-code-gray.svg               код вставки / iframe
+st2-mail-gray.svg               почта / SMTP
+st2-chevron-down-gray.svg       развернуть
+st2-chevron-up-gray.svg         свернуть
+st2-bold-gray.svg               жирный
+st2-italic-gray.svg             курсив
+st2-image-gray.svg              картинка
+st2-copy-gray.svg               копировать
+st2-save-white.svg              сохранить на оранжевой кнопке
+12. URL Shortener / Маркетинг
+
+Использовать серию:
+
+sh2-*.svg
+
+Назначения:
+
+sh2-builder-gray.svg            конструктор UTM
+sh2-link-gray.svg               ссылка
+sh2-list-gray.svg               список ссылок
+sh2-copy-gray.svg               копировать
+sh2-send-gray.svg               отправить / в укорачиватель
+sh2-clear-gray.svg              очистить
+sh2-dictionary-gray.svg         справочник
+sh2-edit-gray.svg               редактировать
+sh2-delete-gray.svg             удалить
+sh2-close-gray.svg              закрыть
+sh2-help-gray.svg               справка
+sh2-plus-white.svg              создать / сгенерировать на оранжевой кнопке
+sh2-save-white.svg              сохранить на оранжевой кнопке
+13. Результаты АСР и импорт/экспорт
+
+Использовать серию:
+
+rs2-*.svg
+
+Назначения:
+
+rs2-download-white.svg          скачать / экспорт
+rs2-upload-white.svg            загрузить / импорт
+rs2-phone-gray.svg              телефон, но на странице результатов сейчас НЕ использовать
+rs2-location-gray.svg           город, но на странице результатов сейчас НЕ использовать
+rs2-edit-gray.svg               редактировать
+rs2-edit-white.svg              редактировать на оранжевой кнопке
+rs2-delete-gray.svg             удалить
+rs2-search-white.svg            найти
+rs2-clear-gray.svg              сбросить
+rs2-compare-gray.svg            сравнить графики
+rs2-block-white.svg             спам / блокировка
+rs2-list-gray.svg               список результатов
+rs2-back-gray.svg               назад
+rs2-copy-white.svg              скопировать
+rs2-file-white.svg              файл / образец CSV
+
+Важно:
+
+На странице результатов у телефона и города иконки не ставить. Там должен быть просто текст.
+
+Кнопки в верхней панели результатов должны быть в одну строку:
+
+иконка + текст
+
+а не иконка над текстом.
+
+14. Telegram-боты
+Редактор рассылок
+
+Использовать серию:
+
+tg2-*.svg
+
+Назначения:
+
+tg2-bold-gray.svg               жирный
+tg2-italic-gray.svg             курсив
+tg2-underline-gray.svg          подчёркивание
+tg2-strikethrough-gray.svg      зачёркивание
+tg2-mono-gray.svg               моноширинный
+tg2-eye-off-gray.svg            спойлер
+tg2-code-gray.svg               код
+tg2-quote-gray.svg              цитата
+tg2-date-gray.svg               дата
+tg2-link-gray.svg               ссылка
+tg2-emoji-gray.svg              эмодзи
+tg2-variables-gray.svg          переменные
+tg2-clear-gray.svg              очистить
+tg2-button-gray.svg             кнопка
+tg2-image-gray.svg              картинка
+tg2-file-gray.svg               файл
+tg2-audio-gray.svg              аудио
+tg2-video-gray.svg              видео
+tg2-arrow-up-gray.svg           вверх
+tg2-arrow-down-gray.svg         вниз
+tg2-user-gray.svg               пользователь
+tg2-at-gray.svg                 username
+tg2-user-plus-gray.svg          подписка
+tg2-chat-gray.svg               диалог / контакт
+tg2-globe-gray.svg              язык
+tg2-close-gray.svg              закрыть окно
+
+Эмодзи внутри emoji-пикера не заменять. Это контент редактора, а не управляющие иконки интерфейса.
+
+Общий интерфейс Telegram-модуля
+
+Использовать серию:
+
+tb2-*.svg
+
+Назначения:
+
+tb2-telegram-gray.svg           Telegram-боты
+tb2-bot-gray.svg                бот
+tb2-users-gray.svg              подписчики
+tb2-chat-gray.svg               сообщения
+tb2-broadcast-gray.svg          рассылка
+tb2-history-gray.svg            история рассылок
+tb2-report-gray.svg             отчёт
+tb2-flow-gray.svg               сценарии
+tb2-log-gray.svg                журнал
+tb2-settings-gray.svg           настройки модуля
+tb2-open-white.svg              открыть
+tb2-save-white.svg              сохранить
+tb2-plus-gray.svg               добавить
+tb2-send-white.svg              отправить
+tb2-back-gray.svg               назад
+tb2-forward-white.svg           вперёд
+tb2-delete-white.svg            удалить
+tb2-play-white.svg              обработать / запустить
+tb2-cancel-gray.svg             отменить
+
+Заголовки Telegram-модуля обязательно делать так:
+
+<div class="tb2-title">
+    <img class="tb2-title-icon" src="/assets/admin/icons/tb2-bot-gray.svg" alt="" aria-hidden="true">
+    <div class="tb2-title-text">
+        <h3>Боты</h3>
+        <p>Список подключённых Telegram-ботов.</p>
+    </div>
+</div>
+
+CSS:
+
+.tb2-title {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+}
+
+.tb2-title-icon {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+}
+15. Цвета
+Серые иконки
+
+Использовать для обычных действий:
+
+-gray.svg
+Белые иконки
+
+Использовать только на тёмных или оранжевых кнопках:
+
+-white.svg
+
+Пример:
+
+<button class="bg-[#FFA048] text-white">
+    <img src="/assets/admin/icons/rs2-download-white.svg" alt="" aria-hidden="true">
+    Скачать
+</button>
+
+Не ставить серую иконку на оранжевую кнопку, если она плохо читается.
+
+16. Как выбирать иконку для нового модуля
+
+При создании новой страницы или модуля:
+
+Сначала определить смысл действия:
+добавить;
+сохранить;
+удалить;
+редактировать;
+закрыть;
+скачать;
+загрузить;
+ссылка;
+пользователь;
+настройки;
+Telegram;
+файл;
+поиск.
+Найти подходящую иконку в уже существующих наборах.
+Если модуль похож на существующий, использовать его серию:
+доступы - av2-*;
+Telegram - tg2-* или tb2-*;
+настройки - st2-*;
+URL Shortener - sh2-*;
+результаты / импорт - rs2-*;
+меню - mn4-*;
+модальные окна - mo2-*;
+шапка - ly2-*.
+Если подходящей иконки нет, не рисовать новую сразу. Сначала использовать ближайшую стандартную.
+Новую иконку добавлять только отдельным маленьким патчем.
+17. Правило патчей
+
+Иконки внедрять только маленькими шагами.
+
+Нельзя менять сразу:
+
+bootstrap.php;
+layout.php;
+несколько модулей;
+меню;
+Telegram;
+пользователей;
+доступы.
+
+Безопасный порядок:
+
+1 модуль = 1 патч
+
+После каждого патча проверять:
+
+страница открывается;
+нет белого экрана;
+тёмная тема;
+мобильная верстка;
+кнопки не стали выше;
+иконка и текст стоят в одну строку.
+18. Чек-лист перед выдачей патча
+
+Перед тем как дать патч, проверить:
+
+php -l изменённые PHP-файлы
+
+Проверить, что не добавлено:
+
+file_get_contents
+asr_admin_icon
+новый helper
+подключение в bootstrap.php
+inline-SVG через PHP
+emoji как иконка интерфейса
+
+Проверить, что кнопки с иконками имеют:
+
+display: inline-flex;
+flex-direction: row;
+align-items: center;
+gap: 7px;
+white-space: nowrap;
+19. Что считать завершённым стандартом
+
+Текущий стандарт иконок Admin App считается таким:
+
+серые / графитовые SVG
+толстая округлая линия
+без синих элементов
+без emoji в интерфейсе
+через обычный img
+маленькие патчи
+без bootstrap.php
+без asr_admin_icon()
+без file_get_contents()
+
+При создании новых модулей использовать только этот стандарт.

@@ -1,0 +1,29 @@
+Options -Indexes
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+    # Публичная форма теста может встраиваться iframe на внешние страницы.
+    # Для неё нельзя оставлять X-Frame-Options: SAMEORIGIN, иначе браузер блокирует iframe
+    # с ошибкой ERR_BLOCKED_BY_RESPONSE. Ограничиваем встраивание через CSP только нужными доменами.
+    <Files "index.html">
+        Header always unset X-Frame-Options
+        Header always set Content-Security-Policy "frame-ancestors 'self' https://exec-booster.kz https://www.exec-booster.kz https://exec-booster.ru https://exec-booster.bitrix24.kz https://*.bitrix24.kz https://*.bitrix24.site https://*.bitrix24site.ru;"
+    </Files>
+</IfModule>
+
+# Прямой доступ к служебным файлам и архивам запрещён.
+<FilesMatch "(^\.|^(config|composer|package-lock|package|webpack|vite)\.|\.(log|sql|zip|bak|old|orig|save|env|ini|md|yml|yaml|jsonl|lock)$)">
+    Require all denied
+</FilesMatch>
+
+# Внутренние каталоги не должны открываться из браузера.
+RedirectMatch 403 ^/(admin_app|b24_integration|docs|oca_interpretation)(/|$)
+
+RewriteEngine On
+
+# Совместимость коротких ссылок формата /u/code на основном домене.
+RewriteRule ^u/([A-Za-z0-9_-]{3,64})/?$ u.php?c=$1 [L,QSA]

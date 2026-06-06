@@ -1,0 +1,66 @@
+:root {
+  --aa-icon-accent: #FFA048;
+  --aa-icon-color: #2F3742;
+}
+html.asr-dark {
+  --aa-icon-color: #D7DDE7;
+  --aa-icon-accent: #FFA048;
+}
+.aa-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-block;
+  vertical-align: middle;
+  color: var(--aa-icon-color);
+  flex: 0 0 auto;
+}
+.aa-icon-sm { width: 16px; height: 16px; }
+.aa-icon-md { width: 20px; height: 20px; }
+.aa-icon-lg { width: 24px; height: 24px; }
+.aa-icon-xl { width: 28px; height: 28px; }
+.aa-icon-muted { color: #8F9AA8; }
+.aa-icon-accent { color: var(--aa-icon-accent); }
+.aa-icon-danger { color: #EF4444; }
+.aa-icon-success { color: #16A34A; }
+.aa-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.aa-icon-btn .aa-icon { pointer-events: none; }
+html.asr-dark .aa-icon-muted { color: #9AA4B2; }
+html.asr-dark .aa-icon-danger { color: #F87171; }
+html.asr-dark .aa-icon-success { color: #4ADE80; }
+
+/* Safe <img>-based icon mode: prevents PHP-side SVG reading issues. */
+.aa-icon-img {
+  object-fit: contain;
+  object-position: center;
+  pointer-events: none;
+}
+.theme-toggle .aa-icon,
+.theme-toggle .aa-icon-img {
+  width: 20px;
+  height: 20px;
+  transition: opacity .18s ease, transform .18s ease;
+  position: absolute;
+}
+
+
+/* Emergency fallback mode: text glyphs instead of SVG, safe for broken deployments. */
+.aa-icon-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25em;
+  height: 1.25em;
+  line-height: 1;
+  font-size: 1em;
+  color: currentColor;
+  flex: 0 0 auto;
+}
+.aa-icon-sm.aa-icon-fallback { width: 16px; height: 16px; font-size: 14px; }
+.aa-icon-md.aa-icon-fallback { width: 20px; height: 20px; font-size: 17px; }
+.aa-icon-lg.aa-icon-fallback { width: 24px; height: 24px; font-size: 20px; }
+.theme-toggle .aa-icon-fallback { position: absolute; }

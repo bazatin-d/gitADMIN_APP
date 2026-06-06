@@ -1,0 +1,584 @@
+/* Access Vault UI refinement: сохраняем новую компоновку, возвращаем мягкий стиль Admin App */
+.av-panel{
+  background:#fff;
+  border:1px solid #eef0f4;
+  box-shadow:0 14px 35px rgba(15,23,42,.035);
+}
+.av-panel h2{color:#FFA048;letter-spacing:.01em}
+.av-panel input[type="text"]{
+  border-color:#e7eaf0;
+  background:#fff;
+  color:#4b5563;
+  font-weight:700;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85);
+}
+.av-panel input[type="text"]::placeholder{color:#a7adba;font-weight:700}
+.av-icon-link{
+  min-width:38px;height:34px;padding:0 10px;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  border-radius:12px;border:1px solid #edf0f5;background:#fff;color:#64748b;
+  font-size:12px;font-weight:900;line-height:1;text-transform:uppercase;letter-spacing:.02em;
+  box-shadow:0 8px 18px rgba(15,23,42,.035);transition:.15s ease;text-decoration:none;
+}
+.av-icon-link:hover,.av-icon-link.is-active{background:#fff7ed;color:#f97316;border-color:#fed7aa;box-shadow:0 10px 22px rgba(249,115,22,.10)}
+.av-add-main{min-width:150px;box-shadow:0 8px 18px rgba(15,23,42,.035)}
+
+.av-group{
+  border:1px solid #eef0f4;background:#fff;border-radius:26px;overflow:hidden;
+  box-shadow:0 14px 35px rgba(15,23,42,.04);
+}
+.av-group+.av-group{margin-top:18px}
+.av-group-head{
+  width:100%;min-height:48px;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid rgba(148,163,184,.16);color:#4b5563;font-weight:900;font-size:18px;text-align:left;
+  letter-spacing:.01em;
+}
+.av-group-title{display:flex;align-items:center;gap:10px;min-width:0}
+.av-group-ico{
+  width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;
+  background:rgba(255,255,255,.70);border:1px solid rgba(255,255,255,.75);font-size:16px;line-height:1;
+  box-shadow:0 6px 14px rgba(15,23,42,.04);flex:0 0 auto;
+}
+.av-group-toggle{
+  width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border-radius:12px;
+  background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.82);color:#64748b;font-size:25px;line-height:1;
+  transition:transform .15s ease, background .15s ease;color:#64748b;
+}
+.av-group-head:hover .av-group-toggle{background:#fff;color:#f97316}
+.av-group.is-collapsed .av-group-toggle{transform:rotate(90deg)}
+.av-group.is-collapsed .av-group-body{display:none}
+.av-group-body{background:#fff}
+
+.av-resource{border-top:1px solid #eef0f4;background:#fff}
+.av-resource:first-child{border-top:0}
+.av-resource.is-archived,.av-credential-row.is-archived{opacity:.64}
+.av-resource-head{
+  min-height:58px;background:#f8fafc;padding:12px 18px;display:flex;gap:16px;align-items:center;justify-content:space-between;
+  border-bottom:1px solid #eef0f4;
+}
+.av-resource-info{min-width:0}
+.av-resource-title{font-size:17px;font-weight:900;color:#374151;line-height:1.18;letter-spacing:.005em}
+.av-resource-url{display:block;margin-top:4px;font-size:12px;font-weight:700;color:#374151;word-break:break-all;text-decoration:none}
+.av-resource-url:hover{text-decoration:underline}
+.av-resource-comment{margin-top:3px;font-size:12px;font-weight:600;color:#6b7280;line-height:1.35}
+.av-resource-actions,.av-cred-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.av-mini-btn{
+  display:inline-flex;align-items:center;justify-content:center;min-height:30px;padding:6px 13px;border-radius:11px;
+  border:1px solid #fee6cf;background:#fff7ed;color:#f97316;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.025em;white-space:nowrap;
+  box-shadow:0 6px 15px rgba(249,115,22,.06);transition:.15s ease;
+}
+.av-mini-btn:hover{background:#FFA048;color:#fff;border-color:#FFA048;box-shadow:0 10px 22px rgba(249,115,22,.16)}
+.av-restore{background:#ecfdf5;color:#059669;border-color:#bbf7d0}
+.av-icon-btn{
+  width:34px;height:32px;display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid #edf0f5;background:#fff;color:#64748b;font-size:16px;font-weight:900;line-height:1;border-radius:11px;
+  box-shadow:0 6px 14px rgba(15,23,42,.035);transition:.15s ease;text-decoration:none;
+}
+.av-icon-btn:hover{background:#fff7ed;color:#f97316;border-color:#fed7aa;transform:translateY(-1px)}
+.av-danger:hover{background:#fef2f2;color:#dc2626;border-color:#fecaca}
+.av-empty-credentials{padding:12px 18px;background:#fff;color:#a7adba;font-size:12px;font-weight:700}
+.av-credentials{background:#fff}
+.av-credential-row{
+  display:grid;grid-template-columns:minmax(170px,.78fr) minmax(230px,1fr) minmax(260px,1.55fr) auto;align-items:center;gap:18px;
+  min-height:58px;padding:9px 18px 9px 52px;border-top:1px solid #f1f3f7;background:#fff;
+}
+.av-credential-row:first-child{border-top:0}
+.av-credential-row:hover{background:#fcfcfd}
+.av-cell-label{font-size:10px;text-transform:uppercase;color:#9aa1af;font-weight:900;letter-spacing:.055em}
+.av-cell-value{margin-top:4px;font-size:13px;font-weight:900;color:#4b5563;word-break:break-all}
+.av-pass-wrap{display:flex;align-items:center;gap:6px;margin-top:4px}
+.av-password-input{
+  width:100%;height:30px;padding:4px 10px;border:1px solid #e7eaf0;border-radius:10px;background:#fff;
+  color:#4b5563;font:800 13px ui-monospace,SFMono-Regular,Menlo,monospace;outline:none;
+}
+.av-eye{
+  width:30px;height:30px;border:1px solid #e7eaf0;border-radius:10px;background:#fff;color:#64748b;font-size:11px;font-weight:900;
+  display:inline-flex;align-items:center;justify-content:center;transition:.15s ease;
+}
+.av-eye:hover{background:#fff7ed;color:#f97316;border-color:#fed7aa}
+.av-note-text{margin-top:4px;color:#5f6877;font-size:12px;font-weight:600;line-height:1.35}
+
+.av-group-edit-row{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid #eef0f4;border-radius:18px;background:#fafbfc;box-shadow:0 8px 18px rgba(15,23,42,.025)}
+.av-group-edit-form{display:grid;grid-template-columns:minmax(180px,1fr) 90px 74px 74px 76px auto;gap:10px;align-items:center;flex:1}
+.av-group-new-row{display:grid;grid-template-columns:minmax(180px,1fr) 90px 74px 74px 76px auto}
+.av-group-title-input,.av-group-sort-input,.av-group-icon-select{height:42px;border:1px solid #e7eaf0;border-radius:13px;background:#fff;padding:0 12px;font-size:13px;font-weight:800;color:#4b5563;outline:none}
+.av-color-field{height:42px;display:flex;align-items:center;gap:6px;border:1px solid #e7eaf0;border-radius:13px;background:#fff;padding:4px 7px;color:#9aa1af;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
+.av-group-color-input{width:30px;height:30px;border:0;border-radius:9px;background:#fff;padding:0;cursor:pointer}
+.av-save-btn,.av-delete-btn{height:42px;border-radius:13px;font-size:11px;font-weight:900;text-transform:uppercase;transition:.15s ease}
+.av-save-btn{padding:0 16px;background:#ffa048;color:#fff;box-shadow:0 10px 20px rgba(249,115,22,.13)}
+.av-save-btn:hover{filter:brightness(.98);transform:translateY(-1px)}
+.av-delete-btn{width:42px;background:#fff;border:1px solid #fee2e2;color:#dc2626}
+.av-delete-btn:hover{background:#fef2f2}
+
+@media (max-width:1024px){
+  .av-resource-head{align-items:flex-start}
+  .av-credential-row{grid-template-columns:1fr;gap:8px;padding:12px 16px}
+  .av-cred-actions{justify-content:flex-end;border-top:1px solid #f1f5f9;padding-top:8px}
+  .av-group-edit-form,.av-group-new-row{grid-template-columns:1fr 80px 74px 74px 70px}
+  .av-save-btn{grid-column:1/-1}.av-group-edit-row{align-items:stretch}.av-delete-btn{height:100%}
+}
+@media (max-width:640px){
+  .av-panel{border-radius:22px}.av-resource-head{flex-direction:column;padding:12px 14px}.av-resource-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}
+  .av-group-head{font-size:16px;padding:10px 12px}.av-resource-title{font-size:16px}.av-credential-row{padding-left:14px}
+  .av-group-edit-row,.av-group-edit-form,.av-group-new-row{display:flex;flex-direction:column;align-items:stretch}.av-color-field,.av-group-icon-select,.av-delete-btn{width:100%;justify-content:space-between}.av-group-color-input{width:34px}
+}
+
+.av-individual-badge { display:inline-flex; margin-left:6px; padding:2px 6px; border-radius:999px; background:#fff7ed; color:#f97316; border:1px solid #fed7aa; font-size:9px; font-weight:900; letter-spacing:.04em; vertical-align:middle; }
+
+/* Payment reminder button */
+.av-payment-btn{background:#fff8ed;color:#b45309;border-color:#fed7aa}
+.av-payment-btn:hover{background:#f59e0b;color:#fff;border-color:#f59e0b}
+
+.av-individual-user.is-selected{background:#fff7ed;border-color:#fed7aa;color:#9a3412}
+.av-payment-btn-active{background:#fffbeb;color:#92400e;border-color:#fde68a}
+
+/* Access Vault action menu and ordering */
+.av-more-wrap{position:relative;display:inline-flex;align-items:center;justify-content:center}
+.av-more-btn{width:38px;height:38px;border-radius:999px;border:1px solid #edf0f5;background:#fff;color:#64748b;font-size:22px;line-height:1;font-weight:900;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 8px 18px rgba(15,23,42,.04);transition:.15s ease}
+.av-more-btn:hover{background:#fff7ed;color:#f97316;border-color:#fed7aa;transform:translateY(-1px)}
+.av-more-menu{display:none;position:absolute;right:0;top:calc(100% + 8px);min-width:205px;background:#fff;border:1px solid #eef0f4;border-radius:16px;box-shadow:0 18px 45px rgba(15,23,42,.14);padding:6px;z-index:80}
+.av-more-menu.is-open{display:block}
+.av-more-item{width:100%;display:flex;align-items:center;justify-content:flex-start;text-align:left;padding:10px 12px;border-radius:12px;background:#fff;border:0;color:#4b5563;font-size:12px;font-weight:850;line-height:1.15;white-space:nowrap;transition:.12s ease}
+.av-more-item:hover{background:#fff7ed;color:#f97316}
+.av-more-danger:hover{background:#fef2f2;color:#dc2626}
+.av-resource-actions>.av-mini-btn:not(.av-restore),.av-resource-actions>.av-icon-btn,.av-resource-actions>form,.av-cred-actions>.av-icon-btn,.av-cred-actions>form{display:none!important}
+.av-resource-status-icon{width:38px;height:38px;border-radius:999px;border:1px solid #edf0f5;background:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 8px 18px rgba(15,23,42,.04);cursor:help}
+.av-resource-issued-icon{color:#f97316;background:#fff7ed;border-color:#fed7aa}
+.av-resource-lock-icon{color:#475569;background:#f8fafc;border-color:#e2e8f0}
+.av-drag-handle{display:none;width:30px;height:30px;border:1px solid #e7eaf0;border-radius:10px;background:#fff;color:#9aa1af;font-size:16px;font-weight:900;align-items:center;justify-content:center;cursor:grab;position:absolute;left:14px;top:50%;transform:translateY(-50%)}
+.av-reorder-mode .av-credential-row{position:relative;padding-left:58px;cursor:grab}
+.av-reorder-mode .av-drag-handle{display:inline-flex}
+.av-credential-row.is-dragging{opacity:.55;background:#fff7ed}
+.av-order-save{padding:12px 18px 16px 52px;border-top:1px solid #f1f3f7;background:#fff;display:flex;justify-content:flex-end}
+.av-order-save.hidden{display:none!important}
+.av-save-order-btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:9px 16px;border-radius:13px;background:#FFA048;color:#fff;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em;box-shadow:0 10px 20px rgba(249,115,22,.14)}
+.av-group-edit-form .av-save-btn{display:none!important}
+@media (max-width:640px){.av-more-menu{right:0;min-width:190px}.av-resource-status-icon,.av-more-btn{width:36px;height:36px}.av-reorder-mode .av-credential-row{padding-left:52px}.av-drag-handle{left:10px}}
+
+/* Fix: credential-level assignee/individual indicators and reliable action menus */
+.av-credential-row{position:relative}
+.av-cred-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;min-width:130px}
+.av-cred-flags{display:inline-flex;align-items:center;gap:6px}
+.av-cred-flag{width:38px;height:38px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:17px;border:1px solid #edf0f5;background:#fff;box-shadow:0 8px 18px rgba(15,23,42,.04);cursor:help}
+.av-issued-badge.av-cred-flag{background:#fff7ed;border-color:#fed7aa;color:#f97316;font-size:18px;font-weight:700;padding:0;margin:0;letter-spacing:0}
+.av-individual-badge.av-cred-flag{background:#f8fafc;border-color:#e2e8f0;color:#475569;font-size:18px;font-weight:700;padding:0;margin:0;letter-spacing:0}
+.av-more-menu{position:fixed!important;right:auto!important;top:auto;display:none;min-width:220px;z-index:10000}
+.av-more-menu.is-open{display:block!important}
+.av-more-wrap{position:relative;display:inline-flex}
+.av-more-item{font-weight:600!important;font-size:13px!important;text-transform:none!important;letter-spacing:0!important}
+.av-more-danger{color:#dc2626!important}
+.av-credentials .av-icon-btn:not(.av-eye){display:none!important}
+.av-reorder-mode .av-drag-handle{display:inline-flex!important}
+.av-credential-row.is-dragging{opacity:.55;background:#fff7ed}
+.av-order-save{padding:12px 18px 16px 52px;border-top:1px solid #f1f3f7;background:#fff;display:flex;justify-content:flex-end}
+.av-order-save.hidden{display:none!important}
+.av-save-order-btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;padding:9px 16px;border-radius:13px;background:#FFA048;color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;box-shadow:0 10px 20px rgba(249,115,22,.14)}
+
+/* Fix 2026-05-30: resource action menu must always be visible */
+.av-resource-head .av-resource-actions{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  margin-left:auto!important;
+  min-width:46px!important;
+  flex:0 0 auto!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+.av-resource-head .av-resource-actions .av-more-wrap,
+.av-resource-head .av-resource-actions .av-more-btn{
+  display:inline-flex!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+.av-resource-head .av-resource-actions .av-more-btn{
+  width:38px!important;
+  height:38px!important;
+  min-width:38px!important;
+  padding:0!important;
+}
+.av-resource-head .av-resource-info{flex:1 1 auto!important;min-width:0!important;}
+@media (max-width:640px){
+  .av-resource-head .av-resource-actions{width:100%!important;justify-content:flex-end!important;margin-left:0!important;}
+}
+
+
+/* Fix 2026-05-30 v3: visible payment notification indicator on resource row */
+.av-resource-head .av-payment-indicator{
+  width:38px!important;
+  height:38px!important;
+  min-width:38px!important;
+  padding:0!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:999px!important;
+  border:1px solid #fed7aa!important;
+  background:#fff7ed!important;
+  color:#f97316!important;
+  font-size:18px!important;
+  line-height:1!important;
+  box-shadow:0 8px 18px rgba(249,115,22,.08)!important;
+  cursor:pointer!important;
+  visibility:visible!important;
+  opacity:1!important;
+}
+.av-resource-head .av-payment-indicator:hover{
+  background:#FFA048!important;
+  border-color:#FFA048!important;
+  color:#fff!important;
+  transform:translateY(-1px);
+}
+.av-resource-head .av-payment-indicator.has-recipients{
+  background:#fffbeb!important;
+  border-color:#fde68a!important;
+  color:#92400e!important;
+}
+@media (max-width:640px){.av-resource-head .av-payment-indicator{width:36px!important;height:36px!important;min-width:36px!important}}
+
+/* Dark theme hardening 2026-05-30 v4: Access Vault */
+html.asr-dark .av-panel,
+html.asr-dark .av-group,
+html.asr-dark .av-group-body,
+html.asr-dark .av-resource,
+html.asr-dark .av-credentials,
+html.asr-dark .av-empty-credentials,
+html.asr-dark .av-order-save {
+  background:#191D23!important;
+  border-color:#2B313A!important;
+  color:#E5E7EB!important;
+  box-shadow:0 18px 50px rgba(0,0,0,.28)!important;
+}
+html.asr-dark .av-panel h2 { color:#F3F4F6!important; }
+html.asr-dark .av-panel input[type="text"],
+html.asr-dark .av-panel input[type="number"],
+html.asr-dark .av-panel input[type="url"],
+html.asr-dark .av-panel input[type="date"],
+html.asr-dark .av-panel select,
+html.asr-dark .av-panel textarea,
+html.asr-dark .av-group-title-input,
+html.asr-dark .av-group-sort-input,
+html.asr-dark .av-group-icon-select,
+html.asr-dark .av-password-input {
+  background:#14181E!important;
+  border-color:#303844!important;
+  color:#EEF2F7!important;
+  box-shadow:none!important;
+}
+html.asr-dark .av-panel input::placeholder,
+html.asr-dark .av-panel textarea::placeholder { color:#6F7A88!important; }
+html.asr-dark .av-icon-link,
+html.asr-dark .av-add-main,
+html.asr-dark .av-icon-btn,
+html.asr-dark .av-eye,
+html.asr-dark .av-more-btn,
+html.asr-dark .av-more-menu,
+html.asr-dark .av-more-item,
+html.asr-dark .av-delete-btn,
+html.asr-dark .av-color-field {
+  background:#222832!important;
+  border-color:#303844!important;
+  color:#C8D0DA!important;
+  box-shadow:0 12px 28px rgba(0,0,0,.22)!important;
+}
+html.asr-dark .av-icon-link:hover,
+html.asr-dark .av-icon-link.is-active,
+html.asr-dark .av-add-main:hover,
+html.asr-dark .av-icon-btn:hover,
+html.asr-dark .av-eye:hover,
+html.asr-dark .av-more-btn:hover,
+html.asr-dark .av-more-item:hover {
+  background:rgba(255,160,72,.12)!important;
+  border-color:rgba(255,160,72,.45)!important;
+  color:#FFA048!important;
+}
+html.asr-dark .av-more-danger,
+html.asr-dark .av-delete-btn { color:#FCA5A5!important; }
+html.asr-dark .av-more-danger:hover,
+html.asr-dark .av-delete-btn:hover,
+html.asr-dark .av-danger:hover {
+  background:rgba(220,38,38,.12)!important;
+  border-color:rgba(248,113,113,.36)!important;
+  color:#F87171!important;
+}
+html.asr-dark .av-resource-head {
+  background:#202630!important;
+  border-color:#2B313A!important;
+}
+html.asr-dark .av-resource-title,
+html.asr-dark .av-cell-value {
+  color:#F3F4F6!important;
+}
+html.asr-dark .av-resource-url {
+  color:#D7DEE8!important;
+}
+html.asr-dark .av-resource-comment,
+html.asr-dark .av-note-text {
+  color:#A7B0BE!important;
+}
+html.asr-dark .av-cell-label {
+  color:#8F9AA8!important;
+}
+html.asr-dark .av-credential-row {
+  background:#191D23!important;
+  border-color:#2B313A!important;
+}
+html.asr-dark .av-credential-row:hover {
+  background:#222832!important;
+}
+html.asr-dark .av-credential-row.is-dragging {
+  background:rgba(255,160,72,.12)!important;
+}
+html.asr-dark .av-drag-handle {
+  background:#222832!important;
+  border-color:#303844!important;
+  color:#A7B0BE!important;
+}
+html.asr-dark .av-cred-actions {
+  border-color:#2B313A!important;
+}
+html.asr-dark .av-cred-flag,
+html.asr-dark .av-resource-status-icon {
+  background:#222832!important;
+  border-color:#303844!important;
+  color:#C8D0DA!important;
+  box-shadow:0 10px 24px rgba(0,0,0,.20)!important;
+}
+html.asr-dark .av-issued-badge.av-cred-flag,
+html.asr-dark .av-resource-issued-icon {
+  background:rgba(255,160,72,.12)!important;
+  border-color:rgba(255,160,72,.45)!important;
+  color:#FDBA74!important;
+}
+html.asr-dark .av-individual-badge.av-cred-flag,
+html.asr-dark .av-resource-lock-icon {
+  background:#222832!important;
+  border-color:#303844!important;
+  color:#D7DEE8!important;
+}
+html.asr-dark .av-payment-indicator,
+html.asr-dark .av-resource-head .av-payment-indicator {
+  background:rgba(255,160,72,.12)!important;
+  border-color:rgba(255,160,72,.45)!important;
+  color:#FDBA74!important;
+  box-shadow:0 10px 24px rgba(0,0,0,.20)!important;
+}
+html.asr-dark .av-payment-indicator:hover,
+html.asr-dark .av-resource-head .av-payment-indicator:hover {
+  background:#FFA048!important;
+  border-color:#FFA048!important;
+  color:#fff!important;
+}
+html.asr-dark .av-payment-indicator.has-recipients,
+html.asr-dark .av-resource-head .av-payment-indicator.has-recipients {
+  background:rgba(245,158,11,.18)!important;
+  border-color:rgba(251,191,36,.45)!important;
+  color:#FCD34D!important;
+}
+html.asr-dark .av-group-edit-row,
+html.asr-dark .av-group-new-row {
+  background:#202630!important;
+  border-color:#2B313A!important;
+  box-shadow:none!important;
+}
+html.asr-dark .av-group-color-input {
+  background:#14181E!important;
+}
+html.asr-dark .av-save-btn,
+html.asr-dark .av-save-order-btn {
+  background:#FFA048!important;
+  color:#fff!important;
+  box-shadow:0 12px 28px rgba(255,160,72,.16)!important;
+}
+html.asr-dark .av-restore {
+  background:rgba(22,163,74,.14)!important;
+  border-color:rgba(74,222,128,.34)!important;
+  color:#86EFAC!important;
+}
+html.asr-dark .av-mini-btn {
+  background:rgba(255,160,72,.12)!important;
+  border-color:rgba(255,160,72,.38)!important;
+  color:#FDBA74!important;
+}
+html.asr-dark .av-mini-btn:hover {
+  background:#FFA048!important;
+  border-color:#FFA048!important;
+  color:#fff!important;
+}
+html.asr-dark .av-individual-user.is-selected {
+  background:rgba(255,160,72,.12)!important;
+  border-color:rgba(255,160,72,.45)!important;
+  color:#FDBA74!important;
+}
+
+/* Fix 2026-05-30 v5: automatic payment indicator and modal controls */
+.av-auto-payment-options.hidden{display:none!important}
+.av-resource-head .av-payment-indicator.is-auto-payment{
+  background:#f0fdf4!important;
+  border-color:#bbf7d0!important;
+  color:#15803d!important;
+}
+.av-resource-head .av-payment-indicator.is-auto-payment:hover{
+  background:#22c55e!important;
+  border-color:#22c55e!important;
+  color:#fff!important;
+}
+html.asr-dark .av-auto-payment-options{
+  background:#202630!important;
+  border-color:#2B313A!important;
+}
+html.asr-dark .av-resource-head .av-payment-indicator.is-auto-payment,
+html.asr-dark .av-payment-indicator.is-auto-payment{
+  background:rgba(34,197,94,.16)!important;
+  border-color:rgba(74,222,128,.42)!important;
+  color:#86EFAC!important;
+}
+html.asr-dark .av-resource-head .av-payment-indicator.is-auto-payment:hover,
+html.asr-dark .av-payment-indicator.is-auto-payment:hover{
+  background:#22c55e!important;
+  border-color:#22c55e!important;
+  color:#fff!important;
+}
+
+/* Step 2: local SVG icons inside Access Vault only. No PHP helpers, no global dependencies. */
+.av-svg-icon{
+  width:18px;
+  height:18px;
+  display:block;
+  object-fit:contain;
+  pointer-events:none;
+  flex:0 0 auto;
+}
+.av-svg-icon--sm{width:18px;height:18px;}
+.av-svg-icon--md{width:20px;height:20px;}
+.av-more-btn .av-svg-icon,
+.av-payment-indicator .av-svg-icon,
+.av-eye .av-svg-icon,
+.av-drag-handle .av-svg-icon,
+.av-cred-flag .av-svg-icon,
+.av-delete-btn .av-svg-icon{
+  margin:0 auto;
+}
+.av-delete-btn{display:inline-flex;align-items:center;justify-content:center;}
+.av-cred-flag .av-svg-icon{width:18px;height:18px;}
+.av-payment-indicator.is-auto-payment .av-svg-icon{width:19px;height:19px;}
+html.asr-dark .av-svg-icon{
+  filter:brightness(0) invert(1) opacity(.88);
+}
+html.asr-dark .av-payment-indicator .av-svg-icon,
+html.asr-dark .av-issued-badge .av-svg-icon{
+  filter:brightness(0) saturate(100%) invert(79%) sepia(31%) saturate(979%) hue-rotate(333deg) brightness(102%) contrast(98%);
+}
+
+/* =========================================================
+   SVG icons correction after Step 2.
+   Important: this block must be appended to the full file,
+   not replace the whole access_vault.css.
+   ========================================================= */
+
+.admin-svg-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-block;
+  vertical-align: middle;
+  object-fit: contain;
+  flex: 0 0 auto;
+  opacity: 0.96;
+}
+
+.admin-svg-icon--sm {
+  width: 18px;
+  height: 18px;
+}
+
+.admin-svg-icon--md {
+  width: 20px;
+  height: 20px;
+}
+
+.resource-actions-btn img[src*="/assets/admin/icons/"],
+.credential-actions-btn img[src*="/assets/admin/icons/"],
+.payment-bell-btn img[src*="/assets/admin/icons/"],
+.payment-auto-btn img[src*="/assets/admin/icons/"],
+.credential-user-icon img[src*="/assets/admin/icons/"],
+.credential-lock-icon img[src*="/assets/admin/icons/"],
+.password-toggle-btn img[src*="/assets/admin/icons/"],
+.sort-handle img[src*="/assets/admin/icons/"],
+.modal-close img[src*="/assets/admin/icons/"] {
+  width: 20px;
+  height: 20px;
+  display: block;
+  max-width: none;
+  opacity: 0.96;
+}
+
+/* =========================================================
+   Icon size increase: +50% visual scale for new Access Vault SVG icons
+   ========================================================= */
+
+.av-svg-icon{
+  width:27px !important;
+  height:27px !important;
+}
+.av-svg-icon--sm{
+  width:27px !important;
+  height:27px !important;
+}
+.av-svg-icon--md{
+  width:30px !important;
+  height:30px !important;
+}
+
+.av-more-btn,
+.av-payment-indicator,
+.av-cred-flag,
+.av-delete-btn{
+  width:42px !important;
+  height:42px !important;
+  min-width:42px !important;
+}
+
+.av-eye,
+.av-drag-handle{
+  width:38px !important;
+  height:38px !important;
+  min-width:38px !important;
+}
+
+.av-more-btn .av-svg-icon,
+.av-payment-indicator .av-svg-icon,
+.av-eye .av-svg-icon,
+.av-drag-handle .av-svg-icon,
+.av-cred-flag .av-svg-icon,
+.av-delete-btn .av-svg-icon{
+  width:27px !important;
+  height:27px !important;
+}
+
+@media (max-width: 768px){
+  .av-svg-icon{
+    width:24px !important;
+    height:24px !important;
+  }
+  .av-svg-icon--sm{
+    width:24px !important;
+    height:24px !important;
+  }
+  .av-svg-icon--md{
+    width:26px !important;
+    height:26px !important;
+  }
+  .av-more-btn,
+  .av-payment-indicator,
+  .av-cred-flag,
+  .av-delete-btn{
+    width:40px !important;
+    height:40px !important;
+    min-width:40px !important;
+  }
+  .av-eye,
+  .av-drag-handle{
+    width:36px !important;
+    height:36px !important;
+    min-width:36px !important;
+  }
+}

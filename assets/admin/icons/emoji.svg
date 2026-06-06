@@ -1,0 +1,3 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="aa-icon-svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+<circle cx="12" cy="12" r="8" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9"/><circle cx="9" cy="10" r=".9" fill="var(--aa-icon-accent, #FFA048)"/><circle cx="15" cy="10" r=".9" fill="var(--aa-icon-accent, #FFA048)"/><path d="M8.5 14.3C9.4 15.5 10.6 16.1 12 16.1C13.4 16.1 14.6 15.5 15.5 14.3" stroke="var(--aa-icon-accent, #FFA048)" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9"/>
+</svg>

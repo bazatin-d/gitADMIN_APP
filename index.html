@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест Анализ силы руководителя</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" href="/favicon.ico">
+    <style>
+        body { 
+            font-family: 'Montserrat', sans-serif; 
+            background-color: transparent; 
+            color: #1f2937; 
+            margin: 0;
+            padding: 0;
+        }
+        body.full-screen {
+            background-image: url('/img4bitrix/grid_amo.png');
+            background-repeat: repeat;
+            background-color: #f3f4f6;
+        }
+        .answer-label input:checked + div { background-color: #ffa048; color: white; border-color: #ffa048; box-shadow: 0 4px 6px -1px rgba(255, 160, 72, 0.4); }
+        .answer-label div { transition: all 0.2s ease-in-out; }
+        .answer-label:hover div { border-color: #ffa048; }
+        select, input {
+            appearance: none;
+            outline: none !important;
+        }
+        select {
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23ffa048' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 0.75rem center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+        }
+        .screen { display: none; opacity: 0; transition: opacity 0.3s ease-in-out; }
+        .screen.active { display: block; opacity: 1; }
+        .progress-fill { transition: width 0.3s ease-in-out; }
+        
+        .main-card {
+            background: #ffffff;
+            border-radius: 24px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            margin: 10px;
+        }
+        body.in-iframe .main-card {
+            box-shadow: none;
+            margin: 0;
+            border-radius: 0;
+        }
+    </style>
+
+    <script type="text/javascript">
+        (function(m,e,t,r,i,k,a){
+            m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+            m[i].l=1*new Date();
+            for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+            k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+        })(window, document,'script','https://mc.yandex.ru/metrika/tag.js', 'ym');
+        ym(102609914, 'init', {webvisor:true, clickmap:true, referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+    </script>
+    <noscript><div><img src="https://mc.yandex.ru/watch/102609914" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+    </head>
+<body class="flex flex-col items-center justify-center min-h-screen">
+
+    <div class="w-full max-w-5xl main-card overflow-hidden relative">
+        
+        <div id="screen-intro" class="screen active p-6 sm:p-12">
+            <div class="text-center mb-10">
+                <h1 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">Пройдите тест</h1>
+                <p class="text-gray-500 text-lg">Заполните форму, и мы свяжемся с вами в ближайшее время</p>
+            </div>
+
+            <form id="intro-form" class="space-y-6 max-w-3xl mx-auto">
+                <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;" tabindex="-1">
+                    <label for="user-website">Сайт компании</label>
+                    <input type="text" id="user-website" name="website" autocomplete="off" tabindex="-1">
+                </div>
+                <input type="hidden" id="form-started-at" name="form_started_at" value="">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <input type="text" id="user-name" required class="w-full px-6 py-4 rounded-xl border-2 border-gray-100 focus:border-[#ffa048] transition-all text-lg placeholder-gray-300" placeholder="Ваше имя и фамилия*">
+                    <input type="email" id="user-email" required class="w-full px-6 py-4 rounded-xl border-2 border-gray-100 focus:border-[#ffa048] transition-all text-lg placeholder-gray-300" placeholder="E-mail*">
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <select id="user-gender" required class="w-full px-6 py-4 rounded-xl border-2 border-gray-100 focus:border-[#ffa048] transition-all bg-white text-gray-400 text-lg">
+                        <option value="" disabled selected>Пол*</option>
+                        <option value="Мужской">Мужской</option>
+                        <option value="Женский">Женский</option>
+                    </select>
+                    <select id="user-age" required class="w-full px-6 py-4 rounded-xl border-2 border-gray-100 focus:border-[#ffa048] transition-all bg-white text-gray-400 text-lg">
+                        <option value="" disabled selected>Возраст*</option>
+                        <option value="Младше 18 лет">Младше 18 лет</option>
+                        <option value="Старше 18 лет">Старше 18 лет</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <input type="tel" id="user-phone" required class="w-full px-6 py-4 rounded-xl border-2 border-gray-100 focus:border-[#ffa048] transition-all text-lg placeholder-gray-300" placeholder="Телефон*">
+                    <input type="text" id="user-city" required class="w-full px-6 py-4 rounded-xl border-2 border-gray-100 focus:border-[#ffa048] transition-all text-lg placeholder-gray-300" placeholder="Город*">
+                </div>
+
+                <select id="user-role" required class="w-full px-6 py-4 rounded-xl border-2 border-gray-100 focus:border-[#ffa048] transition-all bg-white text-gray-400 text-lg">
+                    <option value="" disabled selected>Моя роль в компании*</option>
+                    <option value="Я владелец/учредитель">Я владелец/учредитель</option>
+                    <option value="Я топ-менеджер">Я топ-менеджер</option>
+                    <option value="Я сотрудник вашего клиента">Я сотрудник вашего клиента</option>
+                    <option value="Просто прохожий">Просто прохожий</option>
+                </select>
+
+                <div class="flex flex-col md:flex-row items-center justify-between gap-8 pt-8 mt-4 border-t border-gray-50">
+                    <p class="text-xs text-gray-400 max-w-md text-center md:text-left leading-relaxed">
+                        Нажимая кнопку «Начать тест» вы соглашаетесь с нашим<br>
+                        <a id="agreement-link" href="/agreement.html" target="_blank" rel="noopener" class="text-[#ffa048] hover:underline font-semibold">Пользовательским соглашением и Политикой конфиденциальности</a>
+                    </p>
+                    <button type="submit" class="bg-[#ffa048] hover:bg-[#ff8f28] text-white font-extrabold py-4 px-12 rounded-xl shadow-lg transition-all text-lg uppercase tracking-wider w-full md:w-auto">
+                        Начать тест
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div id="screen-test" class="screen p-6 sm:p-12">
+            <div class="mb-8 sticky top-0 bg-white/95 backdrop-blur-sm z-10 pb-4 border-b border-gray-100">
+                <div class="flex justify-between items-end mb-4">
+                    <h2 class="text-2xl font-bold text-[#ffa048]">Вопросы <span id="q-range">1-20</span> из 200</h2>
+                    <span class="text-xs font-bold text-gray-300 uppercase">Страница <span id="current-page-num">1</span>/10</span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-2">
+                    <div id="progress-bar" class="bg-[#ffa048] h-2 rounded-full progress-fill" style="width: 10%"></div>
+                </div>
+            </div>
+
+            <div id="instruction-block" class="mb-10 p-8 bg-orange-50 border-l-[8px] border-[#ffa048] rounded-r-2xl hidden">
+                <h3 class="text-xl font-black text-[#ffa048] mb-6 uppercase">Перед началом прочитайте инструкции</h3>
+                <div class="text-sm text-gray-700 space-y-4 font-medium leading-relaxed">
+                    <p>1. Удостоверьтесь, что вы понимаете все вопросы: прочтите каждый вопрос столько раз, сколько необходимо. Если у вас есть какие-либо сомнения по поводу ответа, дайте ответ, который вам кажется наиболее верным.</p>
+                    <p>2. Не задерживайтесь на вопросах слишком долго. Как только вы поймёте смысл вопроса, ответьте на него и переходите к следующему.</p>
+                    <p>3. В ситуации, когда ответы на вопрос будут различаться в зависимости от того, относятся ли они к настоящему или к прошлому, выбирайте ответ, относящийся к настоящему времени.</p>
+                    <p>4. У каждого вопроса есть три колонки, в которых вы можете отмечать ваши ответы. Если вы делаете отметку в ячейке, где стоит символ «плюс» (+), это означает «несомненно да» или «в основном, да». Отметка в средней ячейке, в которой стоит вопросительный знак, означает «не уверен», «может быть», «не могу с уверенностью ответить ни да, ни нет». Если вы сделаете отметку в колонке, обозначенной символом «минус» (-), это будет означать «несомненно нет» или «главным образом, нет».</p>
+                </div>
+            </div>
+
+            <div id="questions-container" class="space-y-6"></div>
+
+            <div class="mt-12 flex flex-col sm:flex-row justify-between items-center gap-6 pt-8 border-t border-gray-100">
+                <button id="btn-prev" class="w-full sm:w-auto px-8 py-3 border-2 border-gray-200 text-gray-400 font-bold rounded-xl hover:bg-gray-50 transition-all hidden uppercase text-xs tracking-widest">Назад</button>
+                <div class="flex-grow text-center">
+                    <div id="error-message" class="text-red-500 font-bold hidden uppercase text-xs">Ответьте на все вопросы!</div>
+                </div>
+                <button id="btn-next" class="w-full sm:w-auto px-12 py-4 bg-[#ffa048] hover:bg-[#ff8f28] text-white font-black rounded-xl shadow-lg transition-all text-lg uppercase tracking-widest">Далее</button>
+            </div>
+        </div>
+
+        <div id="screen-finish" class="screen p-16 sm:p-24 text-center">
+            <div class="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-8">
+                <svg class="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+            <h2 class="text-4xl font-black text-gray-900 mb-8">Все получилось!</h2>
+            <p class="text-xl text-gray-400 mb-8 max-w-2xl mx-auto leading-relaxed">Теперь нам необходимо некоторое время, чтобы обработать ваш тест и сформировать график. Мы свяжемся с вами в самое ближайшее время!</p>
+        </div>
+
+    </div>
+
+    <script>
+        const QUESTIONS = ["Делаете ли вы необдуманные замечания или обвинения, о которых потом сожалеете?", "Остаётесь ли вы достаточно спокойны в то время, когда другие начинают терять самообладание?", "Просматриваете ли вы расписания движения поездов, телефонные справочники или словари просто ради удовольствия?", "Если вас попросят принять какое-то решение, может ли вас поколебать ваше чувство расположения или нерасположения по отношению к человеку, о котором идёт речь?", "Намереваетесь ли вы иметь не более двух детей в семье, даже если состояние вашего здоровья и уровень доходов позволят иметь больше детей?", "Бывает ли, что у вас иногда дёргается какая-то часть тела, даже если для этого нет никакого логического объяснения?", "Предпочитаете ли вы находиться в положении, когда вам не приходится отвечать за принятие решений?", "Считают ли другие люди ваши поступки непредсказуемыми?", "Считаете ли вы, что на социальное обеспечение должно расходоваться больше денежных средств?", "Сильно ли вас интересуют другие люди?", "Является ли ваш голос скорее монотонным, нежели гибким?", "Ждёте ли вы обычно, чтобы другой человек начал разговор?", "Вы с готовностью интересуетесь разговорами других людей?", "Помешает ли вам охотиться или ловить рыбу мысль о причинении боли животным или рыбам?", "Часто ли вы бываете импульсивны в своём поведении?", "Медленно ли вы говорите?", "Беспокоит ли вас обычно необходимость беречь здоровье?", "Бывает ли, что какое-нибудь неожиданное действие заставляет вас дёрнуться?", "Бываете ли вы обычно тактичны в своих требованиях к подчинённым, родственникам и ученикам?", "Считаете ли вы, что способны выдать ценное «мгновенное суждение»?", "Беспокоят ли вас до сих пор прошлые неудачи?", "Бывают ли у вас периоды повышенной активности, продолжающиеся несколько дней?", "Возмущают ли вас попытки других людей говорить вам, что вы должны делать?", "Трудно ли вам «откровенно в чём-то признаться и взять на себя вину»?", "Правда ли, что у вас скорее небольшой круг близких друзей, чем большое количество приятелей, с которыми можно просто поболтать?", "Является ли ваша жизнь постоянной борьбой за выживание?", "Часто ли вы напеваете или насвистываете просто ради удовольствия?", "Считают ли вас друзья сердечным, отзывчивым человеком?", "Вам больше нравится отдавать приказы, чем получать их?", "Доставляет ли вам удовольствие рассказывать свежие сплетни о своих знакомых?", "Согласились ли бы вы на «строгую дисциплину»?", "Сильно ли вас обеспокоила бы мысль о том, что надо начать что-то с нуля?", "Пытаетесь ли вы рассмешить других и заставить их улыбаться?", "Легко ли вам выражать свои эмоции?", "Воздерживаетесь ли вы от высказывания недовольства, если кто-то опоздал на встречу?", "Считают ли вас иногда человеком, который портит настроение другим?", "Считаете ли вы, что есть люди, которые явно недружелюбны по отношению к вам и «копают» под вас?", "Согласились бы вы признать, что были неправы, только ради того, чтобы «сохранить мир»?", "Правда ли, что есть всего несколько человек, которых вы любите по-настоящему?", "Правда ли, что вы редко бываете счастливы, если только для этого нет особой причины?", "Считаете ли вы нужным оправдывать свои действия, если кто-то указывает на ваши недостатки?", "Принимаете ли вы разумные меры предосторожности, чтобы избежать несчастных случаев?", "Нервничаете ли вы при мысли о том, что вам предстоит выступать перед аудиторией?", "Если бы вы увидели в магазине товар, на котором явно по ошибке проставлена более низкая цена, чем его настоящая цена, то попытались ли бы вы приобрести его по этой цене?", "Часто ли вы ощущаете, что люди смотрят на вас или говорят о вас за вашей спиной?", "Правда ли, что вы «вечно попадаете в неприятности»?", "Есть ли что-то, чего вы особенно боитесь или не любите?", "Правда ли, что вы предпочитаете быть зрителем, нежели участником соревнований?", "Легко ли вам непредвзято относиться к происходящему?", "Есть ли у вас чёткие устоявшиеся нормы поведения по отношению к членам своей семьи?", "Можете ли вы быть «заводилой» на вечеринке?", "Стали бы вы покупать вещь в кредит с надеждой, что сможете найти средства погасить этот кредит?", "Бывает ли так, что через некоторое время после того, как произошло что-нибудь неожиданное, например несчастный случай или другое неприятное происшествие, вы реагируете на это тем или иным образом?", "Правда ли, что вы скорее учитываете пользу для всех заинтересованных сторон, чем только личные интересы?", "Когда вы слушаете лектора, кажется ли вам иногда, что лектор говорит именно о вас?", "Редко ли посторонние шумы мешают вам сосредоточиться?", "Всегда ли вы в курсе повседневных дел?", "Можете ли вы уверенно запланировать что-нибудь за шесть месяцев вперёд и работать над выполнением этого?", "Считаете ли вы, что современная система «тюрем без решёток» обречена на неудачу?", "Есть ли у вас склонность к небрежности?", "Бывает ли у вас ощущение, что вам всё снится, что всё в жизни нереально?", "Быстро ли вы отходите от воздействия плохих новостей?", "Когда вы критикуете кого-нибудь, пытаетесь ли вы в то же самое время его подбодрить?", "Считают ли вас обычно «холодным» человеком?", "Думаете ли вы, что ваши мнения не настолько важны, чтобы сообщать их другим?", "Являетесь ли вы настолько уверенным в себе, что это иногда раздражает других?", "Держите ли вы в поле зрения те вещи, которые вы дали на время своим друзьям?", "Доставляет ли вам удовольствие деятельность, выбранная самостоятельно?", "Оказывает ли эмоциональная музыка сильное воздействие на вас?", "Правда ли, что вы полностью осуждаете человека из-за того, что он ваш соперник или оппонент по какому-то вопросу ваших с ним отношений?", "Часто ли вы «сидите и думаете» о смерти, болезни, боли и горе?", "Беспокоит ли вас мысль о потере собственного достоинства?", "Верно ли, что вы постоянно собираете вещи, которые «могут пригодиться»?", "Стали ли бы вы критиковать недостатки человека и указывать на отрицательные моменты в его характере или в его умении что-то делать?", "Открыто ли вы выражаете восхищение красивыми вещами?", "Бывает ли так, что вы отдаёте кому-либо вещи, которые, строго говоря, вам не принадлежат?", "Бурно ли вы приветствуете людей?", "Часто ли вы размышляете о неудачах в прошлом?", "Считают ли вас иногда властным человеком в ваших действиях и взглядах?", "Принимаете ли вы критику легко и без раздражения?", "Правда ли, что вас не беспокоит шум вдалеке, когда вы хотите отдохнуть?", "Склонны ли вы к ревности?", "Правда ли, что вы склонны откладывать дела на потом, а затем обнаруживаете, что уже слишком поздно?", "Верно ли, что вы предпочитаете следовать пожеланиям других, вместо того чтобы делать по-своему?", "Легко ли вам начать выполнение нового дела?", "Есть ли у вас привычка грызть ногти или кончик карандаша?", "Преувеличиваете ли вы иногда свои эмоции только ради того, чтобы произвести впечатление?", "Если бы ваша страна вторглась в другую страну, то сочувствовали бы вы тем её гражданам, которые отказались от военной службы по политическим или религиозно-этическим убеждениям?", "Есть ли такие вещи, касающиеся вас, затрагивание которых вызывает вашу болезненную реакцию?", "Правда ли, что у вас немного интересов и видов деятельности, которыми вы занимаетесь по собственному предпочтению?", "Бывает ли так, что у вас появляется мысль, которая не оставляет вас несколько дней?", "Медленно ли вы едите?", "Можете ли вы оказать стабилизирующее воздействие, когда другие начинают паниковать?", "Остановитесь ли вы и попытаетесь ли узнать, нужна ли человеку помощь, даже если он вас не попросил об этом?", "Склонны ли вы думать, что ваша школа, институт, клуб, команда и т.д. лучше других?", "Оплачиваете ли вы свои долги и сдерживаете ли вы свои обещания, если возможно?", "Хорошо ли вы спите?", "Накажете ли вы физически ребёнка, которому 10 лет, если он откажется вас слушаться?", "Предпочитаете ли вы занимать пассивную позицию в группе или организации, к которой вы принадлежите?", "Присутствует ли логика и научный подход в вашем образе мыслей?", "Верно ли, что у современной молодёжи больше возможностей, чем у молодёжи предыдущего поколения?", "Бывает ли так, что вы выбрасываете свои вещи, а потом обнаруживаете, что они вам нужны?", "Легко ли вы откажетесь от выбранного направления действий, если оно причиняет вам значительные затруднения?", "Верно ли, что вас сильно увлекают только некоторые определённые предметы?", "Правда ли, что вы редко питаете подозрение к поступкам других людей?", "Верно ли, что вы иногда спрашиваете себя о том, заботится ли о вас кто-то по-настоящему?", "Отказываетесь ли вы от ответственности за что-либо, потому что сомневаетесь, что можете с этим справиться?", "Кажется ли вам иногда, что вы вынуждены иногда повторять несколько раз какую-то пикантную новость или что-то интересное?", "Склонны ли вы преувеличивать обоснованную обиду?", "Правда ли, что выражение вашего лица изменчивое, а не застывшее?", "Нуждаетесь ли вы обычно в подтверждении или поддержке высказанного вами мнения?", "Правда ли, что вы открыто и искренне восхищаетесь красотой других людей?", "Нужно ли вам сделать определённое усилие, чтобы подумать о самоубийстве?", "Считаете ли вы себя энергичным в своём отношении к жизни?", "Может ли расхождение во мнениях повлиять на ваши отношения с другим человеком?", "Правда ли, что ваши незначительные неудачи редко вас беспокоят?", "Кажется ли вам иногда, что вы говорите слишком много?", "Часто ли вы улыбаетесь?", "Легко ли вам доставить удовольствие?", "Когда вы встречаете открытое сопротивление, то попытаетесь ли вы всё-таки сделать по-своему или настоять на своём?", "Если расстояние не слишком большое, предпочтёте ли вы ехать на транспорте, нежели идти пешком?", "Беспокоит ли вас когда-нибудь шум ветра или «осаживающегося дома»?", "Принимаете ли вы во внимание свой жизненный опыт, профессию или образование при формировании своих мнений?", "Часто ли вы совершаете грубые бестактные ошибки?", "Относитесь ли вы с подозрением к тем людям, которые просят у вас денег взаймы?", "Влияют ли на ваши решения ваши личные интересы?", "Можете ли вы прийти в полный восторг от какой-нибудь «простой мелочи»?", "Часто ли вы предпринимаете действия, даже если ваш здравый смысл говорит вам поступать иначе?", "Являетесь ли вы сторонником разделения людей по цвету кожи и классовой принадлежности?", "Есть ли у вас такие привычки, как поглаживание волос, носа, ушей и т.п.?", "Можете ли вы быстро приспособиться и воспользоваться новыми условиями и ситуациями, даже если они окажутся трудными?", "Вызывают ли у вас некоторые звуки физически неприятные ощущения?", "Можете ли вы понять точку зрения другого человека, если захотите?", "Вы ложитесь спать скорее когда хотите, нежели «по часам»?", "Выходите ли вы из себя по поводу «мелких недостатков» других людей?", "Раздражают ли вас дети?", "Вы менее разговорчивы, чем ваши знакомые?", "Выполняете ли вы обычно поручения быстро и систематично?", "Окажете ли вы помощь попутчику вместо того, чтобы предоставить это официальным лицам?", "Когда вы голосуете, голосуете ли вы всегда за одну и ту же партию, в противоположность тому, чтобы изучать кандидатов и их предвыборные программы?", "Часто ли вы размышляете о своих прошлых болезнях или болезненных переживаниях?", "Становится ли вам не по себе, если вокруг беспорядок?", "Критикуете ли вы обычно фильм или спектакль, который смотрите, или книгу, которую читаете?", "Рассказывая какой-нибудь забавный случай, легко ли вы можете подражать манерам или речи участников этого случая?", "Считаете ли вы своё мнение достаточно важным, чтобы высказывать его другим людям в той области, где вы не являетесь специалистом?", "Стремитесь ли вы прибрать в чужом доме, если там беспорядок?", "Можете ли вы легко принять поражение, не испытывая чувство досады?", "Часто ли вы чувствуете себя подавленным?", "Бывает ли вам неловко в обществе детей?", "Если вы не можете что-то сделать, то будете ли вы нервничать, нежели искать замену этой деятельности или системе?", "Бываете ли вы иногда полностью неспособным постичь суть вещей?", "Редко ли вы высказываетесь о своём недовольстве?", "Работаете ли вы «рывками», то есть имеет ли место такое, что вы бываете относительно пассивны, а затем — чрезвычайно активны в течение одного-двух дней?", "Беспокоит ли вас количество незавершённых текущих дел, которые у вас есть?", "Нравится ли людям быть в вашем обществе?", "Могли бы вы позволить человеку отгадать последние слова в кроссворде, не вмешиваясь?", "Считаетесь ли вы с лучшими сторонами большинства людей, лишь редко отзываясь о них неуважительно?", "Охотно ли вы смеётесь или улыбаетесь?", "Являются ли ваш голос и манеры выразительными?", "Проявления ли вы свою несдержанность только по отношению к близким друзьям, если вы вообще её проявляете?", "Представляют ли ваши интересы и области знаний такую важность, что оставляют вам мало времени для чего-либо другого?", "Хотелось бы вам «начать новое дело» в том месте, где вы живёте?", "Можете ли вы убить животное, если это необходимо, чтобы избавить его от боли?", "Легко ли вам расслабиться?", "Правда ли, что вы мало сожалеете о прошлых невзгодах и неудачах?", "Вызывают ли у вас физическую реакцию мрачные предчувствия или страшные мысли?", "Можете ли вы положиться на то, что подсказывает вам ваш здравый смысл в эмоциональной ситуации, в которую вы попали?", "Мог бы кто-то ещё считать вас по-настоящему активным человеком?", "Трудно ли вам приступить к делу, которое необходимо выполнить?", "Являетесь ли вы противником системы испытательных сроков для преступников?", "Много ли времени вы тратите на беспокойство по пустякам?", "Трудно ли вам понять во время спора, почему другой человек не может принять вашу точку зрения и, таким образом, согласиться с вами?", "Достаточно ли хорошо вы справляетесь с проблемами повседневной жизни?", "Правдивы ли вы обычно с окружающими?", "Предпочитаете ли вы ждать развития событий, вместо того чтобы начать действовать самому?", "Тратите ли вы свои деньги слишком беззаботно, если принимать во внимание ваши заработки?", "Способны ли вы пойти на «обоснованный риск» без излишних волнений?", "Если бы вы попали в незначительную автомобильную аварию, потрудились ли бы вы позаботиться о том, чтобы ущерб, нанесённый вами, был возмещён?", "Помыкают ли вами другие люди?", "Проявляете ли вы снисходительность к своим друзьям в тех случаях, когда к другим вы бы отнеслись более строго?", "Часто ли вы размышляете о своей неполноценности?", "Бывает ли так, что люди критикуют вас в разговоре с другими людьми?", "Смущают ли вас проявления сердечности при встрече, такие как поцелуй, крепкое объятие, похлопывание по спине, если это происходит на людях?", "Часто ли вам приходится не делать того, что хотелось бы, из-за желаний других людей?", "Бываете ли вы иногда убеждены в правильности своего мнения о предмете, даже если вы не являетесь специалистом в нём?", "Часто ли вы оказываетесь в ситуации, когда вам приходится «заниматься всеми делами одновременно»?", "Имеют ли ваши знакомые более высокое мнение о ваших способностях, чем вы сами?", "Ужасает ли вас мысль о смерти или даже напоминание о ней?", "Продолжаете ли вы какое-то время чувствовать раздражение после разрешения спора?", "Дружелюбны ли ваш голос, выражение лица и отношение к другим?", "Кажется ли вам жизнь нереальной и довольно туманной?", "Часто ли вы расстраиваетесь из-за судьбы жертв войны и политических беженцев?", "Обращаются ли к вам за помощью или за советом просто знакомые со своими личными проблемами?", "Если вы теряете какую-то вещь, приходит ли вам в голову мысль о том, что «кто-то, должно быть, украл её или положил не туда»?", "Если бы вы подумали, что кто-то с подозрением относится к вам и вашим действиям, вы бы предпочли открыто обсудить с ним это, а не оставить ему разобраться во всём самому?", "Чувствуете ли вы, что ваш возраст работает против вас (что вы слишком молоды или слишком стары)?", "Бывают ли у вас периоды грусти и подавленности без видимой причины?", "Часто ли вы ворчите об условиях жизни, с которыми вам приходится сталкиваться?", "Склонны ли вы скрывать свои чувства?", "Считаете ли вы, что у вас много сердечных друзей?"];
+        let state = {
+            user: {},
+            currentPage: 1,
+            answers: new Array(200).fill(null),
+            test_id: null,
+            token: null,
+            resume_url: null
+        };
+        let utmStringGlobal = 'Нет';
+        let isSavingProgress = false;
+        const formStartedAt = Date.now();
+
+        const introForm = document.getElementById('intro-form');
+        const questionsContainer = document.getElementById('questions-container');
+        const btnNext = document.getElementById('btn-next');
+        const btnPrev = document.getElementById('btn-prev');
+        const errorMessage = document.getElementById('error-message');
+
+        async function loadPublicSettings() {
+            try {
+                const response = await fetch('public_settings.php', { cache: 'no-store' });
+                if (!response.ok) return;
+                const data = await response.json();
+                const agreementUrl = (data && data.agreement_url ? String(data.agreement_url).trim() : '');
+                const agreementLink = document.getElementById('agreement-link');
+                if (agreementUrl && agreementLink) {
+                    agreementLink.href = agreementUrl;
+                }
+            } catch (error) {
+                // Если настройки недоступны, остаётся ссылка по умолчанию из HTML.
+            }
+        }
+
+        const isInIframe = window.self !== window.top;
+        if (isInIframe) {
+            document.body.classList.add('in-iframe');
+        } else {
+            document.body.classList.add('full-screen');
+        }
+
+        window.onload = async () => {
+            await loadPublicSettings();
+            const urlParams = new URLSearchParams(window.location.search);
+            collectUtm(urlParams);
+
+            if (urlParams.has('resume')) {
+                await loadResume(urlParams.get('resume'));
+                return;
+            }
+
+            const startedAtInput = document.getElementById('form-started-at');
+            if (startedAtInput) {
+                startedAtInput.value = String(formStartedAt);
+            }
+
+            if (urlParams.has('name')) {
+                state.user = {
+                    name: urlParams.get('name') || '',
+                    email: urlParams.get('email') || '',
+                    phone: urlParams.get('phone') || '',
+                    city: urlParams.get('city') || '',
+                    gender: urlParams.get('gender') || '',
+                    age: urlParams.get('age') || '',
+                    role: urlParams.get('role') || '',
+                    utm: urlParams.get('utm') || utmStringGlobal,
+                    website: urlParams.get('website') || '',
+                    form_started_at: urlParams.get('form_started_at') || ''
+                };
+                await startDraftAndOpenTest();
+            }
+        };
+
+        function collectUtm(urlParams) {
+            const utms = [];
+            ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'].forEach(param => {
+                if (urlParams.has(param)) {
+                    utms.push(param + '=' + urlParams.get(param));
+                }
+            });
+            if (utms.length > 0) {
+                utmStringGlobal = utms.join(' | ');
+            }
+        }
+
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            setTimeout(() => {
+                document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
+                const next = document.getElementById(id);
+                next.style.display = 'block';
+                setTimeout(() => next.classList.add('active'), 50);
+                window.parent.postMessage('scrollToTop', '*');
+            }, 300);
+        }
+
+        function setSavingMode(isSaving) {
+            isSavingProgress = isSaving;
+            btnNext.disabled = isSaving;
+            btnNext.classList.toggle('opacity-60', isSaving);
+            btnNext.classList.toggle('cursor-wait', isSaving);
+        }
+
+        function showInlineError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+            window.parent.postMessage('scrollToTop', '*');
+        }
+
+        async function postJson(url, payload) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json().catch(() => null);
+            if (!response.ok || !data || data.status === 'error') {
+                throw new Error((data && data.message) ? data.message : 'Ошибка соединения с сервером');
+            }
+            return data;
+        }
+
+        async function startDraftAndOpenTest() {
+            try {
+                setSavingMode(true);
+                const data = await postJson('save_progress.php', {
+                    action: 'start',
+                    user: state.user
+                });
+
+                state.test_id = data.id;
+                state.token = data.token;
+                state.resume_url = data.resume_url;
+                state.currentPage = 1;
+                state.answers = new Array(200).fill(null);
+
+                showScreen('screen-test');
+                renderPage();
+            } catch (error) {
+                alert('Не удалось начать тест: ' + error.message);
+            } finally {
+                setSavingMode(false);
+            }
+        }
+
+        async function saveCurrentProgress(nextPage) {
+            if (!state.test_id || !state.token) return;
+
+            await postJson('save_progress.php', {
+                action: 'page',
+                test_id: state.test_id,
+                token: state.token,
+                current_page: nextPage,
+                user: state.user,
+                answers: state.answers
+            });
+        }
+
+        async function loadResume(token) {
+            try {
+                const response = await fetch('resume_test.php?token=' + encodeURIComponent(token));
+                const data = await response.json().catch(() => null);
+
+                if (!response.ok || !data || data.status === 'error') {
+                    throw new Error((data && data.message) ? data.message : 'Не удалось загрузить тест');
+                }
+
+                if (data.status === 'completed') {
+                    alert('Этот тест уже завершён. Повторно продолжать его не нужно.');
+                    return;
+                }
+
+                state.user = data.user || {};
+                state.test_id = data.id;
+                state.token = data.token;
+                state.resume_url = window.location.origin + window.location.pathname + '?resume=' + encodeURIComponent(data.token);
+                state.answers = Array.isArray(data.answers) ? data.answers.slice(0, 200) : new Array(200).fill(null);
+                while (state.answers.length < 200) state.answers.push(null);
+                state.currentPage = Math.min(10, Math.max(1, parseInt(data.current_page || 1, 10)));
+
+                showScreen('screen-test');
+                renderPage();
+            } catch (error) {
+                alert('Не удалось открыть продолжение теста: ' + error.message);
+            }
+        }
+
+        introForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const userData = {
+                name: document.getElementById('user-name').value,
+                email: document.getElementById('user-email').value,
+                phone: document.getElementById('user-phone').value,
+                city: document.getElementById('user-city').value,
+                gender: document.getElementById('user-gender').value,
+                age: document.getElementById('user-age').value,
+                role: document.getElementById('user-role').value,
+                utm: utmStringGlobal,
+                website: document.getElementById('user-website').value,
+                form_started_at: document.getElementById('form-started-at').value || String(formStartedAt)
+            };
+
+            if (isInIframe) {
+                const params = new URLSearchParams(userData).toString();
+                window.top.location.href = window.location.origin + window.location.pathname + '?' + params;
+                return;
+            }
+
+            state.user = userData;
+            await startDraftAndOpenTest();
+        });
+
+        function renderPage() {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            questionsContainer.innerHTML = '';
+            document.getElementById('instruction-block').classList.toggle('hidden', state.currentPage !== 1);
+            errorMessage.classList.add('hidden');
+            errorMessage.textContent = 'Ответьте на все вопросы!';
+
+            const start = (state.currentPage - 1) * 20;
+            const end = start + 20;
+            document.getElementById('q-range').textContent = `${start + 1}-${end}`;
+            document.getElementById('current-page-num').textContent = state.currentPage;
+            document.getElementById('progress-bar').style.width = `${(state.currentPage / 10) * 100}%`;
+
+            btnPrev.classList.toggle('hidden', state.currentPage === 1);
+            btnNext.textContent = state.currentPage === 10 ? 'Завершить тест' : 'Далее';
+
+            for (let i = start; i < end; i++) {
+                const qDiv = document.createElement('div');
+                qDiv.className = 'p-8 bg-gray-50 rounded-3xl border border-gray-100 shadow-sm';
+                qDiv.innerHTML = `
+                    <p class="text-lg font-bold mb-6 text-gray-800 leading-snug"><span class="text-[#ffa048] mr-2 font-black text-xl">${i+1}.</span>${QUESTIONS[i]}</p>
+                    <div class="grid grid-cols-3 gap-4">
+                        ${['+', '?', '-'].map(v => `
+                            <label class="answer-label cursor-pointer text-center group">
+                                <input type="radio" name="q${i}" value="${v}" class="hidden" ${state.answers[i] === v ? 'checked' : ''} onchange="state.answers[${i}]='${v}'; updateErrorStatus()">
+                                <div class="py-4 border-2 border-gray-100 rounded-xl text-2xl font-black bg-white group-hover:border-[#ffa048] transition-all text-gray-400 group-hover:text-[#ffa048]">${v}</div>
+                            </label>
+                        `).join('')}
+                    </div>`;
+                questionsContainer.appendChild(qDiv);
+            }
+        }
+
+        window.updateErrorStatus = () => {
+            const start = (state.currentPage - 1) * 20;
+            if (!state.answers.slice(start, start + 20).includes(null)) {
+                errorMessage.classList.add('hidden');
+            }
+        }
+
+        btnNext.onclick = async () => {
+            if (isSavingProgress) return;
+
+            const start = (state.currentPage - 1) * 20;
+            if (state.answers.slice(start, start + 20).includes(null)) {
+                showInlineError('Ответьте на все вопросы!');
+                return;
+            }
+
+            try {
+                setSavingMode(true);
+
+                if (state.currentPage < 10) {
+                    const nextPage = state.currentPage + 1;
+                    await saveCurrentProgress(nextPage);
+                    state.currentPage = nextPage;
+                    renderPage();
+                    window.parent.postMessage('scrollToTop', '*');
+                } else {
+                    await finishTest();
+                }
+            } catch (error) {
+                showInlineError('Не удалось сохранить ответы. Проверьте интернет и нажмите кнопку ещё раз.');
+                console.error(error);
+            } finally {
+                setSavingMode(false);
+            }
+        };
+
+        btnPrev.onclick = () => {
+            if (isSavingProgress || state.currentPage <= 1) return;
+            state.currentPage--;
+            renderPage();
+            window.parent.postMessage('scrollToTop', '*');
+        };
+
+        async function finishTest() {
+            const data = await postJson('save.php', {
+                user: state.user,
+                answers: state.answers,
+                test_id: state.test_id,
+                token: state.token
+            });
+
+            if (typeof ym === "function") {
+                ym(102609914, 'reachGoal', 'test_finished');
+            }
+
+            showScreen('screen-finish');
+            return data;
+        }
+    </script>
+</body>
+</html>
