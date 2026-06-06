@@ -615,6 +615,17 @@ function NodeShell({id, data, isStart}) {
       buttons.length ? React.createElement('div', {className: 'tg-flow-preview-buttons'}, buttons.map(renderButton)) : null
     );
   };
+  const deeplinkText = String((data && (data.deeplinkUrl || data.deeplinkCode)) || '').trim();
+  const showDeeplink = !isStart && !isDelay && !!deeplinkText;
+  const copyDeeplink = (event) => {
+    stop(event);
+    if (!deeplinkText) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(deeplinkText).then(() => showFlowToast('Диплинк скопирован.', 'success')).catch(() => showFlowToast(deeplinkText, 'success'));
+    } else {
+      showFlowToast(deeplinkText, 'success');
+    }
+  };
   return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
     !isStart && React.createElement(Handle, {id: 'in', type: 'target', position: Position.Left, className: 'tg-flow-in-handle', isConnectable: true}),
     React.createElement('div', {className: 'tg-flow-node-head'},
@@ -648,7 +659,11 @@ function NodeShell({id, data, isStart}) {
         React.createElement('span', {className: 'tg-flow-node-muted'}, isStart ? 'Начало сценария' : 'Следующий шаг'),
         React.createElement(Handle, {id: 'out', type: 'source', position: Position.Right, className: 'tg-flow-main-out-handle', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'out')})
       )
-    )
+    ),
+    showDeeplink ? React.createElement('div', {className: 'tg-flow-node-deeplink', title: 'Нажмите, чтобы скопировать диплинк', onClick: copyDeeplink},
+      'Диплинк',
+      React.createElement('span', null, deeplinkText)
+    ) : null
   );
 }
 function StartNode(props) { return React.createElement(NodeShell, {...props, isStart: true}); }

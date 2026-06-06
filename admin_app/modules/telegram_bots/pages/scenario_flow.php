@@ -818,6 +818,10 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 .tg-flow-gear-menu a.tg-flow-gear-link{width:100%;min-height:44px;border:0;background:#fff;border-radius:13px;padding:10px 12px;display:flex;align-items:center;justify-content:flex-start!important;gap:11px;color:#374151;font-size:14px;font-weight:500!important;text-align:left!important;text-decoration:none;box-sizing:border-box}.tg-flow-gear-menu a.tg-flow-gear-link:hover{background:#fff7ed;color:#9a5a1f}.tg-flow-gear-menu .tg-flow-gear-disabled{width:100%;min-height:44px;border:0;background:#fff;border-radius:13px;padding:10px 12px;display:flex;align-items:center;justify-content:flex-start!important;gap:11px;color:#b8c0cc;font-size:14px;font-weight:500!important;text-align:left!important;box-sizing:border-box}
 .tg-step-native{display:none!important}.tg-step-picker{position:relative;width:100%;text-align:left!important}.tg-step-picker *{box-sizing:border-box}.tg-step-picker-btn{width:100%;min-height:46px;border:1px solid #e5e7eb;background:#fff;border-radius:16px;padding:11px 42px 11px 14px;color:#374151;font-size:14px;font-weight:500!important;text-align:left!important;cursor:pointer;position:relative;justify-content:flex-start!important}.tg-step-picker-btn:after{content:'⌄';position:absolute;right:15px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:18px}.tg-step-picker.is-open .tg-step-picker-btn{border-color:#FFA048;box-shadow:0 0 0 3px rgba(255,160,72,.14)}.tg-step-picker-panel{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:6200;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 22px 55px rgba(15,23,42,.18);padding:10px;text-align:left!important}.tg-step-picker.is-open .tg-step-picker-panel{display:block}.tg-step-picker-search{width:100%;border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px;margin-bottom:8px;color:#374151;font-size:14px;font-weight:400!important;outline:none;text-align:left!important}.tg-step-picker-search:focus{border-color:#FFA048;box-shadow:0 0 0 3px rgba(255,160,72,.12)}.tg-step-picker-list{max-height:260px;overflow:auto;display:grid;gap:4px;text-align:left!important}.tg-step-picker-option{width:100%;border:0;background:#fff;border-radius:12px;padding:10px 12px!important;text-align:left!important;color:#374151;font-size:14px;font-weight:400!important;line-height:1.35;cursor:pointer;display:block!important;white-space:normal}.tg-step-picker-option:hover,.tg-step-picker-option.is-selected{background:#fff7ed;color:#9a5a1f}.tg-step-picker-empty{padding:12px;color:#9ca3af;font-size:13px;font-weight:400!important;text-align:left!important}
 
+
+/* v3.5.127: restore visible deeplink under message blocks */
+.tg-flow-node-deeplink{display:block!important;text-align:left!important;user-select:text}.tg-flow-node.is-delay .tg-flow-node-deeplink,.tg-flow-node.is-start .tg-flow-node-deeplink{display:none!important}
+
 </style>
 
 <div class="tg-flow-app">
@@ -1052,7 +1056,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 <script>
 (function(){
   window.__tgScenarioFlowBoot = {
-    version: '3.5.123',
+    version: '3.5.127',
     started: false,
     nodes: <?php echo (int)count($nodes); ?>,
     edges: <?php echo (int)count($edges); ?>
@@ -1064,7 +1068,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     errorEl.style.display = 'block';
     var p = errorEl.querySelector('p');
     var msg = event && event.message ? event.message : 'неизвестная ошибка JS';
-    if (p) p.textContent = 'Ошибка запуска React Flow: ' + msg + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.123.';
+    if (p) p.textContent = 'Ошибка запуска React Flow: ' + msg + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.127.';
   }, true);
   window.addEventListener('unhandledrejection', function(event){
     if (window.__tgScenarioFlowBoot && window.__tgScenarioFlowBoot.started) return;
@@ -1073,7 +1077,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     errorEl.style.display = 'block';
     var reason = event.reason && (event.reason.message || String(event.reason));
     var p = errorEl.querySelector('p');
-    if (p) p.textContent = 'Не загрузился JS-модуль редактора: ' + (reason || 'неизвестная ошибка') + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.123.';
+    if (p) p.textContent = 'Не загрузился JS-модуль редактора: ' + (reason || 'неизвестная ошибка') + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.127.';
   });
   setTimeout(function(){
     if (window.__tgScenarioFlowBoot && window.__tgScenarioFlowBoot.started) return;
@@ -1081,7 +1085,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     if (!errorEl) return;
     errorEl.style.display = 'block';
     var p = errorEl.querySelector('p');
-    if (p) p.textContent = 'React Flow-скрипт не стартовал. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия патча: 3.5.123.';
+    if (p) p.textContent = 'React Flow-скрипт не стартовал. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия патча: 3.5.127.';
   }, 2200);
 })();
 </script>
@@ -1093,7 +1097,7 @@ const errorEl = document.getElementById('tg-scenario-flow-error');
 if (errorEl) {
   errorEl.style.display = 'block';
   const p = errorEl.querySelector('p');
-  if (p) p.textContent = 'Файл scenario-flow-cdn.js не найден на сервере. Проверьте путь admin_app/modules/telegram_bots/scenario_flow/dist/scenario-flow-cdn.js. Версия патча: 3.5.123.';
+  if (p) p.textContent = 'Файл scenario-flow-cdn.js не найден на сервере. Проверьте путь admin_app/modules/telegram_bots/scenario_flow/dist/scenario-flow-cdn.js. Версия патча: 3.5.127.';
 }
 console.error('Scenario Flow script file not found');
 <?php endif; ?>
