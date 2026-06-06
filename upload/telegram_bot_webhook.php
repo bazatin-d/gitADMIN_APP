@@ -227,17 +227,7 @@ try {
     $rawBody = $rawBody === false ? '' : $rawBody;
     $headerSecret = (string)($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? '');
     asr_tg_handle_webhook($pdo, $botId, $secret, $rawBody, $headerSecret);
-
-    // Runtime v0.2.1b: wrapper запускаем только если штатный обработчик не смог запустить сценарий.
-    // Иначе команда меню может сработать дважды: первый раз правильно, второй раз — с начала сценария.
-    if (empty($GLOBALS['asr_tg_runtime_started_in_request'])) {
-        asr_tg_webhook_runtime_fallback($pdo, $botId, $rawBody);
-    } else {
-        try {
-            asr_tg_log($pdo, $botId, 'info', 'webhook_wrapper_skipped_after_runtime', 'Webhook wrapper не запускался: сценарий уже обработан штатным runtime.', $GLOBALS['asr_tg_runtime_started_in_request']);
-        } catch (Throwable $ignored) {}
-    }
-
+    asr_tg_webhook_runtime_fallback($pdo, $botId, $rawBody);
     echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     if (isset($pdo) && $pdo instanceof PDO) {

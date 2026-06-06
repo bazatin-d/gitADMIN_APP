@@ -182,6 +182,12 @@ function syncStepPickersFromFlowData(flowData) {
     });
     select.value = Array.from(select.options).some((option) => option.value === selected) ? selected : '0';
     select.dispatchEvent(new Event('change', {bubbles: true}));
+    const picker = select.nextElementSibling && select.nextElementSibling.classList && select.nextElementSibling.classList.contains('tg-step-picker') ? select.nextElementSibling : null;
+    const button = picker ? picker.querySelector('.tg-step-picker-btn') : null;
+    if (button) {
+      const selectedOption = select.options[select.selectedIndex];
+      button.textContent = selectedOption ? selectedOption.textContent : 'Сначала сценария';
+    }
   });
 }
 

@@ -158,6 +158,31 @@ function asr_tg_save_bot_commands_from_post(PDO $pdo, array $post): array {
     if (asr_tg_channel_type_of($bot) !== 'telegram') throw new RuntimeException('Меню команд доступно только для Telegram-каналов.');
 
     $commands = asr_tg_build_commands_from_post($post);
+
+    // Runtime v0.2.1b: жёстко проверяем привязку команды к выбранному шагу.
+    // Иначе команда из Telegram-меню может сохраниться как «сначала сценария» и запускать первый блок.
+    if ($commands) {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        foreach ($commands as &$commandItem) {
+            $scenarioId = (int)($commandItem['scenario_id'] ?? 0);
+            $stepId = (int)($commandItem['step_id'] ?? 0);
+            if ($stepId <= 0) continue;
+
+            $block = asr_tg_scenario_block_find($pdo, $stepId);
+            if (!$block) {
+                throw new InvalidArgumentException('Выбранный шаг для команды «/' . (string)($commandItem['command'] ?? '') . '» не найден. Откройте меню команд и выберите шаг заново.');
+            }
+
+            $blockScenarioId = (int)($block['scenario_id'] ?? 0);
+            if ($scenarioId <= 0) {
+                $commandItem['scenario_id'] = $blockScenarioId > 0 ? $blockScenarioId : null;
+            } elseif ($blockScenarioId > 0 && $blockScenarioId !== $scenarioId) {
+                throw new InvalidArgumentException('Выбранный шаг для команды «/' . (string)($commandItem['command'] ?? '') . '» относится к другому сценарию. Откройте меню команд и выберите шаг текущего сценария.');
+            }
+        }
+        unset($commandItem);
+    }
+
     asr_tg_bot_commands_replace($pdo, $botId, $commands);
     try { asr_tg_bot_commands_delete_reserved_start($pdo, $botId); } catch (Throwable $ignored) {}
 
@@ -2240,49 +2265,268 @@ function asr_tg_runtime_scenario_from_step(PDO $pdo, int $stepId): int {
     }
 }
 
+function asr_tg_runtime_button_rows_for_telegram(array $rows): array {
+    $out = [];
+    foreach ($rows as $row) {
+        if (!is_array($row)) $row = [$row];
+        $outRow = [];
+        foreach ($row as $btn) {
+            if (!is_array($btn)) continue;
+            $text = trim((string)($btn['text'] ?? $btn['title'] ?? ''));
+            if ($text === '') continue;
+            $item = [
+                'text' => mb_substr($text, 0, 64, 'UTF-8'),
+            ];
+            $url = trim((string)($btn['url'] ?? ''));
+            $targetBlockId = max(0, (int)($btn['target_block_id'] ?? $btn['target'] ?? 0));
+            if ($url !== '' && preg_match('#^https?://#i', $url)) {
+                $item['url'] = $url;
+            } elseif ($targetBlockId > 0) {
+                // Runtime v0.2.1 только выводит кнопки. Сам тихий переход по callback_query
+                // подключим следующим отдельным патчем, чтобы не ломать оживлённый /help.
+                $item['callback_data'] = 'scn_goto_' . $targetBlockId;
+            } else {
+                $item['callback_data'] = 'scn_noop';
+            }
+            $outRow[] = $item;
+            if (count($outRow) >= 4) break;
+        }
+        if ($outRow) $out[] = $outRow;
+        if (count($out) >= 8) break;
+    }
+    return $out;
+}
+
+
+function asr_tg_runtime_card_local_file_path(array $card): string {
+    $localPath = trim((string)($card['local_file_path'] ?? ''));
+    if ($localPath !== '' && is_file($localPath) && is_readable($localPath)) return $localPath;
+
+    $relative = trim((string)($card['media_file_path'] ?? ''));
+    if ($relative !== '' && function_exists('asr_tg_project_root_dir')) {
+        $candidate = rtrim(asr_tg_project_root_dir(), '/') . '/' . ltrim($relative, '/');
+        if (is_file($candidate) && is_readable($candidate)) return $candidate;
+    }
+
+    return '';
+}
+
+function asr_tg_runtime_media_items_count(array $items): int {
+    $count = 0;
+    foreach ($items as $item) {
+        if (!is_array($item)) continue;
+        $mediaUrl = trim((string)($item['media_url'] ?? $item['url'] ?? ''));
+        $relative = trim((string)($item['media_file_path'] ?? ''));
+        $localPath = trim((string)($item['local_file_path'] ?? ''));
+        if ($localPath === '' && $relative !== '' && function_exists('asr_tg_project_root_dir')) {
+            $candidate = rtrim(asr_tg_project_root_dir(), '/') . '/' . ltrim($relative, '/');
+            if (is_file($candidate) && is_readable($candidate)) $localPath = $candidate;
+        }
+        if ($mediaUrl !== '' || $localPath !== '') $count++;
+    }
+    return $count;
+}
+
+function asr_tg_runtime_question_answer_rows(array $card, int $blockId, int $cardIndex): array {
+    $answers = isset($card['answers']) && is_array($card['answers']) ? array_values($card['answers']) : [];
+    $rows = [];
+    $row = [];
+    foreach ($answers as $answerIndex => $answer) {
+        if (!is_array($answer)) continue;
+        $text = trim((string)($answer['text'] ?? $answer['title'] ?? ''));
+        if ($text === '') continue;
+        $targetBlockId = max(0, (int)($answer['target_block_id'] ?? 0));
+        $callback = $targetBlockId > 0
+            ? ('scn_goto_' . $targetBlockId)
+            : ('scn_answer_' . $blockId . '_' . $cardIndex . '_' . $answerIndex);
+        $row[] = [
+            'text' => mb_substr($text, 0, 64, 'UTF-8'),
+            'callback_data' => mb_substr($callback, 0, 64, 'UTF-8'),
+        ];
+        if (count($row) >= 2) {
+            $rows[] = $row;
+            $row = [];
+        }
+        if (count($rows) >= 8) break;
+    }
+    if ($row && count($rows) < 8) $rows[] = $row;
+    return $rows;
+}
+
+function asr_tg_runtime_prepare_card_for_send(PDO $pdo, array $card, array $subscriber, int $blockId, int $cardIndex): array {
+    $type = strtolower(trim((string)($card['type'] ?? 'text')));
+    if ($type === 'image') $type = 'photo';
+    if ($type === 'file') $type = 'document';
+    if ($type === 'voice') $type = 'audio';
+    if ($type === '') $type = 'text';
+
+    $rawText = asr_tg_runtime_card_text_to_telegram((string)($card['text'] ?? ''));
+    $text = $rawText !== '' ? asr_tg_render_subscriber_macros($pdo, $rawText, $subscriber) : '';
+    $plainText = asr_tg_runtime_plain_text($text);
+    $disablePreview = array_key_exists('disable_web_page_preview', $card) ? !empty($card['disable_web_page_preview']) : true;
+    $protectContent = !empty($card['protect_content']);
+    $buttons = [];
+
+    if ($type === 'question') {
+        $buttons = asr_tg_runtime_question_answer_rows($card, $blockId, $cardIndex);
+        // Telegram не принимает sendMessage с пустым text, даже если есть inline-кнопки.
+        // В редакторе карточка «Вопрос» может использоваться только как набор вариантов ответа,
+        // поэтому при пустом тексте даём безопасную короткую подпись вместо падения runtime после предыдущей карточки.
+        if (trim($plainText) === '' && $buttons) {
+            $text = 'Выберите вариант ответа:';
+            $plainText = 'Выберите вариант ответа:';
+        }
+        $type = 'text';
+    } else {
+        $buttons = asr_tg_runtime_button_rows_for_telegram((array)($card['buttons'] ?? []));
+    }
+
+    $runtimeCard = [
+        'type' => $type,
+        'text' => $text,
+        'parse_mode' => 'HTML',
+        'disable_web_page_preview' => $disablePreview,
+        'protect_content' => $protectContent,
+        'buttons' => $buttons,
+    ];
+
+    $mediaUrl = trim((string)($card['media_url'] ?? ''));
+    $localPath = asr_tg_runtime_card_local_file_path($card);
+    if ($mediaUrl !== '') $runtimeCard['media_url'] = $mediaUrl;
+    if ($localPath !== '') $runtimeCard['local_file_path'] = $localPath;
+    if (!empty($card['media_file_path'])) $runtimeCard['media_file_path'] = (string)$card['media_file_path'];
+    if (!empty($card['media_file_name'])) $runtimeCard['media_file_name'] = (string)$card['media_file_name'];
+
+    if ($type === 'gallery') {
+        $runtimeCard['gallery_items'] = isset($card['gallery_items']) && is_array($card['gallery_items']) ? array_values($card['gallery_items']) : [];
+    }
+
+    return [$runtimeCard, $plainText, $buttons];
+}
+
+function asr_tg_runtime_sent_message_id(array $sent): ?int {
+    $result = $sent['result'] ?? null;
+    if (is_array($result)) {
+        if (isset($result['message_id'])) return (int)$result['message_id'];
+        if (isset($result[0]) && is_array($result[0]) && isset($result[0]['message_id'])) return (int)$result[0]['message_id'];
+    }
+    return null;
+}
+
+function asr_tg_runtime_card_message_type(array $card): string {
+    $type = strtolower(trim((string)($card['type'] ?? 'text')));
+    if ($type === 'image') return 'photo';
+    if ($type === 'file') return 'document';
+    if ($type === 'gallery') return 'gallery';
+    if ($type === 'video_note') return 'video_note';
+    if ($type === 'question') return 'question';
+    if (in_array($type, ['photo','video','audio','document','voice'], true)) return $type;
+    return 'text';
+}
+
 function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block): bool {
     $token = asr_tg_decrypt_token((string)($bot['bot_token_encrypted'] ?? ''));
     if ($token === '') throw new RuntimeException('Не удалось расшифровать токен Telegram-канала.');
     $subscriber = asr_tg_subscriber_find($pdo, $subscriberId, $botId);
     if (!$subscriber) throw new RuntimeException('Подписчик не найден для выполнения сценария.');
     $cards = asr_tg_runtime_cards_from_block($pdo, $scenarioId, $block);
+    $blockId = (int)$block['id'];
+    $GLOBALS['asr_tg_runtime_last_message_waiting_question'] = null;
+
     if (!$cards) {
-        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, (int)$block['id'], 'runtime_message_empty', 'В блоке сообщения нет текстовых карточек для отправки.', [
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_message_empty', 'В блоке сообщения нет карточек для отправки.', [
             'has_settings_json' => trim((string)($block['settings_json'] ?? '')) !== '',
             'has_message_text' => trim((string)($block['message_text'] ?? '')) !== '',
         ]);
         return false;
     }
+
     $sentAny = false;
     foreach ($cards as $index => $card) {
         if (!is_array($card)) continue;
-        $type = (string)($card['type'] ?? 'text');
-        if ($type !== 'text') {
-            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, (int)$block['id'], 'runtime_card_skipped', 'Runtime v0.1 пока отправляет только текстовые карточки.', ['card_index' => $index, 'card_type' => $type]);
-            continue;
+        $originalType = strtolower(trim((string)($card['type'] ?? 'text')));
+        if ($originalType === '') $originalType = 'text';
+
+        [$runtimeCard, $plainText, $buttons] = asr_tg_runtime_prepare_card_for_send($pdo, $card, $subscriber, $blockId, (int)$index);
+        $runtimeType = (string)($runtimeCard['type'] ?? 'text');
+        $messageType = asr_tg_runtime_card_message_type($card);
+
+        if ($runtimeType === 'text') {
+            if (mb_strlen(trim($plainText), 'UTF-8') === 0 && !$buttons) continue;
+            if (mb_strlen($plainText, 'UTF-8') > 4096 || mb_strlen((string)$runtimeCard['text'], 'UTF-8') > 4096) {
+                throw new RuntimeException('Текст блока #' . $blockId . ' длиннее лимита Telegram 4096 символов.');
+            }
+        } elseif ($runtimeType === 'gallery') {
+            $items = (array)($runtimeCard['gallery_items'] ?? []);
+            $itemsCount = asr_tg_runtime_media_items_count($items);
+            if ($itemsCount <= 0) {
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_card_skipped', 'Галерея пропущена: не найдены картинки.', ['card_index' => $index, 'card_type' => $originalType]);
+                continue;
+            }
+            if ($itemsCount === 1) {
+                $single = [];
+                foreach ($items as $item) {
+                    if (is_array($item)) { $single = $item; break; }
+                }
+                $runtimeCard['type'] = 'photo';
+                $runtimeCard['media_url'] = (string)($single['media_url'] ?? $single['url'] ?? '');
+                $singleLocal = asr_tg_runtime_card_local_file_path($single);
+                if ($singleLocal !== '') $runtimeCard['local_file_path'] = $singleLocal;
+                $runtimeType = 'photo';
+                $messageType = 'photo';
+            }
+        } else {
+            $hasMedia = trim((string)($runtimeCard['media_url'] ?? '')) !== '' || trim((string)($runtimeCard['local_file_path'] ?? '')) !== '';
+            if (!$hasMedia) {
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_card_skipped', 'Медиа-карточка пропущена: не указан файл или ссылка.', ['card_index' => $index, 'card_type' => $originalType]);
+                continue;
+            }
+            if (mb_strlen((string)$runtimeCard['text'], 'UTF-8') > 1024) {
+                $runtimeCard['text'] = mb_substr((string)$runtimeCard['text'], 0, 1024, 'UTF-8');
+                $plainText = mb_substr($plainText, 0, 1024, 'UTF-8');
+            }
         }
-        $rawText = asr_tg_runtime_card_text_to_telegram((string)($card['text'] ?? ''));
-        if ($rawText === '') continue;
-        $text = asr_tg_render_subscriber_macros($pdo, $rawText, $subscriber);
-        $plainText = asr_tg_runtime_plain_text($text);
-        if (mb_strlen(trim($plainText), 'UTF-8') === 0) continue;
-        if (mb_strlen($plainText, 'UTF-8') > 4096 || mb_strlen($text, 'UTF-8') > 4096) {
-            throw new RuntimeException('Текст блока #' . (int)$block['id'] . ' длиннее лимита Telegram 4096 символов.');
-        }
+
         try {
-            $sent = asr_tg_api_send_broadcast_payload($token, $chatId, $text, 'HTML', '', '', true, '', [], !empty($card['protect_content']));
+            $sent = asr_tg_api_send_broadcast_card($token, $chatId, $runtimeCard);
         } catch (Throwable $sendHtmlError) {
-            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, (int)$block['id'], 'runtime_message_html_retry_plain', 'Telegram не принял HTML-разметку, повторяем отправку обычным текстом.', ['card_index' => $index, 'error' => $sendHtmlError->getMessage()]);
-            $sent = asr_tg_api_send_broadcast_payload($token, $chatId, $plainText, '', '', '', true, '', [], !empty($card['protect_content']));
+            if ((string)($runtimeCard['parse_mode'] ?? '') === 'HTML' && (string)($runtimeCard['text'] ?? '') !== '') {
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_message_html_retry_plain', 'Telegram не принял HTML-разметку, повторяем отправку обычным текстом.', ['card_index' => $index, 'card_type' => $originalType, 'error' => $sendHtmlError->getMessage()]);
+                $runtimeCard['text'] = $plainText;
+                $runtimeCard['parse_mode'] = '';
+                $sent = asr_tg_api_send_broadcast_card($token, $chatId, $runtimeCard);
+            } else {
+                throw $sendHtmlError;
+            }
         }
-        $sentMessage = is_array($sent['result'] ?? null) ? $sent['result'] : [];
-        asr_tg_message_add($pdo, $botId, $subscriberId, 'out', 'text', $plainText, isset($sentMessage['message_id']) ? (int)$sentMessage['message_id'] : null, [
+
+        $sentMessageId = asr_tg_runtime_sent_message_id($sent);
+        asr_tg_message_add($pdo, $botId, $subscriberId, 'out', $messageType, $plainText, $sentMessageId, [
             'scenario_id' => $scenarioId,
-            'block_id' => (int)$block['id'],
+            'block_id' => $blockId,
             'card_index' => $index,
-            'telegram' => $sentMessage,
+            'card_type' => $originalType,
+            'buttons_count' => count($buttons),
+            'telegram' => $sent['result'] ?? null,
         ]);
-        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, (int)$block['id'], 'runtime_message_sent', 'Отправлена текстовая карточка блока.', ['card_index' => $index]);
+
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_message_sent', 'Отправлена карточка блока «Сообщение».', [
+            'card_index' => $index,
+            'card_type' => $originalType,
+            'runtime_type' => $runtimeType,
+            'buttons_count' => count($buttons),
+        ]);
+
+        if ($originalType === 'question') {
+            $GLOBALS['asr_tg_runtime_last_message_waiting_question'] = [
+                'block_id' => $blockId,
+                'card_index' => (int)$index,
+                'save_field_code' => (string)($card['save_field_code'] ?? ''),
+                'answers_count' => count((array)($card['answers'] ?? [])),
+            ];
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_waiting', 'Вопрос отправлен, ожидаем ответ подписчика.', $GLOBALS['asr_tg_runtime_last_message_waiting_question']);
+        }
+
         $sentAny = true;
     }
     return $sentAny;
@@ -2328,6 +2572,19 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_missing', 'Блок сценария не найден.', ['source' => $source] + $sourcePayload);
         return true;
     }
+
+    // Runtime v0.2.1b: помечаем, что штатный обработчик уже запустил сценарий в этом webhook-запросе.
+    // Это не даёт страховочному wrapper повторно запускать тот же /help с начала сценария.
+    $GLOBALS['asr_tg_runtime_started_in_request'] = [
+        'bot_id' => $botId,
+        'chat_id' => (string)$chatId,
+        'subscriber_id' => $subscriberId,
+        'scenario_id' => $scenarioId,
+        'entry_block_id' => $entryBlockId,
+        'resolved_block_id' => $blockId,
+        'source' => $source,
+    ];
+
     asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'active');
     asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_started', 'Сценарий запущен.', ['source' => $source] + $sourcePayload);
 
@@ -2335,7 +2592,10 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
     try {
         if ($type === 'message') {
             $sent = asr_tg_runtime_execute_message_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block);
-            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, $sent ? 'active' : 'error', null, $sent ? '' : 'В блоке сообщения нет отправленных текстовых карточек.');
+            $waitingQuestion = !empty($GLOBALS['asr_tg_runtime_last_message_waiting_question']) && is_array($GLOBALS['asr_tg_runtime_last_message_waiting_question']);
+            $runtimeStatus = $waitingQuestion ? 'waiting' : ($sent ? 'active' : 'error');
+            $runtimeError = $sent ? '' : 'В блоке сообщения нет отправленных карточек.';
+            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, $runtimeStatus, null, $runtimeError);
             return true;
         }
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.1 пока выполняет только блок «Сообщение».', ['block_type' => $type, 'source' => $source]);
