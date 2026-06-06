@@ -144,6 +144,17 @@ function asr_tg_api_local_file_field(string $path) {
     return new CURLFile($path, $mime ?: 'application/octet-stream', basename($path));
 }
 
+function asr_tg_api_first_link_preview_url(string $html): string {
+    $html = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    if (preg_match('#<a\s+[^>]*href=["\'](https?://[^"\'<>\s]+)["\']#iu', $html, $m)) {
+        return rtrim((string)$m[1], '.,;:!?)\]');
+    }
+    if (preg_match('#https?://[^\s<>{}"\']+#iu', $html, $m)) {
+        return rtrim((string)$m[0], '.,;:!?)\]');
+    }
+    return '';
+}
+
 function asr_tg_api_send_broadcast_payload(string $token, int|string $chatId, string $text, string $parseMode = 'HTML', string $mediaType = '', string $mediaUrl = '', bool $disablePreview = true, string $localFilePath = '', array $buttons = [], bool $protectContent = false): array {
     $parseMode = asr_tg_api_allowed_parse_mode($parseMode);
     $mediaType = trim($mediaType);
@@ -156,12 +167,15 @@ function asr_tg_api_send_broadcast_payload(string $token, int|string $chatId, st
     if ($protectContent) $base['protect_content'] = '1';
 
     if ($mediaType === '' || ($mediaUrl === '' && $localFilePath === '')) {
-        $payload = $base + [
-            'text' => $text,
-            'disable_web_page_preview' => $disablePreview ? '1' : '0',
-        ];
+        $payload = $base + ['text' => $text];
         if ($disablePreview) {
+            $payload['disable_web_page_preview'] = '1';
             $payload['link_preview_options'] = json_encode(['is_disabled' => true], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } else {
+            $previewUrl = asr_tg_api_first_link_preview_url($text);
+            if ($previewUrl !== '') {
+                $payload['link_preview_options'] = json_encode(['is_disabled' => false, 'url' => $previewUrl], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
         }
         return asr_tg_api_request($token, 'sendMessage', $payload);
     }
@@ -192,9 +206,15 @@ function asr_tg_api_send_broadcast_payload(string $token, int|string $chatId, st
         return asr_tg_api_request($token, 'sendDocument', $payload);
     }
 
-    $payload = $base + ['text' => $text, 'disable_web_page_preview' => $disablePreview ? '1' : '0'];
+    $payload = $base + ['text' => $text];
     if ($disablePreview) {
+        $payload['disable_web_page_preview'] = '1';
         $payload['link_preview_options'] = json_encode(['is_disabled' => true], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    } else {
+        $previewUrl = asr_tg_api_first_link_preview_url($text);
+        if ($previewUrl !== '') {
+            $payload['link_preview_options'] = json_encode(['is_disabled' => false, 'url' => $previewUrl], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        }
     }
     return asr_tg_api_request($token, 'sendMessage', $payload);
 }

@@ -53,6 +53,7 @@ try {
 
     $activated = function_exists('asr_tg_broadcast_activate_due_scheduled') ? (int)asr_tg_broadcast_activate_due_scheduled($pdo, 200) : 0;
     $result = asr_tg_process_broadcast_queue($pdo, $limit, $broadcastId);
+    $delayResult = function_exists('asr_tg_runtime_process_due_delays') ? asr_tg_runtime_process_due_delays($pdo, $limit) : ['processed' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
 
     $out = 'ok now=' . $now
         . ' due_before=' . $dueBefore
@@ -60,6 +61,10 @@ try {
         . ' processed=' . (int)($result['processed'] ?? 0)
         . ' sent=' . (int)($result['sent'] ?? 0)
         . ' failed=' . (int)($result['failed'] ?? 0)
+        . ' delay_processed=' . (int)($delayResult['processed'] ?? 0)
+        . ' delay_started=' . (int)($delayResult['started'] ?? 0)
+        . ' delay_failed=' . (int)($delayResult['failed'] ?? 0)
+        . ' delay_skipped=' . (int)($delayResult['skipped'] ?? 0)
         . ' limit=' . $limit
         . ' broadcast_id=' . $broadcastId;
     asr_tg_cron_log_line($out);

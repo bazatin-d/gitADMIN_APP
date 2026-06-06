@@ -21,7 +21,18 @@ try {
     $now = function_exists('asr_tg_broadcast_now_sql') ? asr_tg_broadcast_now_sql() : date('Y-m-d H:i:s');
     $activated = asr_tg_broadcast_activate_due_scheduled($pdo, 200);
     $result = asr_tg_process_broadcast_queue($pdo, $limit, $broadcastId);
-    echo 'now=' . $now . ' due_before=' . (int)$dueBefore . ' activated=' . (int)$activated . ' processed=' . (int)$result['processed'] . ' sent=' . (int)$result['sent'] . ' failed=' . (int)$result['failed'] . PHP_EOL;
+    $delayResult = function_exists('asr_tg_runtime_process_due_delays') ? asr_tg_runtime_process_due_delays($pdo, $limit) : ['processed' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
+    echo 'now=' . $now
+        . ' due_before=' . (int)$dueBefore
+        . ' activated=' . (int)$activated
+        . ' processed=' . (int)$result['processed']
+        . ' sent=' . (int)$result['sent']
+        . ' failed=' . (int)$result['failed']
+        . ' delay_processed=' . (int)($delayResult['processed'] ?? 0)
+        . ' delay_started=' . (int)($delayResult['started'] ?? 0)
+        . ' delay_failed=' . (int)($delayResult['failed'] ?? 0)
+        . ' delay_skipped=' . (int)($delayResult['skipped'] ?? 0)
+        . PHP_EOL;
 } catch (Throwable $e) {
     echo 'error=' . $e->getMessage() . PHP_EOL;
     exit(1);

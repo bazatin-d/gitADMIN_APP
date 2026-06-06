@@ -2740,6 +2740,205 @@ function asr_tg_runtime_card_message_type(array $card): string {
     return 'text';
 }
 
+
+function asr_tg_runtime_delay_settings(array $block): array {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+
+    $mode = (string)($settings['delay_mode'] ?? $settings['mode'] ?? 'after');
+    if (!in_array($mode, ['after', 'tomorrow', 'at'], true)) $mode = 'after';
+
+    $value = max(1, min(999, (int)($settings['delay_value'] ?? $settings['value'] ?? 1)));
+    $unit = (string)($settings['delay_unit'] ?? $settings['unit'] ?? 'days');
+    if (!in_array($unit, ['seconds', 'minutes', 'hours', 'days'], true)) $unit = 'days';
+
+    $timeMode = (string)($settings['send_time_mode'] ?? 'any');
+    if (!in_array($timeMode, ['any', 'exact', 'interval'], true)) $timeMode = 'any';
+
+    $timeExact = asr_tg_runtime_delay_normalize_time((string)($settings['send_time_exact'] ?? '00:00'));
+    $timeFrom = asr_tg_runtime_delay_normalize_time((string)($settings['send_time_from'] ?? '00:00'));
+    $timeTo = asr_tg_runtime_delay_normalize_time((string)($settings['send_time_to'] ?? '00:00'));
+
+    $timezone = trim((string)($settings['timezone'] ?? 'Asia/Almaty'));
+    try { new DateTimeZone($timezone); } catch (Throwable $e) { $timezone = 'Asia/Almaty'; }
+
+    $weekdays = $settings['weekdays'] ?? ['mon','tue','wed','thu','fri','sat','sun'];
+    if (!is_array($weekdays)) $weekdays = [];
+    $weekdays = array_values(array_intersect(array_map('strval', $weekdays), ['mon','tue','wed','thu','fri','sat','sun']));
+    if (!$weekdays) $weekdays = ['mon','tue','wed','thu','fri','sat','sun'];
+
+    return [
+        'mode' => $mode,
+        'value' => $value,
+        'unit' => $unit,
+        'time_mode' => $timeMode,
+        'time_exact' => $timeExact,
+        'time_from' => $timeFrom,
+        'time_to' => $timeTo,
+        'timezone' => $timezone,
+        'weekdays' => $weekdays,
+    ];
+}
+
+function asr_tg_runtime_delay_normalize_time(string $time): string {
+    $time = trim($time);
+    if (!preg_match('/^(\d{1,2}):(\d{2})$/', $time, $m)) return '00:00';
+    $h = max(0, min(23, (int)$m[1]));
+    $i = max(0, min(59, (int)$m[2]));
+    return sprintf('%02d:%02d', $h, $i);
+}
+
+function asr_tg_runtime_delay_weekday_key(DateTimeImmutable $dt): string {
+    return ['mon','tue','wed','thu','fri','sat','sun'][(int)$dt->format('N') - 1] ?? 'mon';
+}
+
+function asr_tg_runtime_delay_apply_allowed_weekdays(DateTimeImmutable $dt, array $weekdays, string $fallbackTime = ''): DateTimeImmutable {
+    $allowed = array_fill_keys($weekdays ?: ['mon','tue','wed','thu','fri','sat','sun'], true);
+    $safe = $dt;
+    for ($i = 0; $i < 8; $i++) {
+        if (!empty($allowed[asr_tg_runtime_delay_weekday_key($safe)])) return $safe;
+        $safe = $safe->modify('+1 day');
+        if ($fallbackTime !== '') {
+            [$h, $m] = array_map('intval', explode(':', asr_tg_runtime_delay_normalize_time($fallbackTime)));
+            $safe = $safe->setTime($h, $m, 0);
+        }
+    }
+    return $dt;
+}
+
+function asr_tg_runtime_delay_compute_next_run_at(array $settings, ?DateTimeImmutable $now = null): string {
+    $tz = new DateTimeZone((string)($settings['timezone'] ?? 'Asia/Almaty'));
+    $now = $now ? $now->setTimezone($tz) : new DateTimeImmutable('now', $tz);
+    $mode = (string)($settings['mode'] ?? 'after');
+    $timeMode = (string)($settings['time_mode'] ?? 'any');
+    $exact = asr_tg_runtime_delay_normalize_time((string)($settings['time_exact'] ?? '00:00'));
+    $from = asr_tg_runtime_delay_normalize_time((string)($settings['time_from'] ?? '00:00'));
+    $to = asr_tg_runtime_delay_normalize_time((string)($settings['time_to'] ?? '00:00'));
+    $weekdays = is_array($settings['weekdays'] ?? null) ? (array)$settings['weekdays'] : ['mon','tue','wed','thu','fri','sat','sun'];
+
+    if ($mode === 'tomorrow') {
+        [$h, $m] = array_map('intval', explode(':', $exact));
+        $target = $now->modify('+1 day')->setTime($h, $m, 0);
+        $target = asr_tg_runtime_delay_apply_allowed_weekdays($target, $weekdays, $exact);
+        return $target->format('Y-m-d H:i:s');
+    }
+
+    if ($mode === 'at') {
+        [$h, $m] = array_map('intval', explode(':', $exact));
+        $target = $now->setTime($h, $m, 0);
+        if ($target <= $now) $target = $target->modify('+1 day');
+        $target = asr_tg_runtime_delay_apply_allowed_weekdays($target, $weekdays, $exact);
+        return $target->format('Y-m-d H:i:s');
+    }
+
+    $value = max(1, min(999, (int)($settings['value'] ?? 1)));
+    $unit = (string)($settings['unit'] ?? 'days');
+    $unitMap = ['seconds' => 'seconds', 'minutes' => 'minutes', 'hours' => 'hours', 'days' => 'days'];
+    $target = $now->modify('+' . $value . ' ' . ($unitMap[$unit] ?? 'days'));
+
+    if ($timeMode === 'exact') {
+        [$h, $m] = array_map('intval', explode(':', $exact));
+        $candidate = $target->setTime($h, $m, 0);
+        if ($candidate < $target) $candidate = $candidate->modify('+1 day');
+        $target = $candidate;
+    } elseif ($timeMode === 'interval') {
+        [$fh, $fm] = array_map('intval', explode(':', $from));
+        [$th, $tm] = array_map('intval', explode(':', $to));
+        $start = $target->setTime($fh, $fm, 0);
+        $end = $target->setTime($th, $tm, 59);
+        if ($end < $start) $end = $end->modify('+1 day');
+        if ($target < $start) {
+            $target = $start;
+        } elseif ($target > $end) {
+            $target = $start->modify('+1 day');
+        }
+    }
+
+    $fallbackTime = $timeMode === 'interval' ? $from : ($timeMode === 'exact' ? $exact : $target->format('H:i'));
+    $target = asr_tg_runtime_delay_apply_allowed_weekdays($target, $weekdays, $fallbackTime);
+    return $target->format('Y-m-d H:i:s');
+}
+
+function asr_tg_runtime_execute_delay_block(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block, string $source = 'manual', array $sourcePayload = []): bool {
+    $blockId = (int)($block['id'] ?? 0);
+    if ($scenarioId <= 0 || $blockId <= 0) return false;
+    $nextBlockId = asr_tg_runtime_first_block_after($pdo, $scenarioId, $blockId);
+    if ($nextBlockId <= 0 || $nextBlockId === $blockId) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_missing_next', 'У блока «Задержка» не настроен следующий шаг.', ['source' => $source] + $sourcePayload);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'У блока «Задержка» не настроен следующий шаг.');
+        return true;
+    }
+
+    $settings = asr_tg_runtime_delay_settings($block);
+    $nextRunAt = asr_tg_runtime_delay_compute_next_run_at($settings);
+    asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $nextBlockId, 'delayed', $nextRunAt, '');
+    asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_scheduled', 'Блок «Задержка» поставил следующий шаг в очередь.', [
+        'source' => $source,
+        'delay_block_id' => $blockId,
+        'next_block_id' => $nextBlockId,
+        'next_run_at' => $nextRunAt,
+        'settings' => $settings,
+    ] + $sourcePayload);
+    return true;
+}
+
+function asr_tg_runtime_process_due_delays(PDO $pdo, int $limit = 30): array {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $limit = max(1, min(200, $limit));
+    $result = ['processed' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
+    if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return $result;
+
+    $sql = "SELECT ss.*, sub.chat_id, sub.status AS subscriber_status, b.bot_token_encrypted, b.status AS bot_status, s.status AS scenario_status
+            FROM oca_telegram_bot_subscriber_scenarios ss
+            JOIN oca_telegram_bot_subscribers sub ON sub.id = ss.subscriber_id AND sub.bot_id = ss.bot_id
+            JOIN oca_telegram_bots b ON b.id = ss.bot_id
+            JOIN oca_telegram_bot_scenarios s ON s.id = ss.scenario_id
+            WHERE ss.status = 'delayed' AND ss.next_run_at IS NOT NULL AND ss.next_run_at <= NOW()
+            ORDER BY ss.next_run_at ASC, ss.id ASC
+            LIMIT " . (int)$limit;
+    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    foreach ($rows as $row) {
+        $result['processed']++;
+        $stateId = (int)($row['id'] ?? 0);
+        $botId = (int)($row['bot_id'] ?? 0);
+        $subscriberId = (int)($row['subscriber_id'] ?? 0);
+        $scenarioId = (int)($row['scenario_id'] ?? 0);
+        $blockId = (int)($row['current_block_id'] ?? 0);
+        $chatId = $row['chat_id'] ?? 0;
+        if ($stateId <= 0 || $botId <= 0 || $subscriberId <= 0 || $scenarioId <= 0 || $blockId <= 0 || !$chatId) {
+            $result['failed']++;
+            continue;
+        }
+        if ((string)($row['bot_status'] ?? '') !== 'active' || (string)($row['scenario_status'] ?? '') !== 'active' || (string)($row['subscriber_status'] ?? '') === 'blocked') {
+            $result['skipped']++;
+            try {
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'error', last_error = ?, updated_at = NOW() WHERE id = ? AND status = 'delayed'")
+                    ->execute(['Канал, сценарий или подписчик недоступен для продолжения задержки.', $stateId]);
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_skipped', 'Задержанный шаг не запущен: канал, сценарий или подписчик недоступен.', ['state_id' => $stateId]);
+            } catch (Throwable $ignored) {}
+            continue;
+        }
+        try {
+            $claim = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'processing', updated_at = NOW() WHERE id = ? AND status = 'delayed' AND next_run_at <= NOW()");
+            $claim->execute([$stateId]);
+            if ($claim->rowCount() <= 0) { $result['skipped']++; continue; }
+
+            $bot = asr_tg_bot_find($pdo, $botId);
+            if (!$bot) throw new RuntimeException('Канал задержанного сценария не найден.');
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_due', 'Задержка завершена, запускаем следующий шаг.', ['state_id' => $stateId]);
+            asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $blockId, 'delay_runner', ['state_id' => $stateId]);
+            $result['started']++;
+        } catch (Throwable $e) {
+            $result['failed']++;
+            try {
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'error', last_error = ?, updated_at = NOW() WHERE id = ?")->execute([$e->getMessage(), $stateId]);
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_failed', $e->getMessage(), ['state_id' => $stateId]);
+            } catch (Throwable $ignored) {}
+        }
+    }
+    return $result;
+}
+
 function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block): bool {
     $token = asr_tg_decrypt_token((string)($bot['bot_token_encrypted'] ?? ''));
     if ($token === '') throw new RuntimeException('Не удалось расшифровать токен Telegram-канала.');
@@ -2912,10 +3111,20 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
             $runtimeStatus = $waitingQuestion ? 'waiting' : ($sent ? 'active' : 'error');
             $runtimeError = $sent ? '' : 'В блоке сообщения нет отправленных карточек.';
             asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, $runtimeStatus, null, $runtimeError);
+            if ($sent && !$waitingQuestion) {
+                $nextBlockId = asr_tg_runtime_first_block_after($pdo, $scenarioId, $blockId);
+                if ($nextBlockId > 0 && $nextBlockId !== $blockId) {
+                    asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_next_auto', 'После блока «Сообщение» запускаем следующий шаг.', ['next_block_id' => $nextBlockId, 'source' => $source]);
+                    return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $nextBlockId, 'auto_next', ['from_block_id' => $blockId, 'source' => $source]);
+                }
+            }
             return true;
         }
-        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.1 пока выполняет только блок «Сообщение».', ['block_type' => $type, 'source' => $source]);
-        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.1 пока выполняет только блок «Сообщение».');
+        if ($type === 'delay') {
+            return asr_tg_runtime_execute_delay_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
+        }
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.4 пока выполняет блоки «Сообщение» и «Задержка».', ['block_type' => $type, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.4 пока выполняет блоки «Сообщение» и «Задержка».');
         return true;
     } catch (Throwable $e) {
         asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $e->getMessage());

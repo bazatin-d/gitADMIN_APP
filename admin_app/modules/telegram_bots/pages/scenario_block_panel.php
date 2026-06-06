@@ -1057,6 +1057,10 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     const hidden = visible ? '' : ' style="display:none"';
     return '<div class="tg-caption-editor" data-caption-editor'+hidden+'><div class="tg-card-toolbar"><button type="button" title="Жирный" data-format="bold">'+adminIcon('bold')+'</button><button type="button" title="Курсив" data-format="italic">'+adminIcon('italic')+'</button><button type="button" title="Подчёркнутый" data-format="underline">'+adminIcon('underline')+'</button><button type="button" title="Зачёркнутый" data-format="strikeThrough">'+adminIcon('strike')+'</button><button type="button" title="Моноширинный текст" data-wrap="<code>|</code>">'+adminIcon('mono')+'</button><button type="button" title="Скрытый текст" data-wrap="<tg-spoiler>|</tg-spoiler>">'+adminIcon('spoiler')+'</button><button type="button" title="Код" data-wrap="<pre>|</pre>">'+adminIcon('code')+'</button><button type="button" title="Цитата" data-wrap="<blockquote>|</blockquote>">'+adminIcon('quote')+'</button><span class="tg-toolbar-sep"></span><button type="button" title="Дата / напоминание" data-date>'+adminIcon('calendar')+'</button><button type="button" title="Ссылка" data-link>'+adminIcon('link')+'</button></div><div class="tg-editor-wrap"><div class="tg-card-editor" contenteditable="true" data-editor data-placeholder="'+esc(placeholder)+'" spellcheck="true">'+(text||'')+'</div><div class="tg-card-bottom"><div class="tg-editor-tools"><button type="button" class="tg-mini-btn" data-emoji>'+adminIcon('emoji')+'<span>Эмодзи</span></button><button type="button" class="tg-mini-btn" data-macro>'+adminIcon('variables')+'<span>Переменные</span></button><button type="button" class="tg-mini-btn" data-clear-format>'+adminIcon('clear')+'<span>Очистить</span></button><div class="tg-emoji-menu">'+emojiHtml()+'</div><div class="tg-macro-menu">'+macroMenuHtml()+'</div></div><div class="tg-char-count"><span data-char-count>0</span> / '+limit+'</div></div></div></div>';
   }
+  function disablePreviewOptionHtml(source){
+    const checked = source && source.disable_web_page_preview ? ' checked' : '';
+    return '<label class="tg-protect-option"><input type="checkbox" data-disable-preview-toggle'+checked+'> Отключить предпросмотр ссылок <span class="tg-protect-help" tabindex="0" aria-label="Ссылки в тексте сообщения будут отправлены без автоматического предпросмотра" data-tooltip="Ссылки в тексте сообщения будут отправлены без автоматического предпросмотра">?</span></label>';
+  }
   function protectOptionHtml(source){
     const checked = source && source.protect_content ? ' checked' : '';
     return '<label class="tg-protect-option"><input type="checkbox" data-protect-toggle'+checked+'> Защищать контент <span class="tg-protect-help" tabindex="0" aria-label="Защищает содержимое отправленного сообщения от пересылки и сохранения" data-tooltip="Защищает содержимое отправленного сообщения от пересылки и сохранения">?</span></label>';
@@ -1263,7 +1267,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
       if(url&&type==='image') media+='<div class="tg-flow-media-preview"><img src="'+esc(url)+'" alt="Превью картинки"></div>'; else if(url) media+='<div class="tg-flow-media-preview"><strong>'+esc(source.media_file_name||cardTitle(type))+'</strong><div>'+esc(url)+'</div></div>';
     }
     const captionVisible = type==='text' || type==='question' || !!(source.caption_enabled || String(source.text||'').trim());
-    const afterEditorOptions = type==='text' ? '<div class="tg-card-options tg-card-options-after">'+protectOptionHtml(source)+'</div>' : (type==='question' ? questionControlsHtml(source) : '');
+    const afterEditorOptions = type==='text' ? '<div class="tg-card-options tg-card-options-after">'+disablePreviewOptionHtml(source)+protectOptionHtml(source)+'</div>' : (type==='question' ? questionControlsHtml(source) : '');
     const buttonsHtml = type==='question' ? '' : '<div class="tg-message-buttons" data-buttons-box></div><div class="tg-flow-button-add-line"><button type="button" class="tg-btn-ghost" data-add-button>+ Добавить кнопку</button></div>';
     const editorHtml = type==='question' ? '<div class="tg-question-editor-wrap">'+editorTemplate(type, source.text||'', true)+'</div>' : editorTemplate(type, source.text||'', captionVisible);
     card.innerHTML='<div class="tg-flow-card-head"><h5>'+cardTitle(type)+'</h5><div class="tg-flow-card-actions"><button type="button" title="Выше" data-card-up>'+adminIcon('arrow-up')+'</button><button type="button" title="Ниже" data-card-down>'+adminIcon('arrow-down')+'</button><button type="button" title="Удалить" data-card-delete>'+adminIcon('delete')+'</button></div></div>'+media+editorHtml+afterEditorOptions+buttonsHtml;
@@ -1331,6 +1335,9 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
         const captionEnabled = (type==='text'||type==='question') ? true : !!card.querySelector('[data-caption-toggle], [data-gallery-caption]')?.checked;
         const rawText=(card.querySelector('[data-editor]')?.innerHTML||'').trim();
         const item={type,text:captionEnabled?rawText:'',buttons:type==='question'?[]:getRows(card),protect_content:!!card.querySelector('[data-protect-toggle]')?.checked};
+        if(type==='text'){
+          item.disable_web_page_preview=!!card.querySelector('[data-disable-preview-toggle]')?.checked;
+        }
         if(type==='question'){
           item.disable_web_page_preview=!!card.querySelector('[data-question-disable-preview]')?.checked;
           item.save_field_code=card.querySelector('[data-question-save-field]')?.value||'';
