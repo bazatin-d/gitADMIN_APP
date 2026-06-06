@@ -397,11 +397,6 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
 .tg-channel-menu .tg-channel-action:hover,
 .tg-channel-menu form button:hover { background: #f9fafb; }
 .tg-channel-menu .danger { color: #c2410c; }
-
-/* v3.5.116: left-aligned dropdowns and searchable scenario step picker */
-.tg-channel-menu,.tg-channel-menu *{text-align:left!important}.tg-channel-menu .tg-channel-action,.tg-channel-menu form button{justify-content:flex-start!important;text-align:left!important}
-.tg-step-native{display:none!important}.tg-step-picker{position:relative;width:100%}.tg-step-picker-btn{width:100%;min-height:46px;border:1px solid #e5e7eb;background:#fff;border-radius:16px;padding:11px 42px 11px 14px;color:#374151;font-size:14px;font-weight:650;text-align:left;cursor:pointer;position:relative}.tg-step-picker-btn:after{content:'⌄';position:absolute;right:15px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:18px}.tg-step-picker.is-open .tg-step-picker-btn{border-color:#FFA048;box-shadow:0 0 0 3px rgba(255,160,72,.14)}.tg-step-picker-panel{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:6100;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 22px 55px rgba(15,23,42,.18);padding:10px}.tg-step-picker.is-open .tg-step-picker-panel{display:block}.tg-step-picker-search{width:100%;border:1px solid #e5e7eb;border-radius:14px;padding:10px 12px;margin-bottom:8px;color:#374151;font-size:14px;outline:none}.tg-step-picker-search:focus{border-color:#FFA048;box-shadow:0 0 0 3px rgba(255,160,72,.12)}.tg-step-picker-list{max-height:260px;overflow:auto;display:grid;gap:4px}.tg-step-picker-option{width:100%;border:0;background:#fff;border-radius:12px;padding:10px 12px;text-align:left;color:#374151;font-size:14px;font-weight:650;cursor:pointer}.tg-step-picker-option:hover,.tg-step-picker-option.is-selected{background:#fff7ed;color:#9a5a1f}.tg-step-picker-empty{padding:12px;color:#9ca3af;font-size:13px;font-weight:650;text-align:left}
-
 .tg-channel-empty {
     padding: 28px 22px;
     color: #6b7280;
@@ -661,14 +656,12 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
 
                 <?php if ($canManage && $service === 'telegram'):
                     $botCommands = asr_tg_bot_commands_all($pdo, $botId);
-                    $botCommandScenarios = function_exists('asr_tg_scenarios_for_bot') ? asr_tg_scenarios_for_bot($pdo, $botId) : [];
-                    $botCommandBlocksByScenario = [];
-                    foreach ($botCommandScenarios as $commandScenario) {
-                        $commandScenarioId = (int)($commandScenario['id'] ?? 0);
-                        if ($commandScenarioId > 0) {
-                            $botCommandBlocksByScenario[$commandScenarioId] = function_exists('asr_tg_scenario_blocks_select') ? asr_tg_scenario_blocks_select($pdo, $commandScenarioId) : [];
-                        }
-                    }
+                    // /start — системная команда Telegram и транспорт для диплинков.
+                    // В меню команд канала её не показываем.
+                    $botCommands = array_values(array_filter($botCommands, static function($cmd) {
+                        $name = strtolower(ltrim(trim((string)($cmd['command'] ?? '')), '/'));
+                        return $name !== 'start';
+                    }));
                     if (!$botCommands) {
                         $botCommands = [
                             ['command' => 'help', 'description' => 'помощь', 'scenario_id' => null, 'step_id' => null],
@@ -680,7 +673,7 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                             <div class="tg-channel-modal-head">
                                 <div>
                                     <div class="tg-channel-modal-title" id="tg-command-title-<?php echo $botId; ?>">Меню команд Telegram</div>
-                                    <div class="tg-channel-modal-text">Эти команды появятся в кнопке «Меню» у пользователя в Telegram. Если к каналу привязан сценарий, можно выбрать сценарий и шаг запуска.</div>
+                                    <div class="tg-channel-modal-text">Эти команды появятся в кнопке «Меню» у пользователя в Telegram. Сейчас команда сохраняется и отправляется в Telegram, а привязку к конкретному сценарию и шагу подключим на этапе сценариев.</div>
                                 </div>
                                 <button type="button" class="tg-channel-modal-close" data-tg-modal-close><img src="/assets/admin/icons/mo2-close-gray.svg" alt="" aria-hidden="true"></button>
                             </div>
@@ -688,7 +681,7 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                                 <input type="hidden" name="action" value="tg_bot_commands_save">
                                 <input type="hidden" name="return_page" value="bots">
                                 <input type="hidden" name="bot_id" value="<?php echo $botId; ?>">
-                                <div class="tg-command-note">Команду пишем без слэша: например, <b>help</b>. В Telegram она будет отображаться как <b>/help</b>.</div>
+                                <div class="tg-command-note">Команду пишем без слэша: например, <b>help</b>. В Telegram она будет отображаться как <b>/help</b>. Поля сценария и шага пока заблокированы - это заготовка под следующий этап.</div>
                                 <div class="tg-command-list" data-command-list>
                                     <?php foreach ($botCommands as $cmd): ?>
                                         <div class="tg-command-row" data-command-row>
@@ -702,23 +695,13 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                                             </label>
                                             <label class="tg-command-field">
                                                 <span>Сценарий</span>
-                                                <select name="scenario_id[]" data-command-scenario-select>
-                                                    <option value="0">Без сценария</option>
-                                                    <?php foreach ($botCommandScenarios as $commandScenario): $commandScenarioId = (int)($commandScenario['id'] ?? 0); ?>
-                                                        <option value="<?php echo $commandScenarioId; ?>" <?php echo (int)($cmd['scenario_id'] ?? 0) === $commandScenarioId ? 'selected' : ''; ?>><?php echo $h($commandScenario['title'] ?? ('Сценарий #' . $commandScenarioId)); ?></option>
-                                                    <?php endforeach; ?>
-                                                </select>
+                                                <select disabled><option>Настроим позже</option></select>
+                                                <input type="hidden" name="scenario_id[]" value="<?php echo (int)($cmd['scenario_id'] ?? 0); ?>">
                                             </label>
                                             <label class="tg-command-field">
                                                 <span>Запустить с шага</span>
-                                                <select name="step_id[]" data-command-step-select data-step-picker-select class="tg-step-native js-command-step-select">
-                                                    <option value="0">Сначала сценария</option>
-                                                    <?php foreach ($botCommandBlocksByScenario as $commandScenarioId => $commandBlocks): ?>
-                                                        <?php foreach ($commandBlocks as $commandBlock): $commandBlockId = (int)($commandBlock['id'] ?? 0); if ($commandBlockId <= 0) continue; $commandBlockTitle = trim((string)($commandBlock['title'] ?? '')) ?: 'Без названия'; ?>
-                                                            <option value="<?php echo $commandBlockId; ?>" data-scenario-id="<?php echo (int)$commandScenarioId; ?>" <?php echo (int)($cmd['step_id'] ?? 0) === $commandBlockId ? 'selected' : ''; ?>><?php echo $h($commandBlockTitle . ' - Блок #' . $commandBlockId); ?></option>
-                                                        <?php endforeach; ?>
-                                                    <?php endforeach; ?>
-                                                </select>
+                                                <select disabled><option>Сначала сценарии</option></select>
+                                                <input type="hidden" name="step_id[]" value="<?php echo (int)($cmd['step_id'] ?? 0); ?>">
                                             </label>
                                             <button type="button" class="tg-command-delete" data-command-delete title="Удалить строку">×</button>
                                         </div>
@@ -729,7 +712,7 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                                     <div class="tg-command-row" data-command-row>
                                         <label class="tg-command-field tg-command-prefix">
                                             <span>Название</span>
-                                            <input name="command[]" placeholder="start" maxlength="32">
+                                            <input name="command[]" placeholder="help" maxlength="32">
                                         </label>
                                         <label class="tg-command-field">
                                             <span>Описание</span>
@@ -737,23 +720,13 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                                         </label>
                                         <label class="tg-command-field">
                                             <span>Сценарий</span>
-                                            <select name="scenario_id[]" data-command-scenario-select>
-                                                <option value="0">Без сценария</option>
-                                                <?php foreach ($botCommandScenarios as $commandScenario): $commandScenarioId = (int)($commandScenario['id'] ?? 0); ?>
-                                                    <option value="<?php echo $commandScenarioId; ?>"><?php echo $h($commandScenario['title'] ?? ('Сценарий #' . $commandScenarioId)); ?></option>
-                                                <?php endforeach; ?>
-                                            </select>
+                                            <select disabled><option>Настроим позже</option></select>
+                                            <input type="hidden" name="scenario_id[]" value="0">
                                         </label>
                                         <label class="tg-command-field">
                                             <span>Запустить с шага</span>
-                                            <select name="step_id[]" data-command-step-select data-step-picker-select class="tg-step-native js-command-step-select">
-                                                <option value="0">Сначала сценария</option>
-                                                <?php foreach ($botCommandBlocksByScenario as $commandScenarioId => $commandBlocks): ?>
-                                                    <?php foreach ($commandBlocks as $commandBlock): $commandBlockId = (int)($commandBlock['id'] ?? 0); if ($commandBlockId <= 0) continue; $commandBlockTitle = trim((string)($commandBlock['title'] ?? '')) ?: 'Без названия'; ?>
-                                                        <option value="<?php echo $commandBlockId; ?>" data-scenario-id="<?php echo (int)$commandScenarioId; ?>"><?php echo $h($commandBlockTitle . ' - Блок #' . $commandBlockId); ?></option>
-                                                    <?php endforeach; ?>
-                                                <?php endforeach; ?>
-                                            </select>
+                                            <select disabled><option>Сначала сценарии</option></select>
+                                            <input type="hidden" name="step_id[]" value="0">
                                         </label>
                                         <button type="button" class="tg-command-delete" data-command-delete title="Удалить строку">×</button>
                                     </div>
@@ -941,103 +914,10 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
         }
 
         root.querySelectorAll('.tg-channel-form').forEach(syncChannelFields);
-
-        function syncCommandStepSelect(row) {
-        function initStepPickers(scope) {
-            (scope || root).querySelectorAll('select[data-step-picker-select]').forEach(function(select) {
-                if (select.dataset.stepPickerReady === '1') return;
-                select.dataset.stepPickerReady = '1';
-                const wrap = document.createElement('div');
-                wrap.className = 'tg-step-picker';
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'tg-step-picker-btn';
-                const panel = document.createElement('div');
-                panel.className = 'tg-step-picker-panel';
-                const search = document.createElement('input');
-                search.type = 'text';
-                search.className = 'tg-step-picker-search';
-                search.placeholder = 'Поиск по названию или номеру блока';
-                const list = document.createElement('div');
-                list.className = 'tg-step-picker-list';
-                panel.appendChild(search);
-                panel.appendChild(list);
-                wrap.appendChild(btn);
-                wrap.appendChild(panel);
-                select.insertAdjacentElement('afterend', wrap);
-                function selectedText() {
-                    const opt = select.options[select.selectedIndex];
-                    return opt ? opt.textContent : 'Сначала сценария';
-                }
-                function render() {
-                    const q = (search.value || '').trim().toLowerCase();
-                    list.innerHTML = '';
-                    let count = 0;
-                    Array.from(select.options).forEach(function(opt) {
-                        if (opt.disabled || opt.hidden) return;
-                        const text = opt.textContent || '';
-                        if (q && text.toLowerCase().indexOf(q) === -1) return;
-                        const item = document.createElement('button');
-                        item.type = 'button';
-                        item.className = 'tg-step-picker-option' + (opt.selected ? ' is-selected' : '');
-                        item.textContent = text;
-                        item.addEventListener('click', function() {
-                            select.value = opt.value;
-                            select.dispatchEvent(new Event('change', { bubbles: true }));
-                            btn.textContent = selectedText();
-                            wrap.classList.remove('is-open');
-                        });
-                        list.appendChild(item);
-                        count++;
-                    });
-                    if (!count) {
-                        const empty = document.createElement('div');
-                        empty.className = 'tg-step-picker-empty';
-                        empty.textContent = 'Ничего не найдено';
-                        list.appendChild(empty);
-                    }
-                    btn.textContent = selectedText();
-                }
-                select._tgStepPickerRender = render;
-                btn.addEventListener('click', function(event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    root.querySelectorAll('.tg-step-picker.is-open').forEach(x => { if (x !== wrap) x.classList.remove('is-open'); });
-                    wrap.classList.toggle('is-open');
-                    if (wrap.classList.contains('is-open')) { render(); setTimeout(() => search.focus(), 20); }
-                });
-                search.addEventListener('input', render);
-                select.addEventListener('change', render);
-                document.addEventListener('click', function(event) { if (!wrap.contains(event.target)) wrap.classList.remove('is-open'); });
-                render();
-            });
-        }
-        root.querySelectorAll('.tg-channel-form').forEach(initStepPickers);
-
-            if (!row) return;
-            const scenarioSelect = row.querySelector('[data-command-scenario-select]');
-            const stepSelect = row.querySelector('[data-command-step-select]');
-            if (!scenarioSelect || !stepSelect) return;
-            const scenarioId = String(Number(scenarioSelect.value || 0));
-            stepSelect.querySelectorAll('option[data-scenario-id]').forEach(option => {
-                const active = scenarioId !== '0' && option.getAttribute('data-scenario-id') === scenarioId;
-                option.hidden = !active;
-                option.disabled = !active;
-            });
-            const selected = stepSelect.selectedOptions && stepSelect.selectedOptions[0] ? stepSelect.selectedOptions[0] : null;
-            if (selected && selected.disabled) stepSelect.value = '0';
-            stepSelect.disabled = scenarioId === '0';
-            if (scenarioId === '0') stepSelect.value = '0';
-            if (typeof stepSelect._tgStepPickerRender === 'function') stepSelect._tgStepPickerRender();
-        }
-        root.querySelectorAll('[data-command-row]').forEach(syncCommandStepSelect);
         root.addEventListener('change', function(event) {
             if (event.target.matches('[data-channel-type-select]')) {
                 const form = event.target.closest('.tg-channel-form');
                 if (form) syncChannelFields(form);
-            }
-            if (event.target.matches('[data-command-scenario-select]')) {
-                syncCommandStepSelect(event.target.closest('[data-command-row]'));
             }
         });
 
@@ -1050,7 +930,6 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                 const tpl = form ? form.querySelector('template[data-command-template]') : null;
                 if (list && tpl && tpl.content) {
                     list.appendChild(tpl.content.cloneNode(true));
-                    syncCommandStepSelect(list.lastElementChild);
                 }
                 return;
             }

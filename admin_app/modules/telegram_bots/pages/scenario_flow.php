@@ -362,6 +362,12 @@ $scenarioCommandRows = [];
 if ($currentScenarioBotId > 0 && function_exists('asr_tg_bot_commands_all')) {
     try { $scenarioCommandRows = asr_tg_bot_commands_all($pdo, $currentScenarioBotId); } catch (Throwable $e) { $scenarioCommandRows = []; }
 }
+// /start — системная команда Telegram. В меню её не показываем и не сохраняем:
+// она используется только как транспорт для диплинков сценариев.
+$scenarioCommandRows = array_values(array_filter($scenarioCommandRows, static function($cmd) {
+    $name = strtolower(ltrim(trim((string)($cmd['command'] ?? '')), '/'));
+    return $name !== 'start';
+}));
 if (!$scenarioCommandRows && $currentChannelType === 'telegram') {
     $scenarioCommandRows = [['command' => 'help', 'description' => 'помощь', 'scenario_id' => $scenarioId, 'step_id' => 0]];
 }
@@ -933,7 +939,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
                     <template data-flow-command-template>
                         <div class="tg-flow-command-row" data-flow-command-row>
                             <input type="hidden" name="scenario_id[]" value="<?php echo $scenarioId; ?>">
-                            <label class="tg-flow-field tg-flow-command-prefix"><span>Команда</span><input name="command[]" placeholder="start" maxlength="32"></label>
+                            <label class="tg-flow-field tg-flow-command-prefix"><span>Команда</span><input name="command[]" placeholder="help" maxlength="32"></label>
                             <label class="tg-flow-field"><span>Описание</span><input name="description[]" placeholder="описание команды" maxlength="256"></label>
                             <label class="tg-flow-field"><span>Запустить с шага</span><select name="step_id[]" class="tg-step-native js-flow-step-select" data-step-picker-select><option value="0">Сначала сценария</option><?php foreach ($scenarioStepOptions as $step): $sid = (int)($step['id'] ?? 0); if ($sid <= 0) continue; $st = trim((string)($step['title'] ?? '')) ?: 'Без названия'; ?><option value="<?php echo $sid; ?>"><?php echo $h($st . ' - Блок #' . $sid); ?></option><?php endforeach; ?></select></label>
                             <button type="button" class="tg-flow-command-delete" data-flow-command-delete>×</button>
@@ -1056,7 +1062,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 <script>
 (function(){
   window.__tgScenarioFlowBoot = {
-    version: '3.5.127',
+    version: '3.5.129',
     started: false,
     nodes: <?php echo (int)count($nodes); ?>,
     edges: <?php echo (int)count($edges); ?>
@@ -1068,7 +1074,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     errorEl.style.display = 'block';
     var p = errorEl.querySelector('p');
     var msg = event && event.message ? event.message : 'неизвестная ошибка JS';
-    if (p) p.textContent = 'Ошибка запуска React Flow: ' + msg + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.127.';
+    if (p) p.textContent = 'Ошибка запуска React Flow: ' + msg + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.129.';
   }, true);
   window.addEventListener('unhandledrejection', function(event){
     if (window.__tgScenarioFlowBoot && window.__tgScenarioFlowBoot.started) return;
@@ -1077,7 +1083,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     errorEl.style.display = 'block';
     var reason = event.reason && (event.reason.message || String(event.reason));
     var p = errorEl.querySelector('p');
-    if (p) p.textContent = 'Не загрузился JS-модуль редактора: ' + (reason || 'неизвестная ошибка') + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.127.';
+    if (p) p.textContent = 'Не загрузился JS-модуль редактора: ' + (reason || 'неизвестная ошибка') + '. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия: 3.5.129.';
   });
   setTimeout(function(){
     if (window.__tgScenarioFlowBoot && window.__tgScenarioFlowBoot.started) return;
@@ -1085,7 +1091,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     if (!errorEl) return;
     errorEl.style.display = 'block';
     var p = errorEl.querySelector('p');
-    if (p) p.textContent = 'React Flow-скрипт не стартовал. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия патча: 3.5.127.';
+    if (p) p.textContent = 'React Flow-скрипт не стартовал. Блоков PHP передал: ' + window.__tgScenarioFlowBoot.nodes + ', связей: ' + window.__tgScenarioFlowBoot.edges + '. Версия патча: 3.5.129.';
   }, 2200);
 })();
 </script>
@@ -1097,7 +1103,7 @@ const errorEl = document.getElementById('tg-scenario-flow-error');
 if (errorEl) {
   errorEl.style.display = 'block';
   const p = errorEl.querySelector('p');
-  if (p) p.textContent = 'Файл scenario-flow-cdn.js не найден на сервере. Проверьте путь admin_app/modules/telegram_bots/scenario_flow/dist/scenario-flow-cdn.js. Версия патча: 3.5.127.';
+  if (p) p.textContent = 'Файл scenario-flow-cdn.js не найден на сервере. Проверьте путь admin_app/modules/telegram_bots/scenario_flow/dist/scenario-flow-cdn.js. Версия патча: 3.5.129.';
 }
 console.error('Scenario Flow script file not found');
 <?php endif; ?>
