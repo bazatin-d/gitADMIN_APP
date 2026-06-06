@@ -858,19 +858,16 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
             <div class="tg-flow-gear-wrap">
                 <button type="button" class="tg-flow-gear-btn" id="tg-flow-gear-btn" aria-label="Настройки сценария">⚙</button>
                 <div class="tg-flow-gear-menu" id="tg-flow-gear-menu">
-                    <button type="button" data-flow-open-settings><span class="tg-flow-gear-ico">☷</span><span>Настройки</span></button>
-                    <?php if ($currentScenarioBotId > 0 && $currentChannelType === 'telegram'): ?>
-                        <button type="button" data-flow-open-commands><span class="tg-flow-gear-ico">///</span><span>Telegram меню для канала</span></button>
-                    <?php else: ?>
-                        <button type="button" disabled><span class="tg-flow-gear-ico">///</span><span>Telegram меню для канала</span></button>
-                    <?php endif; ?>
                     <?php if ($currentScenarioBotUrl !== ''): ?>
                         <a class="tg-flow-gear-link" href="<?php echo $h($currentScenarioBotUrl); ?>" target="_blank" rel="noopener"><span class="tg-flow-gear-ico">↗</span><span>Открыть бот в Telegram</span></a>
                     <?php else: ?>
                         <div class="tg-flow-gear-disabled"><span class="tg-flow-gear-ico">↗</span><span>Ссылка на бот недоступна</span></div>
                     <?php endif; ?>
-                    <?php if ($currentScenarioBotId > 0): ?>
-                        <a class="tg-flow-gear-link" href="admin.php?tab=telegram_bots&tg_ajax=scenario_runtime_diag&scenario_id=<?php echo $scenarioId; ?>&bot_id=<?php echo $currentScenarioBotId; ?>&command=help" target="_blank" rel="noopener"><span class="tg-flow-gear-ico">ⓘ</span><span>Диагностика runtime</span></a>
+                    <button type="button" data-flow-open-settings><span class="tg-flow-gear-ico">☷</span><span>Настройки</span></button>
+                    <?php if ($currentScenarioBotId > 0 && $currentChannelType === 'telegram'): ?>
+                        <button type="button" data-flow-open-commands><span class="tg-flow-gear-ico">///</span><span>Telegram меню для канала</span></button>
+                    <?php else: ?>
+                        <button type="button" disabled><span class="tg-flow-gear-ico">///</span><span>Telegram меню для канала</span></button>
                     <?php endif; ?>
                     <button type="button" disabled><span class="tg-flow-gear-ico">↻</span><span>Сбросить статистику</span></button>
                     <button type="button" disabled><span class="tg-flow-gear-ico">↔</span><span>Конвертировать бота</span></button>

@@ -2353,6 +2353,320 @@ function asr_tg_runtime_question_answer_rows(array $card, int $blockId, int $car
     return $rows;
 }
 
+
+function asr_tg_runtime_answer_callback(PDO $pdo, array $bot, int $botId, string $callbackQueryId, string $text = '', bool $showAlert = false): void {
+    if ($callbackQueryId === '') return;
+    try {
+        $token = asr_tg_decrypt_token((string)($bot['bot_token_encrypted'] ?? ''));
+        if ($token === '') return;
+        $payload = [
+            'callback_query_id' => $callbackQueryId,
+            'show_alert' => $showAlert ? true : false,
+        ];
+        if ($text !== '') $payload['text'] = mb_substr($text, 0, 180, 'UTF-8');
+        asr_tg_api_request($token, 'answerCallbackQuery', $payload);
+    } catch (Throwable $e) {
+        try { asr_tg_log($pdo, $botId, 'warning', 'runtime_callback_answer_failed', $e->getMessage()); } catch (Throwable $ignored) {}
+    }
+}
+
+function asr_tg_runtime_recent_context(PDO $pdo, int $botId, int $subscriberId, int $blockId = 0): ?array {
+    if ($botId <= 0 || $subscriberId <= 0) return null;
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    try {
+        $where = 'bot_id = ? AND subscriber_id = ? AND status IN (\'active\',\'waiting\')';
+        $params = [$botId, $subscriberId];
+        if ($blockId > 0) {
+            $where .= ' AND current_block_id = ?';
+            $params[] = $blockId;
+        }
+        $stmt = $pdo->prepare("SELECT * FROM oca_telegram_bot_subscriber_scenarios WHERE {$where} ORDER BY updated_at DESC, id DESC LIMIT 1");
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    } catch (Throwable $e) {
+        try { asr_tg_log($pdo, $botId, 'warning', 'runtime_context_lookup_failed', $e->getMessage(), ['subscriber_id' => $subscriberId, 'block_id' => $blockId]); } catch (Throwable $ignored) {}
+        return null;
+    }
+}
+
+function asr_tg_runtime_find_question_card(PDO $pdo, int $scenarioId, int $blockId, int $cardIndex): ?array {
+    if ($scenarioId <= 0 || $blockId <= 0 || $cardIndex < 0) return null;
+    try {
+        $block = asr_tg_scenario_block_find($pdo, $blockId, $scenarioId);
+        if (!$block) return null;
+        $cards = asr_tg_runtime_cards_from_block($pdo, $scenarioId, $block);
+        $card = $cards[$cardIndex] ?? null;
+        if (!is_array($card) || (string)($card['type'] ?? '') !== 'question') return null;
+        return $card;
+    } catch (Throwable $e) {
+        try { asr_tg_runtime_log_event($pdo, 0, 0, $scenarioId, $blockId, 'runtime_question_card_lookup_failed', $e->getMessage(), ['card_index' => $cardIndex]); } catch (Throwable $ignored) {}
+        return null;
+    }
+}
+
+function asr_tg_runtime_question_save_field_code(array $card): string {
+    $candidates = [
+        $card['save_field_code'] ?? null,
+        $card['saveFieldCode'] ?? null,
+        $card['field_code'] ?? null,
+        $card['save_to_field_code'] ?? null,
+        $card['variable_code'] ?? null,
+    ];
+    foreach ($candidates as $candidate) {
+        $code = trim((string)$candidate);
+        if ($code !== '') return $code;
+    }
+    return '';
+}
+
+function asr_tg_runtime_question_field_prepare_value(PDO $pdo, int $botId, string $code, string $answerText): array {
+    $code = trim($code);
+    $answerText = trim($answerText);
+    if ($code === '') {
+        return ['ok' => true, 'field_id' => 0, 'field_type' => '', 'value' => $answerText, 'message' => ''];
+    }
+
+    $fields = asr_tg_custom_fields_all($pdo, 0, true);
+    $field = null;
+    foreach ($fields as $item) {
+        if ((string)($item['code'] ?? '') === $code) {
+            $field = $item;
+            break;
+        }
+    }
+    if (!$field) {
+        return ['ok' => false, 'field_id' => 0, 'field_type' => '', 'value' => '', 'message' => 'Поле для сохранения ответа не найдено.'];
+    }
+
+    $fieldId = (int)($field['id'] ?? 0);
+    $fieldType = (string)($field['field_type'] ?? 'text');
+    if (!in_array($fieldType, ['text', 'number'], true)) {
+        return ['ok' => false, 'field_id' => $fieldId, 'field_type' => $fieldType, 'value' => '', 'message' => 'В этот вопрос можно сохранять только текст или число.'];
+    }
+
+    if ($fieldType === 'number') {
+        $normalized = trim(str_replace([',', ' '], ['.', ''], $answerText));
+        if ($normalized === '' || !preg_match('/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/', $normalized)) {
+            return ['ok' => false, 'field_id' => $fieldId, 'field_type' => $fieldType, 'value' => '', 'message' => 'Пожалуйста, введите только число.'];
+        }
+        return ['ok' => true, 'field_id' => $fieldId, 'field_type' => $fieldType, 'value' => $normalized, 'message' => ''];
+    }
+
+    return ['ok' => true, 'field_id' => $fieldId, 'field_type' => $fieldType, 'value' => mb_substr($answerText, 0, 5000, 'UTF-8'), 'message' => ''];
+}
+
+function asr_tg_runtime_save_question_answer(PDO $pdo, int $botId, int $subscriberId, array $card, string $answerText): array {
+    $code = asr_tg_runtime_question_save_field_code($card);
+    if ($code === '' || trim($answerText) === '') {
+        return ['ok' => true, 'saved' => false, 'field_id' => 0, 'field_type' => '', 'message' => ''];
+    }
+    try {
+        $prepared = asr_tg_runtime_question_field_prepare_value($pdo, $botId, $code, $answerText);
+        if (empty($prepared['ok'])) return ['ok' => false, 'saved' => false] + $prepared;
+        $fieldId = (int)($prepared['field_id'] ?? 0);
+        if ($fieldId <= 0) return ['ok' => true, 'saved' => false] + $prepared;
+        asr_tg_subscriber_custom_values_save($pdo, $subscriberId, $botId, [$fieldId => (string)($prepared['value'] ?? '')]);
+        return ['ok' => true, 'saved' => true] + $prepared;
+    } catch (Throwable $e) {
+        try { asr_tg_log($pdo, $botId, 'warning', 'runtime_question_answer_save_failed', $e->getMessage(), ['subscriber_id' => $subscriberId, 'save_field_code' => $code]); } catch (Throwable $ignored) {}
+        return ['ok' => false, 'saved' => false, 'field_id' => 0, 'field_type' => '', 'value' => '', 'message' => $e->getMessage()];
+    }
+}
+
+function asr_tg_runtime_waiting_question_context(PDO $pdo, int $botId, int $subscriberId): ?array {
+    if ($botId <= 0 || $subscriberId <= 0) return null;
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    try {
+        $stmt = $pdo->prepare("SELECT * FROM oca_telegram_bot_subscriber_scenarios WHERE bot_id = ? AND subscriber_id = ? AND status = 'waiting' ORDER BY updated_at DESC, id DESC LIMIT 1");
+        $stmt->execute([$botId, $subscriberId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row) return $row;
+    } catch (Throwable $e) {
+        try { asr_tg_log($pdo, $botId, 'warning', 'runtime_waiting_question_lookup_failed', $e->getMessage(), ['subscriber_id' => $subscriberId]); } catch (Throwable $ignored) {}
+    }
+
+    // Fallback: иногда строка состояния уже не находится как waiting, но событие отправленного вопроса
+    // есть. Тогда текстовый ответ не должен уходить в Диалоги, а должен сохраниться в поле вопроса.
+    try {
+        $stmt = $pdo->prepare("SELECT id, scenario_id, block_id, payload_json, created_at FROM oca_telegram_bot_scenario_events WHERE bot_id = ? AND subscriber_id = ? AND event_type = 'runtime_question_waiting' ORDER BY id DESC LIMIT 10");
+        $stmt->execute([$botId, $subscriberId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        $answeredStmt = $pdo->prepare("SELECT 1 FROM oca_telegram_bot_scenario_events WHERE bot_id = ? AND subscriber_id = ? AND scenario_id = ? AND block_id = ? AND event_type IN ('runtime_question_text_received','runtime_question_answer_received') AND id > ? LIMIT 1");
+        foreach ($rows as $row) {
+            $scenarioId = (int)($row['scenario_id'] ?? 0);
+            $blockId = (int)($row['block_id'] ?? 0);
+            $eventId = (int)($row['id'] ?? 0);
+            if ($scenarioId <= 0 || $blockId <= 0 || $eventId <= 0) continue;
+            $answeredStmt->execute([$botId, $subscriberId, $scenarioId, $blockId, $eventId]);
+            if ($answeredStmt->fetchColumn()) continue;
+            $payload = json_decode((string)($row['payload_json'] ?? ''), true);
+            return [
+                'scenario_id' => $scenarioId,
+                'current_block_id' => $blockId,
+                'status' => 'waiting',
+                '_wait_event_id' => $eventId,
+                '_wait_payload' => is_array($payload) ? $payload : [],
+            ];
+        }
+    } catch (Throwable $e) {
+        try { asr_tg_log($pdo, $botId, 'warning', 'runtime_waiting_question_event_fallback_failed', $e->getMessage(), ['subscriber_id' => $subscriberId]); } catch (Throwable $ignored) {}
+    }
+    return null;
+}
+
+function asr_tg_runtime_waiting_question_card_index(PDO $pdo, int $botId, int $subscriberId, int $scenarioId, int $blockId): int {
+    try {
+        $stmt = $pdo->prepare("SELECT payload_json FROM oca_telegram_bot_scenario_events WHERE bot_id = ? AND subscriber_id = ? AND scenario_id = ? AND block_id = ? AND event_type = 'runtime_question_waiting' ORDER BY created_at DESC, id DESC LIMIT 1");
+        $stmt->execute([$botId, $subscriberId, $scenarioId, $blockId]);
+        $payload = (string)($stmt->fetchColumn() ?: '');
+        if ($payload !== '') {
+            $decoded = json_decode($payload, true);
+            if (is_array($decoded) && isset($decoded['card_index'])) return max(0, (int)$decoded['card_index']);
+        }
+    } catch (Throwable $e) {}
+    return 0;
+}
+
+function asr_tg_runtime_first_question_card_index(array $cards): int {
+    foreach ($cards as $index => $card) {
+        if (is_array($card) && (string)($card['type'] ?? '') === 'question') return (int)$index;
+    }
+    return 0;
+}
+
+function asr_tg_runtime_send_system_text(PDO $pdo, array $bot, int $botId, int|string $chatId, string $text): void {
+    $text = trim($text);
+    if ($text === '') return;
+    try {
+        $token = asr_tg_decrypt_token((string)($bot['bot_token_encrypted'] ?? ''));
+        if ($token === '') return;
+        asr_tg_api_send_broadcast_payload($token, $chatId, $text, '', '', '', true, '', [], false);
+    } catch (Throwable $e) {
+        try { asr_tg_log($pdo, $botId, 'warning', 'runtime_system_text_send_failed', $e->getMessage(), ['text' => mb_substr($text, 0, 120, 'UTF-8')]); } catch (Throwable $ignored) {}
+    }
+}
+
+function asr_tg_runtime_try_waiting_question_text(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, ?string $text): bool {
+    $answerText = trim((string)$text);
+    if ($answerText === '') return false;
+
+    $context = asr_tg_runtime_waiting_question_context($pdo, $botId, $subscriberId);
+    if (!$context) return false;
+
+    $scenarioId = (int)($context['scenario_id'] ?? 0);
+    $blockId = (int)($context['current_block_id'] ?? 0);
+    $waitPayload = is_array($context['_wait_payload'] ?? null) ? (array)$context['_wait_payload'] : [];
+    if ($scenarioId <= 0 || $blockId <= 0) return false;
+
+    $block = asr_tg_scenario_block_find($pdo, $blockId, $scenarioId);
+    if (!$block) return false;
+    $cards = asr_tg_runtime_cards_from_block($pdo, $scenarioId, $block);
+    $cardIndex = isset($waitPayload['card_index']) ? max(0, (int)$waitPayload['card_index']) : asr_tg_runtime_waiting_question_card_index($pdo, $botId, $subscriberId, $scenarioId, $blockId);
+    $card = $cards[$cardIndex] ?? null;
+    if (!is_array($card) || (string)($card['type'] ?? '') !== 'question') {
+        $cardIndex = asr_tg_runtime_first_question_card_index($cards);
+        $card = $cards[$cardIndex] ?? null;
+    }
+    if (!is_array($card) || (string)($card['type'] ?? '') !== 'question') return false;
+    if (asr_tg_runtime_question_save_field_code($card) === '' && trim((string)($waitPayload['save_field_code'] ?? '')) !== '') {
+        $card['save_field_code'] = trim((string)$waitPayload['save_field_code']);
+    }
+
+    $saveResult = asr_tg_runtime_save_question_answer($pdo, $botId, $subscriberId, $card, $answerText);
+    if (empty($saveResult['ok'])) {
+        $message = trim((string)($saveResult['message'] ?? 'Не удалось сохранить ответ.'));
+        asr_tg_runtime_send_system_text($pdo, $bot, $botId, $chatId, $message ?: 'Не удалось сохранить ответ.');
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_text_invalid', 'Ответ на вопрос не прошёл проверку.', ['card_index' => $cardIndex, 'answer' => mb_substr($answerText, 0, 120, 'UTF-8'), 'error' => $message]);
+        return true;
+    }
+
+    asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'active');
+    asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_text_received', 'Получен текстовый ответ на вопрос.', ['card_index' => $cardIndex, 'saved' => !empty($saveResult['saved']), 'field_id' => (int)($saveResult['field_id'] ?? 0), 'field_type' => (string)($saveResult['field_type'] ?? ''), 'save_field_code' => asr_tg_runtime_question_save_field_code($card), 'context_source' => isset($context['_wait_event_id']) ? 'event_fallback' : 'subscriber_scenarios']);
+    if (!empty($saveResult['saved'])) {
+        asr_tg_runtime_send_system_text($pdo, $bot, $botId, $chatId, 'Спасибо, ответ записан.');
+    } else {
+        asr_tg_runtime_send_system_text($pdo, $bot, $botId, $chatId, 'Ответ принят.');
+    }
+    return true;
+}
+
+function asr_tg_runtime_target_scenario_for_block(PDO $pdo, int $targetBlockId): int {
+    if ($targetBlockId <= 0) return 0;
+    try {
+        $stmt = $pdo->prepare('SELECT scenario_id FROM oca_telegram_bot_scenario_blocks WHERE id = ? LIMIT 1');
+        $stmt->execute([$targetBlockId]);
+        return (int)($stmt->fetchColumn() ?: 0);
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
+
+function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, string $callbackQueryId, string $callbackData): bool {
+    $data = trim($callbackData);
+    if ($data === '' || strncmp($data, 'scn_', 4) !== 0) return false;
+
+    if ($data === 'scn_noop') {
+        asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Действие пока не настроено.');
+        try { asr_tg_log($pdo, $botId, 'info', 'runtime_callback_noop', 'Нажата кнопка сценария без настроенного перехода.', ['subscriber_id' => $subscriberId]); } catch (Throwable $ignored) {}
+        return true;
+    }
+
+    if (preg_match('/^scn_goto_(\d+)$/', $data, $m)) {
+        $targetBlockId = (int)$m[1];
+        $scenarioId = asr_tg_runtime_target_scenario_for_block($pdo, $targetBlockId);
+        if ($scenarioId <= 0) {
+            asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Шаг не найден.', true);
+            try { asr_tg_log($pdo, $botId, 'warning', 'runtime_callback_target_missing', 'Целевой шаг кнопки не найден.', ['subscriber_id' => $subscriberId, 'callback_data' => $data, 'target_block_id' => $targetBlockId]); } catch (Throwable $ignored) {}
+            return true;
+        }
+        asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $targetBlockId, 'runtime_callback_goto', 'Переход по кнопке сценария.', ['callback_data' => $data]);
+        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'telegram_callback', ['callback_data' => $data]);
+    }
+
+    if (preg_match('/^scn_answer_(\d+)_(\d+)_(\d+)$/', $data, $m)) {
+        $questionBlockId = (int)$m[1];
+        $cardIndex = (int)$m[2];
+        $answerIndex = (int)$m[3];
+        $context = asr_tg_runtime_recent_context($pdo, $botId, $subscriberId, $questionBlockId);
+        $scenarioId = (int)($context['scenario_id'] ?? 0);
+        if ($scenarioId <= 0) $scenarioId = asr_tg_runtime_target_scenario_for_block($pdo, $questionBlockId);
+        $card = asr_tg_runtime_find_question_card($pdo, $scenarioId, $questionBlockId, $cardIndex);
+        $answers = is_array($card) && is_array($card['answers'] ?? null) ? array_values($card['answers']) : [];
+        $answer = $answers[$answerIndex] ?? null;
+        if (!is_array($answer)) {
+            asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Ответ не найден.', true);
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'runtime_question_answer_missing', 'Ответ вопроса не найден.', ['callback_data' => $data, 'card_index' => $cardIndex, 'answer_index' => $answerIndex]);
+            return true;
+        }
+        $answerText = trim((string)($answer['text'] ?? $answer['title'] ?? ''));
+        $saveResult = asr_tg_runtime_save_question_answer($pdo, $botId, $subscriberId, $card ?: [], $answerText);
+        if (empty($saveResult['ok'])) {
+            $message = trim((string)($saveResult['message'] ?? 'Не удалось сохранить ответ.'));
+            asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, $message ?: 'Не удалось сохранить ответ.', true);
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'runtime_question_answer_invalid', 'Ответ на вопрос не прошёл проверку.', ['answer' => $answerText, 'error' => $message, 'callback_data' => $data]);
+            return true;
+        }
+        $targetBlockId = max(0, (int)($answer['target_block_id'] ?? 0));
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'runtime_question_answer_received', 'Получен ответ на вопрос.', ['answer' => $answerText, 'saved' => !empty($saveResult['saved']), 'field_type' => (string)($saveResult['field_type'] ?? ''), 'target_block_id' => $targetBlockId, 'callback_data' => $data]);
+        if ($targetBlockId > 0) {
+            asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
+            return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'telegram_question_answer', ['callback_data' => $data, 'answer' => $answerText]);
+        }
+        if ($scenarioId > 0 && $questionBlockId > 0) {
+            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'active');
+        }
+        asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Ответ принят.');
+        return true;
+    }
+
+    asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Команда кнопки пока не поддерживается.');
+    try { asr_tg_log($pdo, $botId, 'warning', 'runtime_callback_unsupported', 'Неподдерживаемая кнопка сценария.', ['subscriber_id' => $subscriberId, 'callback_data' => $data]); } catch (Throwable $ignored) {}
+    return true;
+}
+
+
 function asr_tg_runtime_prepare_card_for_send(PDO $pdo, array $card, array $subscriber, int $blockId, int $cardIndex): array {
     $type = strtolower(trim((string)($card['type'] ?? 'text')));
     if ($type === 'image') $type = 'photo';
@@ -2363,7 +2677,9 @@ function asr_tg_runtime_prepare_card_for_send(PDO $pdo, array $card, array $subs
     $rawText = asr_tg_runtime_card_text_to_telegram((string)($card['text'] ?? ''));
     $text = $rawText !== '' ? asr_tg_render_subscriber_macros($pdo, $rawText, $subscriber) : '';
     $plainText = asr_tg_runtime_plain_text($text);
-    $disablePreview = array_key_exists('disable_web_page_preview', $card) ? !empty($card['disable_web_page_preview']) : true;
+    // По умолчанию предпросмотр ссылок в Telegram должен быть включён.
+    // Отключаем его только если пользователь явно поставил галочку в карточке.
+    $disablePreview = array_key_exists('disable_web_page_preview', $card) ? !empty($card['disable_web_page_preview']) : false;
     $protectContent = !empty($card['protect_content']);
     $buttons = [];
 
@@ -2521,7 +2837,7 @@ function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, 
             $GLOBALS['asr_tg_runtime_last_message_waiting_question'] = [
                 'block_id' => $blockId,
                 'card_index' => (int)$index,
-                'save_field_code' => (string)($card['save_field_code'] ?? ''),
+                'save_field_code' => asr_tg_runtime_question_save_field_code($card),
                 'answers_count' => count((array)($card['answers'] ?? [])),
             ];
             asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_waiting', 'Вопрос отправлен, ожидаем ответ подписчика.', $GLOBALS['asr_tg_runtime_last_message_waiting_question']);
@@ -2685,6 +3001,36 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
     asr_tg_bot_update($pdo, $botId, ['last_webhook_at' => date('Y-m-d H:i:s'), 'last_error' => null]);
     asr_tg_log($pdo, $botId, 'info', 'webhook_received', 'Получено событие Telegram.', ['update_id' => $update['update_id'] ?? null]);
 
+    $callbackQuery = is_array($update['callback_query'] ?? null) ? $update['callback_query'] : null;
+    if ($callbackQuery) {
+        $callbackId = (string)($callbackQuery['id'] ?? '');
+        $callbackData = (string)($callbackQuery['data'] ?? '');
+        $callbackMessage = is_array($callbackQuery['message'] ?? null) ? $callbackQuery['message'] : [];
+        $from = is_array($callbackQuery['from'] ?? null) ? $callbackQuery['from'] : [];
+        $chat = is_array($callbackMessage['chat'] ?? null) ? $callbackMessage['chat'] : [];
+        $chatId = $chat['id'] ?? ($from['id'] ?? 0);
+        $subscriberId = asr_tg_subscriber_upsert($pdo, $botId, $from, $chatId);
+        try {
+            asr_tg_log($pdo, $botId, 'info', 'scenario_callback_received', 'Получено нажатие inline-кнопки сценария.', [
+                'subscriber_id' => (int)$subscriberId,
+                'callback_data' => mb_substr($callbackData, 0, 120, 'UTF-8'),
+            ]);
+        } catch (Throwable $ignored) {}
+        if ($subscriberId > 0 && $chatId) {
+            try {
+                asr_tg_runtime_try_callback($pdo, $bot, $botId, $chatId, (int)$subscriberId, $callbackId, $callbackData);
+            } catch (Throwable $e) {
+                asr_tg_bot_update($pdo, $botId, ['last_error' => $e->getMessage()]);
+                asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackId, 'Не удалось выполнить кнопку.', true);
+                asr_tg_log($pdo, $botId, 'error', 'scenario_callback_failed', $e->getMessage(), ['subscriber_id' => (int)$subscriberId, 'callback_data' => $callbackData]);
+            }
+        } else {
+            asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackId, 'Подписчик не найден.', true);
+        }
+        http_response_code(200);
+        return;
+    }
+
     $message = $update['message'] ?? null;
     if (!is_array($message)) {
         http_response_code(200);
@@ -2747,6 +3093,9 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
                     ]);
                 }
             }
+            if (!$scenarioRuntimeHandled && !$isServiceCommand) {
+                $scenarioRuntimeHandled = asr_tg_runtime_try_waiting_question_text($pdo, $bot, $botId, $chatId, (int)$subscriberId, $text);
+            }
             if (!$scenarioRuntimeHandled) {
                 $scenarioRuntimeHandled = asr_tg_runtime_try_command($pdo, $bot, $botId, $chatId, (int)$subscriberId, $text);
             }
@@ -2757,18 +3106,23 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
         }
     }
 
-    if (!$isServiceCommand) {
+    if (!$isServiceCommand && !$scenarioRuntimeHandled) {
         $messageType = $text !== null ? 'text' : 'other';
         asr_tg_message_add($pdo, $botId, $subscriberId ?: null, 'in', $messageType, $text, isset($message['message_id']) ? (int)$message['message_id'] : null, $message);
-    } else {
+    } elseif ($isServiceCommand) {
         asr_tg_log($pdo, $botId, 'info', 'webhook_service_command_hidden', 'Служебная команда не добавлена в диалоги и не отправлена в технический бот.', [
             'subscriber_id' => (int)$subscriberId,
             'command' => asr_tg_runtime_extract_command($text),
             'text_preview' => mb_substr((string)$text, 0, 120, 'UTF-8'),
         ]);
+    } else {
+        asr_tg_log($pdo, $botId, 'info', 'webhook_scenario_answer_hidden', 'Ответ на вопрос сценария не добавлен в диалоги и не отправлен в технический бот.', [
+            'subscriber_id' => (int)$subscriberId,
+            'text_preview' => mb_substr((string)$text, 0, 120, 'UTF-8'),
+        ]);
     }
 
-    if (!$isServiceCommand && $subscriberId > 0) {
+    if (!$isServiceCommand && !$scenarioRuntimeHandled && $subscriberId > 0) {
         asr_tg_notify_technical_bot_about_dialog($pdo, $bot, $botId, (int)$subscriberId, $message, $text);
     }
 

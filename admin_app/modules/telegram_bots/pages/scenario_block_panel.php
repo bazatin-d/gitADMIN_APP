@@ -459,7 +459,11 @@ try {
             if ($code === '') continue;
             $title = trim((string)($field['title'] ?? '')) ?: $code;
             $messageVariables[] = ['group' => 'Пользовательские', 'title' => $title, 'token' => '{{custom.' . $code . '}}', 'icon' => '★'];
-            $questionFieldOptions[] = ['code' => $code, 'title' => $title];
+            $fieldType = trim((string)($field['field_type'] ?? 'text'));
+            if (!in_array($fieldType, ['text','number','date','datetime'], true)) $fieldType = 'text';
+            if (in_array($fieldType, ['text','number'], true)) {
+                $questionFieldOptions[] = ['code' => $code, 'title' => $title, 'field_type' => $fieldType];
+            }
         }
     }
 } catch (Throwable $e) {}
@@ -574,7 +578,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
 .tg-message-card[data-type="question"] .tg-flow-card-head{margin-bottom:16px}
 .tg-question-editor-wrap{margin:0 0 22px 0;background:#fff;border:1px solid #dce2ea;border-radius:14px;overflow:hidden}
 .tg-question-editor-wrap .tg-caption-editor{border:0;border-radius:0;background:#fff;margin:0}
-.tg-question-editor-wrap .tg-card-toolbar{border-bottom:1px solid #edf0f5;background:#fff}
+.tg-question-editor-wrap .tg-card-toolbar{margin-top:0;border-top:0;border-left:0;border-right:0;border-bottom:1px solid #edf0f5;border-radius:0;background:#fff}
 .tg-question-editor-wrap .tg-editor-wrap{border:0;border-radius:0;background:#fff}
 .tg-question-editor-wrap .tg-card-editor{min-height:118px;padding:18px 20px;font-size:15px;line-height:1.55}
 .tg-question-box{display:flex;flex-direction:column;gap:20px;margin-top:0;padding-top:0;border-top:0}
@@ -586,6 +590,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
 .tg-question-save-field{position:relative;display:block;margin:0;border:1px solid #dce2ea;border-radius:14px;background:#fff;padding:0 12px 12px}
 .tg-question-save-field .tg-question-field-title{display:inline-flex;position:relative;top:-10px;margin:0 0 -2px;padding:0 8px;background:#fff;color:#8b95a4;font-size:12px;font-weight:750;letter-spacing:.01em}
 .tg-question-save-field .tg-button-select{height:50px;background:#fff;border:0;border-radius:10px;font-size:15px;border-color:transparent;color:#1f2937;width:100%;padding:0 8px;box-shadow:none}
+.tg-question-field-hint{margin:6px 8px 0;color:#8b95a4;font-size:12px;font-weight:600;line-height:1.35}
 .tg-question-answers-panel{border:0;background:#f1f3f6;border-radius:16px;padding:16px 18px;margin:0}
 .tg-question-answers-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
 .tg-question-answers-title{font-size:13px;font-weight:800;color:#1f2937;line-height:1.25;text-transform:none}
@@ -1062,8 +1067,16 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
   function questionFieldOptionsHtml(selected){
     const current=String(selected||'');
     let html='<option value="">Не сохранять</option>';
-    (questionFieldOptions||[]).forEach(field=>{const code=String(field.code||''); if(!code)return; html+='<option value="'+esc(code)+'" '+(code===current?'selected':'')+'>'+esc(field.title||code)+'</option>';});
-    if(!(questionFieldOptions||[]).length) html+='<option value="" disabled>Создайте пользовательское поле</option>';
+    let count=0;
+    (questionFieldOptions||[]).forEach(field=>{
+      const code=String(field.code||''); if(!code)return;
+      const type=String(field.field_type||'text');
+      if(type!=='text' && type!=='number') return;
+      const typeLabel=type==='number'?'число':'текст';
+      html+='<option value="'+esc(code)+'" data-field-type="'+esc(type)+'" '+(code===current?'selected':'')+'>'+esc(field.title||code)+' · '+typeLabel+'</option>';
+      count++;
+    });
+    if(!count) html+='<option value="" disabled>Создайте пользовательское поле типа текст или число</option>';
     return html;
   }
   function normalizeQuestionAnswers(answers){
@@ -1225,7 +1238,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
       + '<label class="tg-question-option-line"><input type="checkbox" data-question-disable-preview'+previewChecked+'> <span>Отключить предпросмотр ссылок</span><span class="tg-help-dot" data-tip="Ссылки в тексте вопроса будут отправлены без автоматического предпросмотра">?</span></label>'
       + '<label class="tg-question-option-line"><input type="checkbox" data-protect-toggle'+protectChecked+'> <span>Защищать контент</span><span class="tg-protect-help" data-tip="Защищает содержимое отправленного сообщения от пересылки и сохранения">?</span></label>'
       + '</div>'
-      + '<label class="tg-question-save-field"><span class="tg-question-field-title">Сохранить ответ в поле</span><select class="tg-button-select" data-question-save-field>'+questionFieldOptionsHtml(selected)+'</select></label>'
+      + '<label class="tg-question-save-field"><span class="tg-question-field-title">Сохранить ответ в поле</span><select class="tg-button-select" data-question-save-field>'+questionFieldOptionsHtml(selected)+'</select><div class="tg-question-field-hint">Для вопросов доступны только пользовательские поля типа «текст» и «число». Поля «дата» и «дата со временем» здесь скрыты, чтобы подписчик не ломал формат ответа.</div></label>'
       + '<div class="tg-question-answers-panel"><div class="tg-question-answers-head"><div><div class="tg-question-answers-title">Ответы</div><div class="tg-question-answers-hint">Кнопки ответа можно добавить здесь или оставить пустым.</div></div></div><div class="tg-question-answers" data-question-answers></div><div class="tg-question-actions"><button type="button" class="tg-btn-ghost" data-question-add-answer>+ Добавить ответ</button><button type="button" class="tg-btn-ghost" data-question-settings>Настройки</button><span class="tg-question-wait" data-question-wait-label></span></div></div>'
       + '<div class="tg-question-noanswer"><strong>Подписчик не ответил</strong><span>Отдельный выход на холсте добавим следующим шагом.</span></div>'
       + '</div>';
