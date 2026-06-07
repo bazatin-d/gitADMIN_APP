@@ -4834,6 +4834,10 @@ function asr_tg_scenario_action_type_labels(): array {
         'notify_staff' => 'Отправить уведомление',
         'webhook_subscriber' => 'Отправить данные подписчика через Webhook',
         'unsubscribe_bot' => 'Отписать от бота',
+        'telegram_unban_user' => 'Разблокировать пользователя',
+        'telegram_kick_user' => 'Исключить из группы/канала',
+        'telegram_approve_join' => 'Подтвердить заявку на вступление',
+        'telegram_decline_join' => 'Отклонить заявку на вступление',
         'delete_step_message' => 'Удалить шаг-сообщение',
         'external_request' => 'Внешний запрос',
         'yandex_metrika' => 'Передать данные о событии в Яндекс.Метрику',
@@ -4861,6 +4865,11 @@ function asr_tg_scenario_action_summary(array $action): string {
     if ($type === 'notify_staff') return 'Отправить уведомление';
     if ($type === 'webhook_subscriber') return 'Webhook: данные подписчика';
     if ($type === 'unsubscribe_bot') return 'Отписать от бота';
+    if (in_array($type, ['telegram_unban_user','telegram_kick_user','telegram_approve_join','telegram_decline_join'], true)) {
+        $labels = asr_tg_scenario_action_type_labels();
+        $chat = trim((string)($action['chat_id'] ?? $action['group_ref'] ?? ''));
+        return ($labels[$type] ?? 'Управление группой') . ($chat !== '' ? ': ' . $chat : '');
+    }
     if ($type === 'delete_step_message') {
         $steps = $action['step_labels'] ?? [];
         if (is_array($steps) && $steps) {
@@ -4957,6 +4966,11 @@ function asr_tg_scenario_normalize_action_settings(PDO $pdo, array $data): array
             $action['include_custom_fields'] = array_key_exists('include_custom_fields', $item) ? !empty($item['include_custom_fields']) : true;
             $action['include_tags'] = array_key_exists('include_tags', $item) ? !empty($item['include_tags']) : true;
             if ($url === '' || !preg_match('~^https?://~i', $url)) $action['valid'] = false;
+        } elseif (in_array($type, ['telegram_unban_user','telegram_kick_user','telegram_approve_join','telegram_decline_join'], true)) {
+            $chat = mb_substr(trim((string)($item['chat_id'] ?? $item['group_ref'] ?? $item['value'] ?? '')), 0, 190, 'UTF-8');
+            $action['chat_id'] = $chat;
+            if ($type === 'telegram_kick_user') $action['revoke_messages'] = !empty($item['revoke_messages']);
+            if ($chat === '') $action['valid'] = false;
         } elseif ($type === 'delete_step_message') {
             $rawIds = $item['block_ids'] ?? $item['step_ids'] ?? $item['block_id'] ?? [];
             if (!is_array($rawIds)) $rawIds = [$rawIds];
@@ -5042,7 +5056,7 @@ function asr_tg_scenario_normalize_action_settings(PDO $pdo, array $data): array
         'actions' => $out,
         'actions_valid' => count($out) > 0 && $invalidRows === 0,
         'invalid_rows' => $invalidRows,
-        'runtime_plan' => ['enabled' => true, 'prepared_for' => 'actions_runner', 'enabled_actions' => ['add_tag','remove_tag','set_field','stop_scenario','notify_staff','webhook_subscriber','unsubscribe_bot','external_request','yandex_metrika']],
+        'runtime_plan' => ['enabled' => true, 'prepared_for' => 'actions_runner', 'enabled_actions' => ['add_tag','remove_tag','set_field','stop_scenario','notify_staff','webhook_subscriber','unsubscribe_bot','telegram_unban_user','telegram_kick_user','telegram_approve_join','telegram_decline_join','external_request','yandex_metrika']],
     ];
 }
 

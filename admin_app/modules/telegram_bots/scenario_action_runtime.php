@@ -1219,6 +1219,184 @@ function asr_tg_runtime_actions_enqueue_yandex_metrika(PDO $pdo, array $bot, int
     ];
 }
 
+
+function asr_tg_runtime_actions_telegram_group_chat_id(array $action): string {
+    return mb_substr(trim((string)($action['chat_id'] ?? $action['group_ref'] ?? '')), 0, 190, 'UTF-8');
+}
+
+function asr_tg_runtime_actions_is_telegram_group_action(string $type): bool {
+    return in_array($type, ['telegram_unban_user','telegram_kick_user','telegram_approve_join','telegram_decline_join'], true);
+}
+
+function asr_tg_runtime_actions_telegram_group_label(string $type): string {
+    $map = [
+        'telegram_unban_user' => 'Разблокировать пользователя',
+        'telegram_kick_user' => 'Исключить из группы/канала',
+        'telegram_approve_join' => 'Подтвердить заявку на вступление',
+        'telegram_decline_join' => 'Отклонить заявку на вступление',
+    ];
+    return $map[$type] ?? 'Управление группой/каналом';
+}
+
+function asr_tg_runtime_actions_telegram_group_method(string $type): string {
+    $map = [
+        'telegram_unban_user' => 'unbanChatMember',
+        'telegram_kick_user' => 'banChatMember',
+        'telegram_approve_join' => 'approveChatJoinRequest',
+        'telegram_decline_join' => 'declineChatJoinRequest',
+    ];
+    return $map[$type] ?? '';
+}
+
+function asr_tg_runtime_actions_telegram_group_api_call(string $token, string $method, array $payload): array {
+    try {
+        $response = asr_tg_api_request($token, $method, $payload);
+        return [
+            'ok' => !empty($response['ok']),
+            'method' => $method,
+            'payload' => $payload,
+            'response' => $response,
+            'error' => '',
+        ];
+    } catch (Throwable $e) {
+        return [
+            'ok' => false,
+            'method' => $method,
+            'payload' => $payload,
+            'response' => null,
+            'error' => $e->getMessage(),
+        ];
+    }
+}
+
+function asr_tg_runtime_actions_telegram_group_member_status(array $call): string {
+    $result = is_array($call['response']['result'] ?? null) ? $call['response']['result'] : [];
+    return (string)($result['status'] ?? '');
+}
+
+function asr_tg_runtime_actions_telegram_group_normalize_chat_id(string $value): string {
+    $value = trim($value);
+    if ($value === '') return '';
+    if (preg_match('#^https?://t\.me/([A-Za-z0-9_]{5,})/?$#i', $value, $m)) return '@' . $m[1];
+    if (preg_match('#^t\.me/([A-Za-z0-9_]{5,})/?$#i', $value, $m)) return '@' . $m[1];
+    if ($value !== '' && $value[0] !== '@' && preg_match('/^[A-Za-z0-9_]{5,}$/', $value)) return '@' . $value;
+    return $value;
+}
+
+function asr_tg_runtime_actions_telegram_group_apply(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, array $action): array {
+    $type = (string)($action['type'] ?? '');
+    $method = asr_tg_runtime_actions_telegram_group_method($type);
+    $groupChatIdRaw = asr_tg_runtime_actions_telegram_group_chat_id($action);
+    $groupChatId = asr_tg_runtime_actions_telegram_group_normalize_chat_id($groupChatIdRaw);
+    if ($method === '') return ['ok' => false, 'method' => '', 'chat_id' => $groupChatId, 'telegram_user_id' => 0, 'error' => 'Неизвестное действие управления группой/каналом.'];
+    if ($groupChatId === '') return ['ok' => false, 'method' => $method, 'chat_id' => '', 'telegram_user_id' => 0, 'error' => 'Не указана группа или канал.'];
+    if (!function_exists('asr_tg_api_request')) return ['ok' => false, 'method' => $method, 'chat_id' => $groupChatId, 'telegram_user_id' => 0, 'error' => 'Функция Telegram API недоступна.'];
+
+    $token = trim((string)($bot['token'] ?? $bot['bot_token'] ?? ''));
+    $tokenSource = $token !== '' ? 'plain_bot_array' : '';
+
+    if ($token === '' && !empty($bot['bot_token_encrypted']) && function_exists('asr_tg_decrypt_token')) {
+        try {
+            $token = trim((string)asr_tg_decrypt_token((string)$bot['bot_token_encrypted']));
+            if ($token !== '') $tokenSource = 'bot_array_encrypted';
+        } catch (Throwable $e) {
+            $token = '';
+        }
+    }
+
+    // В runtime сценариев сюда иногда прилетает облегчённый массив бота без токена.
+    // Для действий управления группами/каналами нужен именно реальный токен Telegram-бота,
+    // поэтому при пустом токене добираем полный канал из репозитория.
+    if ($token === '' && $botId > 0 && function_exists('asr_tg_bot_find')) {
+        try {
+            $fullBot = asr_tg_bot_find($pdo, $botId);
+            if (is_array($fullBot)) {
+                if (!empty($fullBot['bot_token_encrypted']) && function_exists('asr_tg_decrypt_token')) {
+                    $token = trim((string)asr_tg_decrypt_token((string)$fullBot['bot_token_encrypted']));
+                    if ($token !== '') $tokenSource = 'repository_encrypted';
+                }
+                if ($token === '') {
+                    $token = trim((string)($fullBot['token'] ?? $fullBot['bot_token'] ?? ''));
+                    if ($token !== '') $tokenSource = 'repository_plain';
+                }
+            }
+        } catch (Throwable $e) {
+            $token = '';
+        }
+    }
+
+    if ($token === '') return ['ok' => false, 'method' => $method, 'chat_id' => $groupChatId, 'telegram_user_id' => 0, 'token_source' => $tokenSource, 'error' => 'У бота не найден или не расшифрован токен.'];
+
+    $subscriber = asr_tg_runtime_actions_subscriber_context($pdo, $botId, $subscriberId);
+    $telegramUserId = (int)($subscriber['telegram_user_id'] ?? 0);
+    if ($telegramUserId <= 0) return ['ok' => false, 'method' => $method, 'chat_id' => $groupChatId, 'telegram_user_id' => 0, 'error' => 'У подписчика не найден Telegram user_id.'];
+
+    $diagnostics = [
+        'chat_id_raw' => $groupChatIdRaw,
+        'chat_id_normalized' => $groupChatId,
+        'telegram_user_id' => $telegramUserId,
+        'token_source' => $tokenSource,
+    ];
+
+    $getChat = asr_tg_runtime_actions_telegram_group_api_call($token, 'getChat', ['chat_id' => $groupChatId]);
+    $getMemberBefore = asr_tg_runtime_actions_telegram_group_api_call($token, 'getChatMember', ['chat_id' => $groupChatId, 'user_id' => $telegramUserId]);
+    $diagnostics['get_chat'] = $getChat;
+    $diagnostics['member_before'] = $getMemberBefore;
+    $diagnostics['member_before_status'] = asr_tg_runtime_actions_telegram_group_member_status($getMemberBefore);
+
+    $payload = ['chat_id' => $groupChatId, 'user_id' => $telegramUserId];
+    if ($type === 'telegram_unban_user') $payload['only_if_banned'] = true;
+    if ($type === 'telegram_kick_user') $payload['revoke_messages'] = !empty($action['revoke_messages']);
+
+    $mainCall = asr_tg_runtime_actions_telegram_group_api_call($token, $method, $payload);
+    $ok = !empty($mainCall['ok']);
+    $error = $ok ? '' : (string)($mainCall['error'] ?: 'Telegram API вернул ошибку.');
+
+    $getMemberAfter = asr_tg_runtime_actions_telegram_group_api_call($token, 'getChatMember', ['chat_id' => $groupChatId, 'user_id' => $telegramUserId]);
+    $diagnostics['main_call'] = $mainCall;
+    $diagnostics['member_after_main'] = $getMemberAfter;
+    $diagnostics['member_after_main_status'] = asr_tg_runtime_actions_telegram_group_member_status($getMemberAfter);
+
+    $unbanCall = null;
+    $getMemberAfterUnban = null;
+    $unbanOk = false;
+    $unbanError = '';
+
+    // В BotHelp действие «Исключить из группы/канала» фактически работает как banChatMember.
+    // По умолчанию не снимаем бан сразу: для каналов это самый надёжный вариант удаления подписчика.
+    if ($ok && $type === 'telegram_kick_user' && !empty($action['unban_after_kick'])) {
+        $unbanPayload = ['chat_id' => $groupChatId, 'user_id' => $telegramUserId, 'only_if_banned' => true];
+        $unbanCall = asr_tg_runtime_actions_telegram_group_api_call($token, 'unbanChatMember', $unbanPayload);
+        $unbanOk = !empty($unbanCall['ok']);
+        $unbanError = $unbanOk ? '' : (string)($unbanCall['error'] ?: 'Telegram API вернул ошибку при снятии бана.');
+        $getMemberAfterUnban = asr_tg_runtime_actions_telegram_group_api_call($token, 'getChatMember', ['chat_id' => $groupChatId, 'user_id' => $telegramUserId]);
+    }
+
+    $diagnostics['unban_call'] = $unbanCall;
+    $diagnostics['member_after_unban'] = $getMemberAfterUnban;
+    $diagnostics['member_after_unban_status'] = $getMemberAfterUnban ? asr_tg_runtime_actions_telegram_group_member_status($getMemberAfterUnban) : '';
+
+    return [
+        'ok' => $ok,
+        'method' => $method,
+        'chat_id' => $groupChatId,
+        'chat_id_raw' => $groupChatIdRaw,
+        'telegram_user_id' => $telegramUserId,
+        'token_source' => $tokenSource,
+        'revoke_messages' => !empty($action['revoke_messages']),
+        'unban_after_kick' => !empty($action['unban_after_kick']),
+        'unban_ok' => $unbanOk,
+        'unban_error' => $unbanError,
+        'response' => $mainCall['response'],
+        'unban_response' => $unbanCall['response'] ?? null,
+        'diagnostics' => $diagnostics,
+        'member_before_status' => (string)$diagnostics['member_before_status'],
+        'member_after_main_status' => (string)$diagnostics['member_after_main_status'],
+        'member_after_unban_status' => (string)$diagnostics['member_after_unban_status'],
+        'error' => $error,
+    ];
+}
+
 function asr_tg_runtime_actions_validate(array $actions): array {
     if (!$actions) return ['ok' => false, 'error' => 'В блоке «Действия» не добавлено ни одного действия.'];
     foreach ($actions as $index => $action) {
@@ -1241,49 +1419,14 @@ function asr_tg_runtime_actions_validate(array $actions): array {
             continue;
         }
         if ($type === 'yandex_metrika') {
-            $result = asr_tg_runtime_actions_enqueue_yandex_metrika($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $blockId, $index, $action);
-            $executed++;
-            $results[] = [
-                'index' => $index,
-                'type' => $type,
-                'summary' => $summary,
-                'ok' => !empty($result['ok']),
-                'queued' => !empty($result['queued']),
-                'skipped' => !empty($result['skipped']),
-                'queue_id' => (int)($result['id'] ?? 0),
-                'status' => (string)($result['status'] ?? ''),
-                'counter_id' => (string)($result['counter_id'] ?? ''),
-                'target' => (string)($result['target'] ?? ''),
-                'client_id_present' => trim((string)($result['client_id'] ?? '')) !== '',
-                'error' => (string)($result['error'] ?? ''),
-            ];
-            $eventType = !empty($result['queued']) ? 'runtime_action_yandex_metrika_queued' : (!empty($result['skipped']) ? 'runtime_action_yandex_metrika_skipped' : 'runtime_action_yandex_metrika_failed');
-            $eventText = !empty($result['queued'])
-                ? 'Событие Яндекс.Метрики поставлено в очередь.'
-                : (!empty($result['skipped'])
-                    ? 'Событие Яндекс.Метрики пропущено: ' . (string)($result['error'] ?? 'нет Client ID')
-                    : 'Не удалось поставить событие Яндекс.Метрики в очередь: ' . (string)($result['error'] ?? 'ошибка'));
-            asr_tg_runtime_log_event(
-                $pdo,
-                $botId,
-                $subscriberId,
-                $scenarioId,
-                $blockId,
-                $eventType,
-                $eventText,
-                [
-                    'action_index' => $index,
-                    'queue_id' => (int)($result['id'] ?? 0),
-                    'status' => (string)($result['status'] ?? ''),
-                    'counter_id' => (string)($result['counter_id'] ?? ''),
-                    'target' => (string)($result['target'] ?? ''),
-                    'client_id_present' => trim((string)($result['client_id'] ?? '')) !== '',
-                    'source' => $source,
-                ] + $sourcePayload
-            );
-            continue;
+            // Настройки Яндекс.Метрики валидируются ниже, без выполнения runtime на этапе проверки.
         }
 
+
+        if (asr_tg_runtime_actions_is_telegram_group_action($type)) {
+            if (asr_tg_runtime_actions_telegram_group_chat_id($action) === '') return ['ok' => false, 'error' => 'В действии №' . ($index + 1) . ' не указана группа или канал.'];
+            continue;
+        }
 
         if ($type === 'unsubscribe_bot') {
             continue;
@@ -1300,6 +1443,7 @@ function asr_tg_runtime_actions_validate(array $actions): array {
             if (empty($urlCheck['ok'])) return ['ok' => false, 'error' => 'В действии №' . ($index + 1) . ': ' . (string)($urlCheck['error'] ?? 'некорректный URL webhook.')];
             continue;
         }
+
         if ($type === 'delete_step_message') {
             if (!asr_tg_runtime_actions_delete_step_message_block_ids($action)) {
                 return ['ok' => false, 'error' => 'В действии №' . ($index + 1) . ' не выбраны шаги-сообщения для удаления.'];
@@ -1451,6 +1595,59 @@ function asr_tg_runtime_execute_actions_block(PDO $pdo, array $bot, int $botId, 
                 !empty($result['ok']) ? 'runtime_action_webhook_subscriber' : 'runtime_action_webhook_subscriber_failed',
                 !empty($result['ok']) ? 'Webhook с данными подписчика отправлен.' : 'Не удалось отправить webhook с данными подписчика: ' . (string)($result['error'] ?? 'ошибка'),
                 ['action_index' => $index, 'url' => (string)($result['url'] ?? ''), 'status' => (int)($result['status'] ?? 0), 'response' => (string)($result['response'] ?? ''), 'source' => $source] + $sourcePayload
+            );
+            continue;
+        }
+
+        if (asr_tg_runtime_actions_is_telegram_group_action($type)) {
+            $result = asr_tg_runtime_actions_telegram_group_apply($pdo, $bot, $botId, $chatId, $subscriberId, $action);
+            $executed++;
+            $results[] = [
+                'index' => $index,
+                'type' => $type,
+                'summary' => $summary,
+                'ok' => !empty($result['ok']),
+                'method' => (string)($result['method'] ?? ''),
+                'chat_id' => (string)($result['chat_id'] ?? ''),
+                'telegram_user_id' => (int)($result['telegram_user_id'] ?? 0),
+                'revoke_messages' => !empty($result['revoke_messages']),
+                'unban_after_kick' => !empty($result['unban_after_kick']),
+                'unban_ok' => !empty($result['unban_ok']),
+                'unban_error' => (string)($result['unban_error'] ?? ''),
+                'telegram_response' => $result['response'] ?? null,
+                'telegram_unban_response' => $result['unban_response'] ?? null,
+                'diagnostics' => $result['diagnostics'] ?? [],
+                'member_before_status' => (string)($result['member_before_status'] ?? ''),
+                'member_after_main_status' => (string)($result['member_after_main_status'] ?? ''),
+                'member_after_unban_status' => (string)($result['member_after_unban_status'] ?? ''),
+                'error' => (string)($result['error'] ?? ''),
+            ];
+            asr_tg_runtime_log_event(
+                $pdo,
+                $botId,
+                $subscriberId,
+                $scenarioId,
+                $blockId,
+                !empty($result['ok']) ? 'runtime_action_telegram_group' : 'runtime_action_telegram_group_failed',
+                !empty($result['ok']) ? asr_tg_runtime_actions_telegram_group_label($type) . ' выполнено.' : asr_tg_runtime_actions_telegram_group_label($type) . ' не выполнено: ' . (string)($result['error'] ?? 'ошибка'),
+                [
+                    'action_index' => $index,
+                    'action_type' => $type,
+                    'method' => (string)($result['method'] ?? ''),
+                    'chat_id' => (string)($result['chat_id'] ?? ''),
+                    'telegram_user_id' => (int)($result['telegram_user_id'] ?? 0),
+                    'revoke_messages' => !empty($result['revoke_messages']),
+                    'unban_after_kick' => !empty($result['unban_after_kick']),
+                    'unban_ok' => !empty($result['unban_ok']),
+                    'unban_error' => (string)($result['unban_error'] ?? ''),
+                    'telegram_response' => $result['response'] ?? null,
+                    'telegram_unban_response' => $result['unban_response'] ?? null,
+                    'diagnostics' => $result['diagnostics'] ?? [],
+                    'member_before_status' => (string)($result['member_before_status'] ?? ''),
+                    'member_after_main_status' => (string)($result['member_after_main_status'] ?? ''),
+                    'member_after_unban_status' => (string)($result['member_after_unban_status'] ?? ''),
+                    'source' => $source,
+                ] + $sourcePayload
             );
             continue;
         }
