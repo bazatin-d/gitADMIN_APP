@@ -59,6 +59,415 @@ if ($type === 'start') {
 }
 
 
+if ($type === 'actions') {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $actions = isset($settings['actions']) && is_array($settings['actions']) ? array_values($settings['actions']) : [];
+    $tags = function_exists('asr_tg_tags_all_light') ? asr_tg_tags_all_light($pdo, 0) : [];
+    $fields = function_exists('asr_tg_scenario_condition_parameter_catalog') ? array_values(array_filter(asr_tg_scenario_condition_parameter_catalog($pdo), static function($item) {
+        $type = (string)($item['param_type'] ?? 'text');
+        $key = (string)($item['key'] ?? '');
+        $fieldCode = (string)($item['field_code'] ?? '');
+        if (!in_array($type, ['text','number','date','datetime'], true) || $key === '') return false;
+        if (strpos($key, 'custom:') === 0) return true;
+        if (strpos($key, 'field:') === 0) return in_array($fieldCode, ['first_name','last_name','phone','email'], true);
+        return false;
+    })) : [];
+    $staff = [];
+    try {
+        if (function_exists('asr_tg_broadcast_test_ensure_user_schema')) asr_tg_broadcast_test_ensure_user_schema($pdo);
+        if (function_exists('asr_table_column_exists') && asr_table_column_exists($pdo, 'oca_users', 'telegram_broadcast_test_chat_id') && asr_table_column_exists($pdo, 'oca_users', 'telegram_broadcast_test_notify_dialogs')) {
+            $selectParts = ['id', 'telegram_broadcast_test_chat_id'];
+            foreach (['full_name','name','username','email','telegram_broadcast_test_username'] as $col) {
+                if (asr_table_column_exists($pdo, 'oca_users', $col)) $selectParts[] = $col;
+            }
+            $where = ["COALESCE(telegram_broadcast_test_chat_id, '') <> ''", 'COALESCE(telegram_broadcast_test_notify_dialogs, 0) = 1'];
+            if (asr_table_column_exists($pdo, 'oca_users', 'is_active')) $where[] = 'COALESCE(is_active, 1) = 1';
+            if (asr_table_column_exists($pdo, 'oca_users', 'archived_at')) $where[] = 'archived_at IS NULL';
+            $sql = 'SELECT ' . implode(', ', array_values(array_unique($selectParts))) . ' FROM oca_users WHERE ' . implode(' AND ', $where) . ' ORDER BY id ASC LIMIT 200';
+            $stmt = $pdo->query($sql);
+            $rows = $stmt ? ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
+            foreach ($rows as $row) {
+                $label = trim((string)($row['full_name'] ?? ''));
+                if ($label === '') $label = trim((string)($row['name'] ?? ''));
+                if ($label === '') $label = trim((string)($row['telegram_broadcast_test_username'] ?? ''));
+                if ($label === '') $label = trim((string)($row['username'] ?? ''));
+                if ($label === '') $label = trim((string)($row['email'] ?? ''));
+                if ($label === '') $label = 'Сотрудник #' . (int)($row['id'] ?? 0);
+                $staff[] = ['id' => (int)($row['id'] ?? 0), 'title' => $label];
+            }
+        }
+    } catch (Throwable $e) { $staff = []; }
+    try {
+        $messageBlocks = function_exists('asr_tg_scenario_message_blocks_for_delete_action') ? asr_tg_scenario_message_blocks_for_delete_action($pdo, $scenarioId) : [];
+    } catch (Throwable $e) { $messageBlocks = []; }
+    $notifyVariables = [
+        ['title' => 'Имя', 'token' => '{{first_name}}'],
+        ['title' => 'Фамилия', 'token' => '{{last_name}}'],
+        ['title' => 'Username', 'token' => '{{username}}'],
+        ['title' => 'Телефон', 'token' => '{{phone}}'],
+        ['title' => 'Email', 'token' => '{{email}}'],
+        ['title' => 'Название канала', 'token' => '{{bot_title}}'],
+    ];
+    try {
+        if (function_exists('asr_tg_custom_fields_all')) {
+            foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
+                $code = trim((string)($field['code'] ?? ''));
+                if ($code === '') continue;
+                $title = trim((string)($field['title'] ?? $code));
+                $notifyVariables[] = ['title' => $title, 'token' => '{{custom.' . $code . '}}'];
+            }
+        }
+    } catch (Throwable $e) {}
+    $actionLabels = function_exists('asr_tg_scenario_action_type_labels') ? asr_tg_scenario_action_type_labels() : [
+        'add_tag' => 'Добавить тег',
+        'remove_tag' => 'Удалить тег',
+        'set_field' => 'Изменить поле / переменную',
+        'stop_scenario' => 'Остановить сценарий',
+        'notify_staff' => 'Отправить уведомление',
+        'webhook_subscriber' => 'Отправить данные подписчика через Webhook',
+        'unsubscribe_bot' => 'Отписать от бота',
+        'delete_step_message' => 'Удалить шаг-сообщение',
+        'external_request' => 'Внешний запрос',
+        'yandex_metrika' => 'Передать данные о событии в Яндекс.Метрику',
+    ];
+    $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
+    $blockMeta = ['scenarioId' => $scenarioId, 'blockId' => $blockId, 'hasDeeplink' => false];
+    ?>
+    <section id="tg-flow-panel" class="tg-flow-panel">
+        <form method="POST" id="scenario-message-form" class="tg-flow-panel-form" data-actions-form>
+            <div class="tg-flow-panel-head tg-actions-panel-head">
+                <div>
+                    <div class="tg-flow-panel-title">Редактировать блок «Действия»</div>
+                    <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?> · runtime подключим по действиям постепенно</div>
+                </div>
+                <div class="tg-flow-panel-actions">
+                    <div class="tg-flow-panel-menu-wrap">
+                        <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
+                        <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
+                            <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
+                        </div>
+                    </div>
+                    <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
+                </div>
+            </div>
+            <div class="tg-flow-panel-body">
+                <div id="scenario-message-alert" class="tg-flow-panel-alert"></div>
+                <input type="hidden" name="action" value="tg_scenario_block_save">
+                <input type="hidden" name="return_page" value="scenario_flow">
+                <input type="hidden" name="scenario_id" value="<?php echo (int)$scenarioId; ?>">
+                <input type="hidden" name="block_id" value="<?php echo (int)$blockId; ?>">
+                <input type="hidden" name="block_type" value="actions">
+                <input type="hidden" name="scenario_cards_json" value="[]">
+                <input type="hidden" name="action_cards_json" id="scenario-actions-json" value="">
+                <?php if ($csrf !== ''): ?><input type="hidden" name="csrf_token" value="<?php echo $h($csrf); ?>"><?php endif; ?>
+
+                <label class="tg-flow-panel-field">
+                    <span class="tg-flow-panel-label">Название блока</span>
+                    <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Действия')); ?>" maxlength="190">
+                    <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
+                </label>
+
+                <div class="tg-actions-box" data-actions-box>
+                    <div class="tg-actions-section-title">Действия</div>
+                    <p class="tg-actions-note">Добавь одно или несколько действий. Сейчас выполняются теги, действия с полями/переменными, уведомления, webhook и отписка от бота; Яндекс.Метрику подключаем через очередь отдельными микропатчами.</p>
+                    <div class="tg-actions-list" data-actions-list></div>
+                    <div class="tg-actions-toolbar">
+                        <button type="button" class="tg-flow-panel-secondary" data-action-add>+ Добавить действие</button>
+                        <span data-actions-counter></span>
+                    </div>
+                    <div class="tg-actions-runtime-note">Runtime уже выполняет основные действия. Для Яндекс.Метрики используется очередь и cron. <a href="admin.php?tab=telegram_bots&page=yandex_metrika_queue" target="_blank" style="color:#6f54bd;text-decoration:underline">Открыть диагностику очереди</a>.</div>
+                </div>
+            </div>
+            <div class="tg-flow-panel-footer"><button type="submit" class="tg-flow-panel-primary">Сохранить блок</button></div>
+        </form>
+    </section>
+    <style data-flow-panel-style="scenario-actions-panel-v3.5.143">
+    .tg-actions-panel-head{border-bottom-color:#ead5ff}.tg-actions-box{border:1px solid #ead5ff;background:#fdfaff;border-radius:18px;padding:20px;margin-top:12px;box-shadow:0 10px 24px rgba(15,23,42,.04)}.tg-actions-section-title{font-size:18px;font-weight:650;color:#3f315c;margin:0 0 10px}.tg-actions-note{font-size:13px;color:#6b7280;line-height:1.5;margin:0 0 18px}.tg-actions-list{display:flex;flex-direction:column;gap:14px}.tg-action-card{background:#f7f4fb;border:1px solid #eee5ff;border-radius:12px;padding:18px 16px 16px;position:relative}.tg-action-card.is-invalid{border-color:#ff6b73;box-shadow:0 0 0 1px rgba(255,107,115,.55);background:#fffafa}.tg-action-head{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:12px;align-items:start;margin-bottom:12px}.tg-action-title{font-size:16px;font-weight:720;color:#2f3437;line-height:1.3}.tg-action-remove{border:0;background:transparent;color:#a8aaa6;font-size:18px;line-height:1;cursor:pointer;padding:8px 6px;border-radius:8px}.tg-action-remove:hover{color:#dc2626;background:#fff1f1}.tg-action-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.tg-action-card .tg-flow-panel-field{margin:0}.tg-action-card .tg-flow-panel-label{font-size:12px;font-weight:650;color:#777085;background:transparent}.tg-action-card .tg-flow-panel-input{background:#fff;border-color:#d8ccea;border-radius:4px;min-height:46px;font-size:15px;color:#2f3437}.tg-action-card .tg-flow-panel-input:focus{border-color:#a78bfa;box-shadow:0 0 0 3px rgba(167,139,250,.16)}.tg-action-card.is-invalid .tg-flow-panel-input[data-invalid="1"]{border-color:#ff6b73!important;box-shadow:0 0 0 3px rgba(255,107,115,.12)!important}.tg-action-error{display:none;margin-top:8px;color:#dc2626;font-size:12px;font-weight:650;line-height:1.35}.tg-action-card.is-invalid .tg-action-error{display:block}.tg-actions-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.tg-actions-toolbar span{font-size:12px;font-weight:650;color:#6b7280}.tg-actions-runtime-note{margin-top:14px;border:1px solid #f1e7c7;background:#fff8e8;border-radius:14px;padding:11px 12px;color:#705d2d;font-size:12px;line-height:1.45}.tg-action-field{display:none}.tg-action-card[data-type="add_tag"] [data-action-field="tag"],.tg-action-card[data-type="remove_tag"] [data-action-field="tag"]{display:block}.tg-action-card[data-type="set_field"] [data-action-field="field"],.tg-action-card[data-type="set_field"] [data-action-field="operation"],.tg-action-card[data-type="set_field"] [data-action-field="value"]{display:block}.tg-action-card[data-type="notify_staff"] [data-action-field="staff"],.tg-action-card[data-type="notify_staff"] [data-action-field="message"],.tg-action-card[data-type="notify_staff"] [data-action-field="dialog_link"]{display:block}.tg-action-card[data-type="webhook_subscriber"] [data-action-field="url"],.tg-action-card[data-type="webhook_subscriber"] [data-action-field="webhook_flags"]{display:block}.tg-action-card[data-type="delete_step_message"] [data-action-field="step_messages"]{display:block}.tg-action-card[data-type="external_request"] [data-action-field="external_request"]{display:block}.tg-action-card[data-type="yandex_metrika"] [data-action-field="yandex_metrika"]{display:block}.tg-action-external-preview{border:1px solid #e5d8f6;background:#fff;border-radius:10px;padding:10px 11px;color:#4b5563;font-size:13px;font-weight:650;line-height:1.45}.tg-action-external-preview.is-empty{color:#ef4444;background:#fff7f7;border-color:#fecaca}.tg-action-edit{height:38px;border:1px solid #e5d8f6;background:#fff;border-radius:12px;color:#6f54bd;font-size:13px;font-weight:650;cursor:pointer;padding:0 12px}.tg-action-edit:hover{background:#f2eaff}.tg-external-modal-backdrop{position:fixed;inset:0;z-index:7000;background:rgba(15,23,42,.35);display:none;align-items:center;justify-content:center;padding:20px}.tg-external-modal-backdrop.is-open{display:flex}.tg-external-modal{width:min(980px,calc(100vw - 40px));max-height:calc(100vh - 40px);background:#fff;border:1px solid #e5e7eb;border-radius:22px;box-shadow:0 28px 80px rgba(15,23,42,.24);display:flex;flex-direction:column;overflow:hidden}.tg-external-head{display:flex;align-items:center;justify-content:space-between;padding:20px 26px;border-bottom:1px solid #edf0f2}.tg-external-title{font-size:20px;font-weight:650;color:#1f2937}.tg-external-close{width:38px;height:38px;border:0;background:#fff;border-radius:12px;color:#6b7280;font-size:24px;cursor:pointer}.tg-external-close:hover{background:#f3f4f6}.tg-external-body{padding:20px 26px;overflow:auto}.tg-external-top{display:grid;grid-template-columns:180px 1fr;gap:14px;margin-bottom:18px}.tg-external-tabs{display:flex;gap:16px;border-bottom:1px solid #edf0f2;margin:8px -26px 18px;padding:0 26px}.tg-external-tab{border:0;background:#fff;padding:13px 0 14px;color:#8b929e;font-size:14px;font-weight:650;cursor:pointer;border-bottom:2px solid transparent}.tg-external-tab.is-active{color:#2563eb;border-bottom-color:#2563eb}.tg-external-pane{display:none;min-height:220px}.tg-external-pane.is-active{display:block}.tg-external-row{display:grid;grid-template-columns:1fr 1fr 42px;gap:12px;align-items:end;margin-bottom:10px}.tg-external-del{height:42px;border:0;background:#fff;color:#9ca3af;border-radius:12px;font-size:20px;cursor:pointer}.tg-external-del:hover{background:#fef2f2;color:#dc2626}.tg-external-add{height:42px;border:1px solid #dbeafe;background:#fff;color:#2563eb;border-radius:12px;padding:0 14px;font-size:13px;font-weight:650;cursor:pointer}.tg-external-help{border:1px solid #f1e7c7;background:#fff8e8;border-radius:12px;padding:12px;color:#705d2d;font-size:13px;line-height:1.45}.tg-external-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 26px;border-top:1px solid #edf0f2;background:#fff}.tg-external-secondary{border:0;background:#f3f4f6;color:#6b7280;border-radius:14px;min-height:42px;padding:0 18px;font-size:13px;font-weight:650;cursor:pointer}.tg-external-primary{border:0;background:#FFA048;color:#fff;border-radius:14px;min-height:42px;padding:0 18px;font-size:13px;font-weight:700;cursor:pointer}.tg-external-result{white-space:pre-wrap;border:1px dashed #d1d5db;background:#f9fafb;border-radius:12px;padding:14px;color:#6b7280;font-size:13px;line-height:1.45}.tg-external-mapping-list{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}.tg-external-mapping-row{display:grid;grid-template-columns:1fr 1fr 42px;gap:12px;align-items:end}.tg-external-mapping-note{font-size:12px;color:#6b7280;line-height:1.45;margin-top:8px}..tg-action-card[data-type="stop_scenario"] .tg-action-grid,.tg-action-card[data-type="unsubscribe_bot"] .tg-action-grid{display:none}.tg-action-card[data-type="set_field"][data-action-no-value="1"] [data-action-field="value"]{display:none}.tg-action-check{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:650;color:#4b5563}.tg-action-step-search{margin-bottom:8px}.tg-action-step-list{max-height:180px;overflow:auto;border:1px solid #e5d8f6;background:#fff;border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:6px}.tg-action-step-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;font-size:13px;color:#374151;cursor:pointer}.tg-action-step-row:hover{background:#f7f4fb}.tg-action-step-row small{margin-left:auto;color:#9ca3af;font-size:11px}.tg-action-help{margin-top:8px;border:1px solid #f1e7c7;background:#fff8e8;border-radius:10px;padding:9px 10px;color:#705d2d;font-size:12px;line-height:1.45}.tg-action-empty{border:1px dashed #fecaca;background:#fff7f7;border-radius:12px;padding:14px;color:#ef4444;font-size:13px;font-weight:700;line-height:1.4}@media(max-width:680px){.tg-actions-box{padding:16px}.tg-action-grid,.tg-action-head{grid-template-columns:1fr}.tg-action-remove{justify-self:end}.tg-actions-toolbar{align-items:stretch;flex-direction:column}.tg-actions-toolbar button{width:100%}}
+    </style>
+    <script data-flow-panel-script>
+    (function(){
+      var panel = document.getElementById('tg-flow-panel');
+      var form = document.getElementById('scenario-message-form');
+      var box = document.querySelector('[data-actions-box]');
+      if (!panel || !form || !box || box.dataset.bound === '1') return;
+      box.dataset.bound = '1';
+      var list = box.querySelector('[data-actions-list]');
+      var hidden = document.getElementById('scenario-actions-json');
+      var counter = box.querySelector('[data-actions-counter]');
+      var actionLabels = <?php echo $safeJson($actionLabels); ?>;
+      var initialActions = <?php echo $safeJson($actions); ?>;
+      var tags = <?php echo $safeJson($tags); ?>;
+      var fields = <?php echo $safeJson($fields); ?>;
+      var fieldMap = {};
+      (Array.isArray(fields) ? fields : []).forEach(function(field){ if (field && field.key) fieldMap[String(field.key)] = field; });
+      var staff = <?php echo $safeJson($staff); ?>;
+      var messageBlocks = <?php echo $safeJson($messageBlocks ?? []); ?>;
+      var notifyVariables = <?php echo $safeJson($notifyVariables); ?>;
+      var actions = Array.isArray(initialActions) ? initialActions.map(function(a){ return Object.assign({}, a); }) : [];
+      var actionTypes = ['add_tag','remove_tag','set_field','stop_scenario','notify_staff','webhook_subscriber','unsubscribe_bot','delete_step_message','external_request','yandex_metrika'];
+      function esc(value){ return String(value == null ? '' : value).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch];}); }
+      function optList(items, selected, valueKey, labelKey, emptyText){
+        var html = '<option value="">'+esc(emptyText || 'Выберите')+'</option>';
+        (Array.isArray(items)?items:[]).forEach(function(item){
+          var value = String(item[valueKey] == null ? '' : item[valueKey]);
+          var label = String(item[labelKey] || item.title || item.name || item.email || value);
+          html += '<option value="'+esc(value)+'" '+(String(selected)===value?'selected':'')+'>'+esc(label)+'</option>';
+        });
+        return html;
+      }
+      function fieldOptions(selected){
+        var html = '<option value="">Выберите поле</option>';
+        fields.forEach(function(item){ var value=String(item.key||''); var label=String(item.title||value); html += '<option value="'+esc(value)+'" data-type="'+esc(item.param_type||'text')+'" '+(String(selected)===value?'selected':'')+'>'+esc(label)+'</option>'; });
+        return html;
+      }
+      function fieldTypeFor(key){ var f = fieldMap[String(key || '')] || {}; return String(f.param_type || f.field_type || 'text'); }
+      function operationOptions(selected, fieldType){
+        selected = selected || 'set';
+        fieldType = fieldType || 'text';
+        var ops = [{v:'set',t:'Установить значение'},{v:'clear',t:'Очистить значение'}];
+        if (fieldType === 'number') ops.push({v:'inc',t:'Прибавить число'},{v:'dec',t:'Вычесть число'});
+        if (!ops.some(function(op){ return op.v === selected; })) selected = 'set';
+        return ops.map(function(op){ return '<option value="'+esc(op.v)+'" '+(op.v===selected?'selected':'')+'>'+esc(op.t)+'</option>'; }).join('');
+      }
+      function valueInputHtml(action, fieldType, operation){
+        var value = action.value || '';
+        var type = 'text';
+        var placeholder = 'Введите значение';
+        if (fieldType === 'number') { type = 'number'; placeholder = 'Введите число'; }
+        if (fieldType === 'date') { type = 'date'; placeholder = ''; }
+        if (fieldType === 'datetime') { type = 'datetime-local'; placeholder = ''; value = String(value || '').replace(' ', 'T').slice(0, 16); }
+        return '<input class="tg-flow-panel-input" type="'+type+'" data-action-value value="'+esc(value)+'" placeholder="'+esc(placeholder)+'">';
+      }
+      function typeOptions(selected){ return actionTypes.map(function(type){ return '<option value="'+esc(type)+'" '+(selected===type?'selected':'')+'>'+esc(actionLabels[type]||type)+'</option>'; }).join(''); }
+      function notifyVariableOptions(){
+        var html = '<option value="">Вставить переменную</option>';
+        (Array.isArray(notifyVariables)?notifyVariables:[]).forEach(function(item){ var token=String(item.token||''); if(!token)return; html += '<option value="'+esc(token)+'">'+esc((item.title||token)+' — '+token)+'</option>'; });
+        return html;
+      }
+      function normalizeExternal(action){
+        action = action || {};
+        var method = String(action.method || 'GET').toUpperCase();
+        if (['GET','POST','PUT','PATCH','DELETE'].indexOf(method) === -1) method = 'GET';
+        var headers = Array.isArray(action.headers) ? action.headers : [];
+        var mappings = Array.isArray(action.mappings) ? action.mappings : [];
+        return {
+          method: method,
+          url: String(action.url || ''),
+          headers: headers.map(function(h){ return {key:String((h||{}).key||''), value:String((h||{}).value||'')}; }),
+          body: String(action.body || ''),
+          mappings: mappings.map(function(m){ return {response_path:String((m||{}).response_path || (m||{}).path || ''), target_param_key:String((m||{}).target_param_key || (m||{}).param_key || '')}; }),
+          last_test: action.last_test || null
+        };
+      }
+      function externalMappingOptions(selected){
+        var html = '<option value="">Выберите поле</option>';
+        (Array.isArray(fields) ? fields : []).forEach(function(field){
+          var key = String(field.key || ''); if(!key) return;
+          html += '<option value="'+esc(key)+'" '+(String(selected||'')===key?'selected':'')+'>'+esc(field.title || key)+'</option>';
+        });
+        return html;
+      }
+      function yandexClientFieldOptions(selected){
+        var html = '<option value="">Выберите поле с Yandex Client ID</option>';
+        (Array.isArray(fields) ? fields : []).forEach(function(field){
+          var key = String(field.key || ''); if(!key) return;
+          if (String(field.source || '') !== 'custom') return;
+          if (String(field.param_type || field.field_type || 'text') !== 'text') return;
+          html += '<option value="'+esc(key)+'" '+(String(selected||'')===key?'selected':'')+'>'+esc(field.title || key)+'</option>';
+        });
+        return html;
+      }
+      function externalSummary(action){
+        var ext = normalizeExternal(action);
+        if (!ext.url) return 'Настройте внешний запрос';
+        return ext.method + ' ' + ext.url;
+      }
+      function selectedBlockIds(action){
+        var raw = action.block_ids || action.step_ids || action.block_id || [];
+        if (!Array.isArray(raw)) raw = raw ? [raw] : [];
+        var seen = {};
+        return raw.map(function(v){ return String(parseInt(v,10)||0); }).filter(function(v){ if (v === '0' || seen[v]) return false; seen[v]=true; return true; });
+      }
+      function stepMessagePickerHtml(action){
+        var selected = selectedBlockIds(action);
+        var selectedMap = {}; selected.forEach(function(id){ selectedMap[id]=true; });
+        var rows = (Array.isArray(messageBlocks)?messageBlocks:[]).map(function(item){
+          var id = String(item.id || ''); if (!id) return '';
+          var label = String(item.label || ((item.title || 'Сообщение') + ' — Сообщение #' + id));
+          var title = String(item.title || 'Сообщение');
+          var ref = String(item.ref || ('Сообщение #' + id));
+          return '<label class="tg-action-step-row" data-step-row data-step-search-text="'+esc((label + ' ' + title + ' ' + ref).toLowerCase())+'"><input type="checkbox" data-action-step-id value="'+esc(id)+'" '+(selectedMap[id]?'checked':'')+'><span>'+esc(label)+'</span><small>'+esc(ref)+'</small></label>';
+        }).join('');
+        if (!rows) rows = '<div class="tg-action-empty">В сценарии пока нет блоков «Сообщение» для удаления.</div>';
+        return '<input class="tg-flow-panel-input tg-action-step-search" data-action-step-search placeholder="Найти по названию или номеру блока">'
+          + '<div class="tg-action-step-list" data-action-step-list>'+rows+'</div>'
+          + '<div class="tg-action-help">Будут удалены все сообщения, которые выбранный шаг отправил подписчику. Если прошло больше 48 часов, Telegram может не разрешить удаление.</div>';
+      }
+      function actionTitle(type){ return actionLabels[type] || 'Действие'; }
+      function render(){
+        if (!list) return;
+        if (!actions.length) {
+          list.innerHTML = '<div class="tg-action-empty">Не добавлено ни одного действия. Блок будет считаться незаполненным.</div>';
+        } else {
+          list.innerHTML = actions.map(function(action, index){
+            var type = action.type || 'add_tag';
+            var tagSelected = String(action.tag_id || '');
+            var staffSelected = String(action.staff_user_id || '');
+            var fieldType = fieldTypeFor(action.param_key || '');
+            var operation = action.operation || 'set';
+            if (type === 'set_field' && fieldType !== 'number' && (operation === 'inc' || operation === 'dec')) operation = 'set';
+            var noValue = operation === 'clear';
+            return '<div class="tg-action-card" data-action-index="'+index+'" data-type="'+esc(type)+'" data-action-field-type="'+esc(fieldType)+'" data-action-no-value="'+(noValue ? '1' : '0')+'">'
+              + '<div class="tg-action-head"><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Действие</span><select class="tg-flow-panel-input" data-action-type>'+typeOptions(type)+'</select></label><button type="button" class="tg-action-remove" data-action-remove title="Удалить действие">🗑</button></div>'
+              + '<div class="tg-action-grid">'
+              + '<label class="tg-flow-panel-field tg-action-field" data-action-field="tag"><span class="tg-flow-panel-label">Тег</span><select class="tg-flow-panel-input" data-action-tag>'+optList(tags, tagSelected, 'id', 'title', 'Выберите тег')+'</select></label>'
+              + '<label class="tg-flow-panel-field tg-action-field" data-action-field="field"><span class="tg-flow-panel-label">Поле / переменная</span><select class="tg-flow-panel-input" data-action-param>'+fieldOptions(action.param_key || '')+'</select></label>'
+              + '<label class="tg-flow-panel-field tg-action-field" data-action-field="operation"><span class="tg-flow-panel-label">Операция</span><select class="tg-flow-panel-input" data-action-operation>'+operationOptions(operation, fieldType)+'</select></label>'
+              + '<label class="tg-flow-panel-field tg-action-field" data-action-field="value"><span class="tg-flow-panel-label">Значение</span>'+valueInputHtml(action, fieldType, operation)+'</label>'
+              + '<label class="tg-flow-panel-field tg-action-field" data-action-field="staff"><span class="tg-flow-panel-label">Сотрудник</span><select class="tg-flow-panel-input" data-action-staff>'+optList(staff, staffSelected, 'id', 'title', staff.length ? 'Выберите сотрудника' : 'Нет сотрудников с уведомлениями')+'</select></label>'
+              + '<label class="tg-flow-panel-field tg-action-field" data-action-field="message"><span class="tg-flow-panel-label">Текст уведомления</span><textarea class="tg-flow-panel-input" data-action-message rows="4" maxlength="4000" placeholder="Введите текст уведомления">'+esc(action.message || '')+'</textarea><select class="tg-flow-panel-input" data-action-message-var style="margin-top:8px;min-height:38px;font-size:13px">'+notifyVariableOptions()+'</select></label>'
+              + '<label class="tg-flow-panel-field tg-action-field" data-action-field="url"><span class="tg-flow-panel-label">URL webhook</span><input class="tg-flow-panel-input" data-action-url value="'+esc(action.url || '')+'" placeholder="https://..."></label>'
+              + '<div class="tg-action-field" data-action-field="step_messages"><span class="tg-flow-panel-label">Выберите шаг(и)</span>'+stepMessagePickerHtml(action)+'</div>'
+              + '<div class="tg-action-field" data-action-field="external_request"><div class="tg-action-external-preview '+(action.url?'':'is-empty')+'" data-external-preview>'+esc(externalSummary(action))+'</div><button type="button" class="tg-action-edit" data-external-edit style="margin-top:10px">✎ Настроить внешний запрос</button><div class="tg-action-help">Настройки открываются в отдельном окне. URL должен начинаться с https://</div></div>'
+              + '<div class="tg-action-field" data-action-field="yandex_metrika"><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Номер счётчика</span><input class="tg-flow-panel-input" data-action-yandex-counter value="'+esc(action.counter_id || '')+'" placeholder="Например: 12345678"></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">OAuth-токен</span><input class="tg-flow-panel-input" data-action-yandex-token value="'+esc(action.token || '')+'" placeholder="Токен Яндекс.Метрики"></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Идентификатор цели</span><input class="tg-flow-panel-input" data-action-yandex-target value="'+esc(action.target || '')+'" placeholder="Например: order_confirmed"></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Поле с Yandex Client ID</span><select class="tg-flow-panel-input" data-action-yandex-client-field>'+yandexClientFieldOptions(action.client_id_param_key || '')+'</select></label><div class="tg-action-help">Первый слой: сохраняем настройки и валидируем. Runtime поставит событие в очередь отдельным микропатчем.</div></div>'
+              + '<div class="tg-action-field" data-action-field="dialog_link"><label class="tg-action-check"><input type="checkbox" data-action-dialog-link '+(action.add_dialog_link ? 'checked' : '')+'> Добавить ссылку на диалог</label></div>'
+              + '<div class="tg-action-field" data-action-field="webhook_flags"><label class="tg-action-check"><input type="checkbox" data-action-custom-fields '+(action.include_custom_fields !== false ? 'checked' : '')+'> Передавать пользовательские поля</label><label class="tg-action-check"><input type="checkbox" data-action-tags '+(action.include_tags !== false ? 'checked' : '')+'> Передавать теги</label></div>'
+              + '</div><div class="tg-action-error">Заполните обязательные поля этого действия.</div></div>';
+          }).join('');
+        }
+        if (counter) counter.textContent = actions.length + ' / 30 действий';
+        validate(false);
+        syncHidden();
+      }
+      function collect(){
+        var next = [];
+        Array.prototype.slice.call(list.querySelectorAll('[data-action-index]')).forEach(function(card){
+          var type = (card.querySelector('[data-action-type]')||{}).value || 'add_tag';
+          var item = {type:type};
+          if (type === 'add_tag' || type === 'remove_tag') item.tag_id = (card.querySelector('[data-action-tag]')||{}).value || '';
+          if (type === 'set_field') { item.param_key = (card.querySelector('[data-action-param]')||{}).value || ''; item.param_type = fieldTypeFor(item.param_key); item.operation = (card.querySelector('[data-action-operation]')||{}).value || 'set'; item.value = (card.querySelector('[data-action-value]')||{}).value || ''; }
+          if (type === 'notify_staff') { item.staff_user_id = (card.querySelector('[data-action-staff]')||{}).value || ''; item.message = (card.querySelector('[data-action-message]')||{}).value || ''; item.add_dialog_link = !!(card.querySelector('[data-action-dialog-link]')||{}).checked; }
+          if (type === 'webhook_subscriber') { item.url = (card.querySelector('[data-action-url]')||{}).value || ''; item.include_custom_fields = !!(card.querySelector('[data-action-custom-fields]')||{}).checked; item.include_tags = !!(card.querySelector('[data-action-tags]')||{}).checked; }
+          if (type === 'delete_step_message') { item.block_ids = Array.prototype.slice.call(card.querySelectorAll('[data-action-step-id]:checked')).map(function(el){ return el.value || ''; }).filter(Boolean); }
+          if (type === 'external_request') { var idx = parseInt(card.getAttribute('data-action-index')||'-1',10); var src = actions[idx] || {}; var ext = normalizeExternal(src); item.method = ext.method; item.url = ext.url; item.headers = ext.headers; item.body = ext.body; item.mappings = ext.mappings; item.last_test = ext.last_test || null; }
+          if (type === 'yandex_metrika') { item.counter_id = (card.querySelector('[data-action-yandex-counter]')||{}).value || ''; item.token = (card.querySelector('[data-action-yandex-token]')||{}).value || ''; item.target = (card.querySelector('[data-action-yandex-target]')||{}).value || ''; item.client_id_param_key = (card.querySelector('[data-action-yandex-client-field]')||{}).value || ''; }
+          next.push(item);
+        });
+        actions = next;
+        return next;
+      }
+      function syncHidden(){ if (hidden) hidden.value = JSON.stringify(collect()); }
+      function validate(mark){
+        var ok = true;
+        if (!actions.length) ok = false;
+        Array.prototype.slice.call(list.querySelectorAll('[data-action-index]')).forEach(function(card){
+          var type = (card.querySelector('[data-action-type]')||{}).value || '';
+          var valid = true;
+          Array.prototype.slice.call(card.querySelectorAll('[data-invalid]')).forEach(function(el){ el.removeAttribute('data-invalid'); });
+          function req(selector){ var el = card.querySelector(selector); var filled = !!(el && String(el.value || '').trim() !== ''); if (!filled && el) el.setAttribute('data-invalid','1'); return filled; }
+          if (type === 'add_tag' || type === 'remove_tag') valid = req('[data-action-tag]');
+          if (type === 'set_field') { valid = req('[data-action-param]'); var op = (card.querySelector('[data-action-operation]')||{}).value || 'set'; if (op !== 'clear') valid = req('[data-action-value]') && valid; }
+          if (type === 'notify_staff') valid = req('[data-action-staff]') && req('[data-action-message]');
+          if (type === 'webhook_subscriber') { valid = req('[data-action-url]'); var url = (card.querySelector('[data-action-url]')||{}).value || ''; if (url && !/^https?:\/\//i.test(url)) valid = false; }
+          if (type === 'delete_step_message') { var checked = card.querySelectorAll('[data-action-step-id]:checked').length; if (!checked) { valid = false; var listEl = card.querySelector('[data-action-step-list]'); if (listEl) listEl.setAttribute('data-invalid','1'); } }
+          if (type === 'external_request') { var idx = parseInt(card.getAttribute('data-action-index')||'-1',10); var ext = normalizeExternal(actions[idx] || {}); valid = !!(ext.method && /^https:\/\//i.test(ext.url)); var prev = card.querySelector('[data-external-preview]'); if (!valid && prev) prev.setAttribute('data-invalid','1'); }
+          if (type === 'yandex_metrika') { valid = req('[data-action-yandex-counter]') && req('[data-action-yandex-token]') && req('[data-action-yandex-target]') && req('[data-action-yandex-client-field]'); }
+          card.classList.toggle('is-invalid', mark && !valid);
+          if (!valid) ok = false;
+        });
+        return ok;
+      }
+      function openExternalModal(index){
+        var action = actions[index] || {type:'external_request'};
+        var ext = normalizeExternal(action);
+        var backdrop = document.createElement('div');
+        backdrop.className = 'tg-external-modal-backdrop is-open';
+        var headerRows = ext.headers.length ? ext.headers : [{key:'', value:''}];
+        var mappingRows = ext.mappings.length ? ext.mappings : [];
+        function rowsHtml(){
+          return headerRows.map(function(row){ return '<div class="tg-external-row" data-external-header-row><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Key</span><input class="tg-flow-panel-input" data-external-header-key value="'+esc(row.key||'')+'" placeholder="Authorization"></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Value</span><input class="tg-flow-panel-input" data-external-header-value value="'+esc(row.value||'')+'" placeholder="Bearer ..."></label><button type="button" class="tg-external-del" data-external-header-del>🗑</button></div>'; }).join('');
+        }
+        function mappingRowHtml(row){
+          row = row || {};
+          return '<div class="tg-external-mapping-row" data-external-mapping-row><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Путь в JSON-ответе</span><input class="tg-flow-panel-input" data-external-map-path value="'+esc(row.response_path||'')+'" placeholder="data.order_id или $.status"></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Записать в поле</span><select class="tg-flow-panel-input" data-external-map-target>'+externalMappingOptions(row.target_param_key||'')+'</select></label><button type="button" class="tg-external-del" data-external-map-del>🗑</button></div>';
+        }
+        function mappingRowsHtml(){
+          return mappingRows.map(mappingRowHtml).join('');
+        }
+        backdrop.innerHTML = '<div class="tg-external-modal" role="dialog" aria-modal="true"><div class="tg-external-head"><div><div class="tg-external-title">Внешний запрос</div><div class="tg-flow-panel-subtitle">Настройка HTTP-запроса для этого действия</div></div><button type="button" class="tg-external-close" data-external-close>×</button></div><div class="tg-external-body"><div class="tg-external-top"><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Тип запроса</span><select class="tg-flow-panel-input" data-external-method>'+['GET','POST','PUT','PATCH','DELETE'].map(function(m){return '<option value="'+m+'" '+(ext.method===m?'selected':'')+'>'+m+'</option>';}).join('')+'</select></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">URL-адрес</span><input class="tg-flow-panel-input" data-external-url value="'+esc(ext.url)+'" placeholder="https://example.com/api"></label></div><div class="tg-external-help" style="margin-bottom:14px">Разрешены только HTTPS-ссылки. В URL, заголовках и теле можно использовать переменные подписчика.</div><div class="tg-external-tabs"><button type="button" class="tg-external-tab is-active" data-external-tab="headers">Заголовки</button><button type="button" class="tg-external-tab" data-external-tab="body">Тело</button><button type="button" class="tg-external-tab" data-external-tab="response">Ответ</button><button type="button" class="tg-external-tab" data-external-tab="mapping">Сопоставление ответов</button></div><div class="tg-external-pane is-active" data-external-pane="headers"><div data-external-headers>'+rowsHtml()+'</div><button type="button" class="tg-external-add" data-external-header-add>+ Добавить заголовок</button></div><div class="tg-external-pane" data-external-pane="body"><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Тело запроса</span><textarea class="tg-flow-panel-input" data-external-body rows="9" placeholder=\'{\n  "phone": "{{phone}}"\n}\'>'+esc(ext.body)+'</textarea></label><div class="tg-external-help">Для GET тело запроса не используется. Для GET тело запроса не используется.</div></div><div class="tg-external-pane" data-external-pane="response"><div class="tg-external-result">Здесь будет результат тестирования запроса. Кнопку теста подключим отдельным шагом.</div></div><div class="tg-external-pane" data-external-pane="mapping"><div class="tg-external-mapping-list" data-external-mappings>'+mappingRowsHtml()+'</div><button type="button" class="tg-external-add" data-external-map-add>+ Добавить сопоставление</button><div class="tg-external-help" style="margin-top:12px">Укажите путь в JSON-ответе и поле подписчика, куда записать значение. Пример пути: <b>data.order_id</b> или <b>$.status</b>. Сопоставление выполняется после успешного внешнего запроса.</div></div></div><div class="tg-external-footer"><button type="button" class="tg-external-secondary" data-external-close>Отмена</button><button type="button" class="tg-external-secondary" data-external-test>Протестировать запрос</button><button type="button" class="tg-external-primary" data-external-save>Сохранить</button></div></div>';
+        document.body.appendChild(backdrop);
+        function close(){ backdrop.remove(); }
+        function activate(tab){ Array.prototype.slice.call(backdrop.querySelectorAll('[data-external-tab]')).forEach(function(b){ b.classList.toggle('is-active', b.getAttribute('data-external-tab')===tab); }); Array.prototype.slice.call(backdrop.querySelectorAll('[data-external-pane]')).forEach(function(p){ p.classList.toggle('is-active', p.getAttribute('data-external-pane')===tab); }); }
+        backdrop.addEventListener('click', function(e){ if(e.target === backdrop || e.target.closest('[data-external-close]')) { e.preventDefault(); close(); return; } var tabBtn=e.target.closest('[data-external-tab]'); if(tabBtn){ e.preventDefault(); activate(tabBtn.getAttribute('data-external-tab')||'headers'); return; } if(e.target.closest('[data-external-header-add]')){ e.preventDefault(); var wrap=backdrop.querySelector('[data-external-headers]'); if(wrap){ wrap.insertAdjacentHTML('beforeend', '<div class="tg-external-row" data-external-header-row><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Key</span><input class="tg-flow-panel-input" data-external-header-key placeholder="Authorization"></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Value</span><input class="tg-flow-panel-input" data-external-header-value placeholder="Bearer ..."></label><button type="button" class="tg-external-del" data-external-header-del>🗑</button></div>'); } return; } if(e.target.closest('[data-external-header-del]')){ e.preventDefault(); var row=e.target.closest('[data-external-header-row]'); if(row) row.remove(); return; } if(e.target.closest('[data-external-map-add]')){ e.preventDefault(); var maps=backdrop.querySelector('[data-external-mappings]'); if(maps){ maps.insertAdjacentHTML('beforeend', mappingRowHtml({})); } return; } if(e.target.closest('[data-external-map-del]')){ e.preventDefault(); var mapRow=e.target.closest('[data-external-mapping-row]'); if(mapRow) mapRow.remove(); return; } function readExternalForm(){ var method=(backdrop.querySelector('[data-external-method]')||{}).value||'GET'; var url=(backdrop.querySelector('[data-external-url]')||{}).value||''; var headers=[]; Array.prototype.slice.call(backdrop.querySelectorAll('[data-external-header-row]')).forEach(function(r){ var key=(r.querySelector('[data-external-header-key]')||{}).value||''; var value=(r.querySelector('[data-external-header-value]')||{}).value||''; if(String(key).trim()!=='' || String(value).trim()!=='') headers.push({key:key,value:value}); }); var mappings=[]; Array.prototype.slice.call(backdrop.querySelectorAll('[data-external-mapping-row]')).forEach(function(r){ var path=(r.querySelector('[data-external-map-path]')||{}).value||''; var target=(r.querySelector('[data-external-map-target]')||{}).value||''; if(String(path).trim()!=='' || String(target).trim()!=='') mappings.push({response_path:String(path).trim(), target_param_key:String(target).trim()}); }); return {method:method, url:String(url).trim(), headers:headers, body:(backdrop.querySelector('[data-external-body]')||{}).value||'', mappings:mappings}; }
+          if(e.target.closest('[data-external-test]')){ e.preventDefault(); var cfg=readExternalForm(); if(!/^https:\/\//i.test(String(cfg.url).trim())){ if(typeof window.tgScenarioFlowToast==='function') window.tgScenarioFlowToast('Укажите HTTPS URL для внешнего запроса.', true); return; } var resultBox=backdrop.querySelector('[data-external-pane="response"] .tg-external-result'); if(resultBox){ resultBox.textContent='Выполняю тестовый запрос...'; } activate('response'); var fd=new FormData(); fd.set('tg_ajax','scenario_external_request_test'); fd.set('return_page','scenario_flow'); var csrfEl = form ? form.querySelector('input[name="csrf_token"]') : null; if (csrfEl && csrfEl.value) fd.set('csrf_token', csrfEl.value); fd.set('method', cfg.method); fd.set('url', cfg.url); fd.set('headers_json', JSON.stringify(cfg.headers||[])); fd.set('body', cfg.body||''); fetch('admin.php?tab=telegram_bots', {method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}}).then(function(r){ return r.text().then(function(text){ var data=null; try { data = text ? JSON.parse(text) : null; } catch(parseErr) { var sample = String(text || '').replace(/\s+/g, ' ').slice(0, 500); return { ok:false, http_code:r.status || 0, error:'Сервер вернул HTML вместо JSON. Обычно это значит, что запрос ушёл не в ajax-обработчик или actions.php не обновился. Фрагмент ответа: '+sample, response_headers:'', response_body:'' }; } return data || {ok:false, http_code:r.status || 0, error:'Пустой ответ сервера.', response_headers:'', response_body:''}; }); }).then(function(data){ var out=''; if(data && data.ok){ out+='Статус: успешно\n'; } else { out+='Статус: ошибка\n'; } if(data && typeof data.http_code!=='undefined') out+='HTTP-код: '+data.http_code+'\n'; if(data && data.duration_ms) out+='Время: '+data.duration_ms+' мс\n'; if(data && data.error) out+='Ошибка: '+data.error+'\n'; if(data && data.response_headers) out+='\nЗаголовки ответа:\n'+data.response_headers+'\n'; if(data && typeof data.response_body!=='undefined' && data.response_body !== '') out+='\nТело ответа:\n'+data.response_body; if(!out) out='Не удалось получить ответ.'; if(resultBox) resultBox.textContent=out; }).catch(function(err){ if(resultBox) resultBox.textContent='Ошибка тестового запроса: '+(err && err.message ? err.message : err); }); return; }
+          if(e.target.closest('[data-external-save]')){ e.preventDefault(); var cfg=readExternalForm(); if(!/^https:\/\//i.test(String(cfg.url).trim())){ if(typeof window.tgScenarioFlowToast==='function') window.tgScenarioFlowToast('Укажите HTTPS URL для внешнего запроса.', true); return; } actions[index] = Object.assign({}, actions[index] || {}, {type:'external_request', method:cfg.method, url:cfg.url, headers:cfg.headers, body:cfg.body, mappings:cfg.mappings || []}); close(); render(); } });
+      }
+      box.addEventListener('click', function(event){
+        var add = event.target.closest('[data-action-add]');
+        if (add) { event.preventDefault(); actions.push({type:'add_tag'}); render(); return; }
+        var remove = event.target.closest('[data-action-remove]');
+        if (remove) { event.preventDefault(); var card = remove.closest('[data-action-index]'); var idx = card ? parseInt(card.getAttribute('data-action-index')||'-1',10) : -1; if (idx >= 0) { actions.splice(idx,1); render(); } return; }
+        var extEdit = event.target.closest('[data-external-edit]');
+        if (extEdit) { event.preventDefault(); var extCard = extEdit.closest('[data-action-index]'); var extIdx = extCard ? parseInt(extCard.getAttribute('data-action-index')||'-1',10) : -1; if (extIdx >= 0) openExternalModal(extIdx); return; }
+      });
+      box.addEventListener('input', function(event){
+        if (event.target && event.target.matches('[data-action-step-search]')) {
+          var card = event.target.closest('[data-action-index]');
+          var q = String(event.target.value || '').toLowerCase().trim();
+          Array.prototype.slice.call((card || box).querySelectorAll('[data-step-row]')).forEach(function(row){
+            var text = row.getAttribute('data-step-search-text') || '';
+            row.style.display = (!q || text.indexOf(q) !== -1) ? '' : 'none';
+          });
+        }
+        syncHidden(); validate(false);
+      });
+      box.addEventListener('change', function(event){
+        var card = event.target.closest('[data-action-index]');
+        if (card && event.target.matches('[data-action-type]')) { var idx = parseInt(card.getAttribute('data-action-index')||'-1',10); if (idx >= 0) { actions[idx] = {type:event.target.value || 'add_tag'}; render(); return; } }
+        if (card && event.target.matches('[data-action-param]')) { var pidx = parseInt(card.getAttribute('data-action-index')||'-1',10); if (pidx >= 0) { collect(); actions[pidx].param_key = event.target.value || ''; actions[pidx].param_type = fieldTypeFor(actions[pidx].param_key); actions[pidx].operation = 'set'; actions[pidx].value = ''; render(); return; } }
+        if (card && event.target.matches('[data-action-operation]')) { var oidx = parseInt(card.getAttribute('data-action-index')||'-1',10); if (oidx >= 0) { collect(); actions[oidx].operation = event.target.value || 'set'; if (actions[oidx].operation === 'clear') actions[oidx].value = ''; render(); return; } }
+        if (card && event.target.matches('[data-action-message-var]')) { var token = event.target.value || ''; if (token) { var textarea = card.querySelector('[data-action-message]'); if (textarea) { var start = textarea.selectionStart || textarea.value.length; var end = textarea.selectionEnd || start; textarea.value = textarea.value.slice(0, start) + token + textarea.value.slice(end); textarea.focus(); textarea.selectionStart = textarea.selectionEnd = start + token.length; } event.target.value = ''; syncHidden(); validate(false); return; } }
+        syncHidden(); validate(false);
+      });
+      form.addEventListener('submit', function(event){
+        syncHidden();
+        if (!validate(true)) {
+          event.preventDefault();
+          var alertBox = document.getElementById('scenario-message-alert');
+          if (alertBox) { alertBox.textContent = 'Заполните обязательные поля в действиях.'; alertBox.classList.add('is-open'); alertBox.scrollIntoView({block:'nearest', behavior:'smooth'}); }
+        }
+      });
+      var panelMenu = panel.querySelector('[data-panel-menu]');
+      var panelMenuToggle = panel.querySelector('[data-panel-menu-toggle]');
+      function closePanelMenu(){ if (panelMenu) panelMenu.classList.remove('is-open'); }
+      async function postBlockAction(action, payload){
+        payload = payload || {};
+        if (typeof window.tgScenarioFlowPostAction === 'function') return window.tgScenarioFlowPostAction(action, payload);
+        var fd = new FormData(); fd.set('action', action === 'tg_scenario_duplicate_block' ? 'tg_scenario_block_duplicate' : action); fd.set('return_page','scenario_flow'); fd.set('tg_ajax','1'); fd.set('scenario_id', String(<?php echo (int)$scenarioId; ?>));
+        Object.keys(payload).forEach(function(key){ fd.set(key, String(payload[key] == null ? '' : payload[key])); });
+        var csrf = form.querySelector('input[name="csrf_token"]'); if (csrf && csrf.value) fd.set('csrf_token', csrf.value);
+        var response = await fetch('admin.php?tab=telegram_bots', {method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        var text = await response.text(); var json = null; try { json = text ? JSON.parse(text) : null; } catch(e) {}
+        if (!response.ok || !json || json.ok === false) throw new Error((json && json.error) || 'Сервер не вернул JSON.'); return json;
+      }
+      function showPanelAlert(message){ var alertBox = document.getElementById('scenario-message-alert'); if (alertBox) { alertBox.textContent = message || 'Ошибка'; alertBox.classList.add('is-open'); } }
+      if (panelMenuToggle) panelMenuToggle.addEventListener('click', function(event){ event.preventDefault(); event.stopPropagation(); if (panelMenu) panelMenu.classList.toggle('is-open'); });
+      if (panelMenu) panelMenu.addEventListener('click', function(event){ event.stopPropagation(); });
+      document.addEventListener('click', closePanelMenu);
+      var duplicateBtn = panel.querySelector('[data-panel-duplicate]');
+      if (duplicateBtn) duplicateBtn.addEventListener('click', async function(event){ event.preventDefault(); closePanelMenu(); try { await postBlockAction('tg_scenario_duplicate_block', {block_id: <?php echo (int)$blockId; ?>}); if (typeof window.tgScenarioFlowRefresh === 'function') await window.tgScenarioFlowRefresh(); if (typeof window.tgScenarioFlowCloseDrawer === 'function') window.tgScenarioFlowCloseDrawer(); } catch(error) { showPanelAlert(error.message || 'Не удалось дублировать блок.'); } });
+      var deleteBtn = panel.querySelector('[data-panel-delete]');
+      if (deleteBtn) deleteBtn.addEventListener('click', async function(event){ event.preventDefault(); closePanelMenu(); var ok = true; if (typeof window.tgScenarioFlowConfirm === 'function') ok = await window.tgScenarioFlowConfirm({title:'Удалить блок?', text:'Вы уверены, что хотите удалить этот блок?', dangerText:'Удалить', cancelText:'Отмена'}); if (!ok) return; try { await postBlockAction('tg_scenario_block_delete', {block_id: <?php echo (int)$blockId; ?>}); if (typeof window.tgScenarioFlowRefresh === 'function') await window.tgScenarioFlowRefresh(); if (typeof window.tgScenarioFlowCloseDrawer === 'function') window.tgScenarioFlowCloseDrawer(); } catch(error) { showPanelAlert(error.message || 'Не удалось удалить блок.'); } });
+      render();
+    })();
+    </script>
+    <?php
+    return;
+}
+
+
 if ($type === 'condition') {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
@@ -158,6 +567,7 @@ if ($type === 'condition') {
                 <label class="tg-flow-panel-field">
                     <span class="tg-flow-panel-label">Название блока</span>
                     <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Условие')); ?>" maxlength="190">
+                    <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
                 </label>
 
                 <div class="tg-condition-box" data-condition-box data-max="15">
@@ -272,6 +682,73 @@ if ($type === 'condition') {
       var addBtn = box.querySelector('[data-condition-add]');
       var counter = box.querySelector('[data-condition-counter]');
       var max = parseInt(box.getAttribute('data-max') || '15', 10) || 15;
+      var panel = document.getElementById('tg-flow-panel');
+      var form = document.getElementById('scenario-message-form');
+      var blockMeta = {scenarioId: <?php echo (int)$scenarioId; ?>, blockId: <?php echo (int)$blockId; ?>};
+      var panelMenu = panel ? panel.querySelector('[data-panel-menu]') : null;
+      var panelMenuToggle = panel ? panel.querySelector('[data-panel-menu-toggle]') : null;
+      function closePanelMenu(){ if (panelMenu) panelMenu.classList.remove('is-open'); }
+      function showPanelAlert(message){
+        var alertBox = panel ? panel.querySelector('#scenario-message-alert') : null;
+        if (alertBox) {
+          alertBox.textContent = String(message || 'Ошибка');
+          alertBox.classList.add('is-open');
+          if (alertBox.scrollIntoView) alertBox.scrollIntoView({block:'nearest', behavior:'smooth'});
+        } else if (typeof window.tgScenarioFlowToast === 'function') {
+          window.tgScenarioFlowToast(String(message || 'Ошибка'), 'error');
+        }
+      }
+      async function postBlockAction(action, payload){
+        payload = payload || {};
+        if (typeof window.tgScenarioFlowPostAction === 'function') return window.tgScenarioFlowPostAction(action, payload);
+        var actionMap = {tg_scenario_duplicate_block: 'tg_scenario_block_duplicate'};
+        var fd = new FormData();
+        fd.set('action', actionMap[action] || action);
+        fd.set('return_page', 'scenario_flow');
+        fd.set('tg_ajax', '1');
+        fd.set('scenario_id', String(blockMeta.scenarioId || ''));
+        Object.keys(payload).forEach(function(key){ fd.set(key, String(payload[key] == null ? '' : payload[key])); });
+        var csrf = form ? form.querySelector('input[name="csrf_token"]') : null;
+        if (csrf && csrf.value) fd.set('csrf_token', csrf.value);
+        var response = await fetch('admin.php?tab=telegram_bots', {method:'POST', body:fd, credentials:'same-origin', headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+        var text = await response.text();
+        var json = null;
+        try { json = text ? JSON.parse(text) : null; } catch(e) { json = null; }
+        if (!response.ok || !json || json.ok === false) throw new Error((json && json.error) || 'Сервер не вернул JSON.');
+        return json;
+      }
+      if (panelMenuToggle) {
+        panelMenuToggle.addEventListener('click', function(event){
+          event.preventDefault();
+          event.stopPropagation();
+          if (panelMenu) panelMenu.classList.toggle('is-open');
+        });
+      }
+      if (panelMenu) panelMenu.addEventListener('click', function(event){ event.stopPropagation(); });
+      document.addEventListener('click', closePanelMenu);
+      var duplicateBtn = panel ? panel.querySelector('[data-panel-duplicate]') : null;
+      if (duplicateBtn) duplicateBtn.addEventListener('click', async function(event){
+        event.preventDefault(); event.stopPropagation(); closePanelMenu();
+        try {
+          await postBlockAction('tg_scenario_duplicate_block', {block_id: blockMeta.blockId || ''});
+          if (typeof window.tgScenarioFlowRefresh === 'function') await window.tgScenarioFlowRefresh();
+          if (typeof window.tgScenarioFlowCloseDrawer === 'function') window.tgScenarioFlowCloseDrawer();
+        } catch(error) { showPanelAlert(error && error.message ? error.message : 'Не удалось дублировать блок.'); }
+      });
+      var deleteBtn = panel ? panel.querySelector('[data-panel-delete]') : null;
+      if (deleteBtn) deleteBtn.addEventListener('click', async function(event){
+        event.preventDefault(); event.stopPropagation(); closePanelMenu();
+        var ok = true;
+        if (typeof window.tgScenarioFlowConfirm === 'function') {
+          ok = await window.tgScenarioFlowConfirm({title:'Удалить блок?', text:'Вы уверены, что хотите удалить этот блок? Это действие нельзя отменить.', dangerText:'Удалить', cancelText:'Отмена'});
+        }
+        if (!ok) return;
+        try {
+          await postBlockAction('tg_scenario_block_delete', {block_id: blockMeta.blockId || ''});
+          if (typeof window.tgScenarioFlowRefresh === 'function') await window.tgScenarioFlowRefresh();
+          if (typeof window.tgScenarioFlowCloseDrawer === 'function') window.tgScenarioFlowCloseDrawer();
+        } catch(error) { showPanelAlert(error && error.message ? error.message : 'Не удалось удалить блок.'); }
+      });
       var operatorGroups = {
         text: [['equals','Соответствует'], ['not_equals','Не соответствует'], ['contains','Содержит'], ['not_contains','Не содержит'], ['is_empty','Неизвестно'], ['is_filled','Имеет какое-то значение']],
         number: [['eq','Равно'], ['ne','Не равно'], ['gt','Больше'], ['gte','Больше либо равно'], ['lt','Меньше'], ['lte','Меньше либо равно'], ['is_empty','Не заполнено'], ['is_filled','Заполнено']],
@@ -526,6 +1003,7 @@ if ($type === 'delay') {
                 <label class="tg-flow-panel-field">
                     <span class="tg-flow-panel-label">Название блока</span>
                     <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Задержка')); ?>" maxlength="190">
+                    <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
                 </label>
 
                 <div class="tg-flow-delay-box" data-delay-settings>
@@ -886,6 +1364,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
             <label class="tg-flow-panel-field">
                 <span class="tg-flow-panel-label">Название блока</span>
                 <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Сообщение')); ?>" maxlength="190">
+                <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
             </label>
 
             <div class="tg-flow-card-toolbar" aria-label="Добавить карточку">

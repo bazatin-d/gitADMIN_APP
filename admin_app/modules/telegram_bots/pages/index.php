@@ -52,17 +52,22 @@ if ($page === 'scenario_block_panel') {
     return;
 }
 
-$allowedPages = ['bots','subscribers','subscriber','messages','broadcasts','flows','scenarios','scenario_flow','logs'];
+$allowedPages = ['bots','subscribers','subscriber','messages','broadcasts','flows','scenarios','scenario_flow','yandex_metrika_queue','logs'];
 if (!in_array($page, $allowedPages, true)) $page = 'bots';
 if ($page === 'logs') $page = 'messages';
 if ($page === 'flows') $page = 'scenarios';
 if ($page === 'subscriber' && !asr_tg_can('view')) $page = 'bots';
 if ($page === 'broadcasts' && !asr_tg_can('broadcast')) $page = 'bots';
-if (in_array($page, ['scenarios','scenario_flow'], true) && !asr_tg_can('flows')) $page = 'bots';
+if (in_array($page, ['scenarios','scenario_flow','yandex_metrika_queue'], true) && !asr_tg_can('flows')) $page = 'bots';
 if ($page === 'logs' && !asr_tg_can('logs')) $page = 'bots';
 
 if ($page === 'subscribers') {
     require __DIR__ . '/subscribers.php';
+    return;
+}
+
+if ($page === 'yandex_metrika_queue') {
+    require __DIR__ . '/yandex_metrika_queue.php';
     return;
 }
 

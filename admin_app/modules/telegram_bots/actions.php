@@ -219,6 +219,106 @@ function asr_tg_handle_broadcast_process_ajax(PDO $pdo, array $source): void {
     }
 }
 
+
+function asr_tg_external_request_test_replace_vars(string $text): string {
+    $map = [
+        '{{first_name}}' => 'Иван',
+        '{{last_name}}' => 'Петров',
+        '{{username}}' => 'ivan_petrov',
+        '{{phone}}' => '+77001234567',
+        '{{email}}' => 'ivan@example.com',
+        '{{bot_title}}' => 'Тестовый бот',
+    ];
+    $text = strtr($text, $map);
+    $text = preg_replace('~\{\{custom\.([a-zA-Z0-9_\-]+)\}\}~u', 'test_value', $text);
+    return (string)$text;
+}
+
+function asr_tg_external_request_test_public_https_url(string $url): array {
+    $url = trim($url);
+    if ($url === '') return ['ok' => false, 'url' => '', 'error' => 'Укажите URL запроса.'];
+    $parts = parse_url($url);
+    if (!is_array($parts)) return ['ok' => false, 'url' => '', 'error' => 'Некорректный URL.'];
+    $scheme = strtolower((string)($parts['scheme'] ?? ''));
+    if ($scheme !== 'https') return ['ok' => false, 'url' => '', 'error' => 'Внешний запрос для теста поддерживает только HTTPS URL.'];
+    $host = strtolower(trim((string)($parts['host'] ?? '')));
+    if ($host === '') return ['ok' => false, 'url' => '', 'error' => 'В URL не указан хост.'];
+    if ($host === 'localhost' || str_ends_with($host, '.local')) return ['ok' => false, 'url' => '', 'error' => 'Локальные адреса запрещены.'];
+    $ips = [];
+    if (filter_var($host, FILTER_VALIDATE_IP)) {
+        $ips[] = $host;
+    } else {
+        $resolved = gethostbynamel($host);
+        if (is_array($resolved)) $ips = $resolved;
+    }
+    foreach ($ips as $ip) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return ['ok' => false, 'url' => '', 'error' => 'Приватные и служебные IP-адреса запрещены.'];
+        }
+    }
+    return ['ok' => true, 'url' => $url, 'error' => ''];
+}
+
+function asr_tg_external_request_test_from_post(array $source): array {
+    $started = microtime(true);
+    $method = strtoupper(trim((string)($source['method'] ?? 'GET')));
+    if (!in_array($method, ['GET','POST','PUT','PATCH','DELETE'], true)) $method = 'GET';
+    $urlRaw = asr_tg_external_request_test_replace_vars((string)($source['url'] ?? ''));
+    $urlCheck = asr_tg_external_request_test_public_https_url($urlRaw);
+    if (empty($urlCheck['ok'])) return ['ok' => false, 'http_code' => 0, 'duration_ms' => 0, 'error' => (string)$urlCheck['error'], 'response_headers' => '', 'response_body' => ''];
+    $headers = ['Accept: application/json, text/plain, */*'];
+    $headersJson = (string)($source['headers_json'] ?? '[]');
+    $decodedHeaders = json_decode($headersJson, true);
+    $hasContentType = false;
+    if (is_array($decodedHeaders)) {
+        foreach ($decodedHeaders as $row) {
+            if (!is_array($row)) continue;
+            $key = trim((string)($row['key'] ?? ''));
+            $value = asr_tg_external_request_test_replace_vars((string)($row['value'] ?? ''));
+            if ($key === '' || preg_match('~[\r\n:]~', $key)) continue;
+            if (strtolower($key) === 'content-type') $hasContentType = true;
+            $headers[] = $key . ': ' . str_replace(["\r", "\n"], ' ', $value);
+        }
+    }
+    $body = asr_tg_external_request_test_replace_vars((string)($source['body'] ?? ''));
+    if ($method !== 'GET' && $body !== '' && !$hasContentType) $headers[] = 'Content-Type: application/json';
+    if (strlen($body) > 262144) return ['ok' => false, 'http_code' => 0, 'duration_ms' => 0, 'error' => 'Тело запроса слишком большое для теста.', 'response_headers' => '', 'response_body' => ''];
+    $opts = [
+        'http' => [
+            'method' => $method,
+            'header' => implode("\r\n", $headers),
+            'timeout' => 8,
+            'ignore_errors' => true,
+            'follow_location' => 0,
+            'max_redirects' => 0,
+        ],
+        'ssl' => ['verify_peer' => true, 'verify_peer_name' => true],
+    ];
+    if ($method !== 'GET' && $body !== '') $opts['http']['content'] = $body;
+    $context = stream_context_create($opts);
+    $responseBody = @file_get_contents((string)$urlCheck['url'], false, $context);
+    $responseHeaders = isset($http_response_header) && is_array($http_response_header) ? $http_response_header : [];
+    $httpCode = 0;
+    if ($responseHeaders) {
+        foreach ($responseHeaders as $line) {
+            if (preg_match('~^HTTP/\S+\s+(\d{3})~i', (string)$line, $m)) { $httpCode = (int)$m[1]; break; }
+        }
+    }
+    $durationMs = (int)round((microtime(true) - $started) * 1000);
+    $err = '';
+    if ($responseBody === false) $err = 'Не удалось выполнить запрос.';
+    $bodyText = $responseBody === false ? '' : (string)$responseBody;
+    if (strlen($bodyText) > 12000) $bodyText = substr($bodyText, 0, 12000) . "\n... ответ обрезан ...";
+    return [
+        'ok' => ($responseBody !== false && $httpCode >= 200 && $httpCode < 400),
+        'http_code' => $httpCode,
+        'duration_ms' => $durationMs,
+        'error' => $err,
+        'response_headers' => implode("\n", $responseHeaders),
+        'response_body' => $bodyText,
+    ];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_bots' && ($_GET['tg_ajax'] ?? '') === 'broadcast_process') {
     asr_tg_handle_broadcast_process_ajax($pdo, $_GET);
 }
@@ -236,14 +336,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_b
     asr_tg_handle_dialog_ajax($pdo, $_GET);
 }
 
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['tab'] ?? '') === 'telegram_bots' && (string)($_POST['tg_ajax'] ?? '') === 'scenario_external_request_test') {
+    try {
+        asr_tg_repository_ensure_schema($pdo);
+        asr_tg_json_response(asr_tg_external_request_test_from_post($_POST));
+    } catch (Throwable $e) {
+        asr_tg_json_response(['ok' => false, 'error' => $e->getMessage()], 400);
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = (string)$_POST['action'];
-    if (in_array($action, ['tg_bot_create','tg_bot_update','tg_channel_enable','tg_channel_disable','tg_bot_set_webhook','tg_bot_delete_webhook','tg_bot_delete','tg_dialog_settings_save','tg_dialog_status','tg_dialog_read_state','tg_dialog_assign','tg_dialog_close_all','tg_broadcast_send','tg_broadcast_test','tg_broadcast_process','tg_broadcast_cancel','tg_broadcast_cancel_scheduled','tg_broadcast_count_segment','tg_tag_save','tg_tag_delete','tg_subscriber_add_tag','tg_subscriber_tag_add_or_create','tg_subscriber_remove_tag','tg_subscriber_status','tg_subscriber_profile_save','tg_subscriber_custom_values_save','tg_subscriber_send_message','tg_subscriber_delete','tg_bot_commands_save','tg_subscribers_bulk_add_tag','tg_subscribers_bulk_remove_tag','tg_subscribers_bulk_delete','tg_subscribers_bulk_stop_scenario','tg_custom_field_save','tg_custom_field_archive','tg_custom_field_restore','tg_custom_field_delete','tg_scenario_save','tg_scenario_pause','tg_scenario_resume','tg_scenario_archive','tg_scenario_restore','tg_scenario_delete','tg_scenario_block_save','tg_scenario_block_delete','tg_scenario_block_duplicate','tg_scenario_block_deeplink_create','tg_scenario_blocks_positions_save','tg_scenario_link_save','tg_scenario_link_delete','tg_scenario_quick_message_create','tg_scenario_quick_delay_create','tg_scenario_quick_condition_create','tg_scenario_stats_reset'], true)) {
+    if (in_array($action, ['tg_bot_create','tg_bot_update','tg_channel_enable','tg_channel_disable','tg_bot_set_webhook','tg_bot_delete_webhook','tg_bot_delete','tg_dialog_settings_save','tg_dialog_status','tg_dialog_read_state','tg_dialog_assign','tg_dialog_close_all','tg_broadcast_send','tg_broadcast_test','tg_broadcast_process','tg_broadcast_cancel','tg_broadcast_cancel_scheduled','tg_broadcast_count_segment','tg_tag_save','tg_tag_delete','tg_subscriber_add_tag','tg_subscriber_tag_add_or_create','tg_subscriber_remove_tag','tg_subscriber_status','tg_subscriber_profile_save','tg_subscriber_custom_values_save','tg_subscriber_send_message','tg_subscriber_delete','tg_bot_commands_save','tg_subscribers_bulk_add_tag','tg_subscribers_bulk_remove_tag','tg_subscribers_bulk_delete','tg_subscribers_bulk_stop_scenario','tg_custom_field_save','tg_custom_field_archive','tg_custom_field_restore','tg_custom_field_delete','tg_scenario_save','tg_scenario_pause','tg_scenario_resume','tg_scenario_archive','tg_scenario_restore','tg_scenario_delete','tg_scenario_block_save','tg_scenario_block_delete','tg_scenario_block_duplicate','tg_scenario_block_deeplink_create','tg_scenario_blocks_positions_save','tg_scenario_link_save','tg_scenario_link_delete','tg_scenario_quick_message_create','tg_scenario_quick_delay_create','tg_scenario_quick_condition_create','tg_scenario_quick_actions_create','tg_scenario_stats_reset','tg_scenario_external_request_test'], true)) {
         try {
             asr_tg_repository_ensure_schema($pdo);
 
             if ($action === 'tg_broadcast_count_segment') {
                 asr_tg_handle_segment_count($pdo, $_POST);
+            }
+
+            if ($action === 'tg_scenario_external_request_test') {
+                asr_tg_json_response(asr_tg_external_request_test_from_post($_POST));
             }
 
             if ($action === 'tg_tag_save') {
@@ -448,7 +562,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $returnPage = (string)($_POST['return_page'] ?? 'scenario');
                 $returnPage = $returnPage === 'scenario_flow' ? 'scenario_flow' : 'scenario';
                 $blockType = (string)($_POST['block_type'] ?? 'message');
-                $saveMessage = $blockType === 'condition' ? 'Блок условия сохранён.' : ($blockType === 'delay' ? 'Блок задержки сохранён.' : 'Блок сообщения сохранён.');
+                $saveMessage = $blockType === 'condition' ? 'Блок условия сохранён.' : ($blockType === 'delay' ? 'Блок задержки сохранён.' : ($blockType === 'actions' ? 'Блок действий сохранён.' : 'Блок сообщения сохранён.'));
                 asr_tg_redirect($saveMessage, '', ['page' => $returnPage, 'scenario_id' => $scenarioId]);
             }
 
@@ -532,6 +646,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     asr_tg_json_response(['ok' => true, 'scenario_id' => $scenarioId, 'block_id' => $blockId]);
                 }
                 asr_tg_redirect('Новый блок условия создан и связан.', '', ['page' => 'scenario_flow', 'scenario_id' => $scenarioId]);
+            }
+
+
+            if ($action === 'tg_scenario_quick_actions_create') {
+                $scenarioId = (int)($_POST['scenario_id'] ?? 0);
+                $blockId = asr_tg_scenario_quick_actions_create_from_post($pdo, $_POST);
+                if (function_exists('asr_tg_ajax_requested') && asr_tg_ajax_requested($_POST)) {
+                    asr_tg_json_response(['ok' => true, 'scenario_id' => $scenarioId, 'block_id' => $blockId]);
+                }
+                asr_tg_redirect('Новый блок действий создан и связан.', '', ['page' => 'scenario_flow', 'scenario_id' => $scenarioId]);
             }
 
 
@@ -818,7 +942,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $extra['page'] = 'scenario_flow';
                 $extra['scenario_id'] = (int)($_POST['scenario_id'] ?? 0) ?: null;
             }
-            if (in_array($action, ['tg_scenario_block_save','tg_scenario_block_delete','tg_scenario_block_duplicate','tg_scenario_block_deeplink_create','tg_scenario_blocks_positions_save','tg_scenario_link_save','tg_scenario_link_delete','tg_scenario_quick_message_create','tg_scenario_quick_delay_create','tg_scenario_quick_condition_create','tg_scenario_stats_reset'], true)) {
+            if (in_array($action, ['tg_scenario_block_save','tg_scenario_block_delete','tg_scenario_block_duplicate','tg_scenario_block_deeplink_create','tg_scenario_blocks_positions_save','tg_scenario_link_save','tg_scenario_link_delete','tg_scenario_quick_message_create','tg_scenario_quick_delay_create','tg_scenario_quick_condition_create','tg_scenario_quick_actions_create','tg_scenario_stats_reset','tg_scenario_external_request_test'], true)) {
                 $extra['page'] = 'scenario_flow';
                 $extra['scenario_id'] = (int)($_POST['scenario_id'] ?? 0) ?: null;
                 if ($action === 'tg_scenario_block_save') {

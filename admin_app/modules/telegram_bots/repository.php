@@ -3530,6 +3530,54 @@ function asr_tg_repository_ensure_scenario_schema(PDO $pdo): void {
         KEY `idx_tg_sub_scenarios_active` (`scenario_id`, `telegram_user_id`, `bot_id`, `status`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `oca_telegram_bot_scenario_sent_messages` (
+        `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        `scenario_id` BIGINT UNSIGNED NOT NULL,
+        `block_id` BIGINT UNSIGNED NOT NULL,
+        `bot_id` INT UNSIGNED NOT NULL,
+        `subscriber_id` INT UNSIGNED NOT NULL,
+        `telegram_user_id` BIGINT NULL DEFAULT NULL,
+        `chat_id` VARCHAR(80) NOT NULL,
+        `card_index` INT NOT NULL DEFAULT 0,
+        `card_type` VARCHAR(40) NOT NULL DEFAULT 'text',
+        `telegram_message_id` BIGINT NOT NULL,
+        `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `deleted_at` DATETIME NULL DEFAULT NULL,
+        `delete_error` TEXT NULL,
+        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`),
+        KEY `idx_tg_scenario_sent_lookup` (`scenario_id`, `subscriber_id`, `block_id`, `sent_at`),
+        KEY `idx_tg_scenario_sent_message` (`bot_id`, `chat_id`, `telegram_message_id`),
+        KEY `idx_tg_scenario_sent_deleted` (`deleted_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS `oca_telegram_bot_yandex_metrika_events` (
+        `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        `bot_id` INT UNSIGNED NOT NULL,
+        `subscriber_id` INT UNSIGNED NOT NULL,
+        `telegram_user_id` BIGINT NULL DEFAULT NULL,
+        `scenario_id` BIGINT UNSIGNED NOT NULL,
+        `block_id` BIGINT UNSIGNED NOT NULL,
+        `action_index` INT NOT NULL DEFAULT 0,
+        `counter_id` VARCHAR(40) NOT NULL,
+        `target` VARCHAR(120) NOT NULL,
+        `client_id` VARCHAR(190) NULL DEFAULT NULL,
+        `conversion_at` DATETIME NOT NULL,
+        `status` VARCHAR(30) NOT NULL DEFAULT 'pending',
+        `attempts` INT NOT NULL DEFAULT 0,
+        `last_error` TEXT NULL,
+        `payload_json` JSON NULL,
+        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        `queued_at` DATETIME NULL DEFAULT NULL,
+        `sent_at` DATETIME NULL DEFAULT NULL,
+        PRIMARY KEY (`id`),
+        KEY `idx_tg_ym_events_due` (`status`, `created_at`),
+        KEY `idx_tg_ym_events_counter` (`counter_id`, `target`, `status`),
+        KEY `idx_tg_ym_events_scenario` (`scenario_id`, `block_id`, `created_at`),
+        KEY `idx_tg_ym_events_subscriber` (`subscriber_id`, `created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS `oca_telegram_bot_scenario_events` (
         `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         `scenario_id` BIGINT UNSIGNED NULL DEFAULT NULL,
@@ -3841,6 +3889,9 @@ function asr_tg_scenario_block_type_labels(): array {
     return [
         'start' => 'Старт',
         'message' => 'Сообщение',
+        'actions' => 'Действия',
+        'delay' => 'Задержка',
+        'condition' => 'Условие',
     ];
 }
 
@@ -4354,24 +4405,17 @@ function asr_tg_scenario_condition_rule_summary(array $rule): string {
 }
 
 function asr_tg_scenario_condition_field_catalog(PDO $pdo): array {
-    // В условиях системные поля должны оставаться системными. Если настраиваемое поле
-    // случайно получит код phone/email/username и т.п., оно не должно подменять реальное
-    // поле подписчика в runtime. Иначе интерфейс показывает «Телефон», а проверка может
-    // уйти в кастомное значение с таким же кодом — редкий, но неприятный фокус.
-    $systemFields = [
+    $fields = [
         'first_name' => ['code' => 'first_name', 'title' => 'Имя', 'field_type' => 'text', 'source' => 'system'],
         'last_name' => ['code' => 'last_name', 'title' => 'Фамилия', 'field_type' => 'text', 'source' => 'system'],
         'username' => ['code' => 'username', 'title' => 'Username', 'field_type' => 'text', 'source' => 'system'],
         'phone' => ['code' => 'phone', 'title' => 'Телефон', 'field_type' => 'text', 'source' => 'system'],
         'email' => ['code' => 'email', 'title' => 'Email', 'field_type' => 'text', 'source' => 'system'],
     ];
-    $fields = $systemFields;
-    $reservedSystemCodes = array_fill_keys(array_keys($systemFields), true);
-
     try {
         foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
             $code = trim((string)($field['code'] ?? ''));
-            if ($code === '' || isset($reservedSystemCodes[$code])) continue;
+            if ($code === '') continue;
             $type = (string)($field['field_type'] ?? 'text');
             if (!in_array($type, ['text','number','date','datetime'], true)) $type = 'text';
             $fields[$code] = ['code' => $code, 'title' => trim((string)($field['title'] ?? $code)) ?: $code, 'field_type' => $type, 'source' => 'custom'];
@@ -4650,6 +4694,390 @@ function asr_tg_scenario_condition_block_save(PDO $pdo, array $data): int {
     return $blockId;
 }
 
+
+function asr_tg_scenario_message_blocks_for_delete_action(PDO $pdo, int $scenarioId): array {
+    if ($scenarioId <= 0) return [];
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $stmt = $pdo->prepare("SELECT id, title, type, sort_order FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type = 'message' ORDER BY sort_order ASC, id ASC");
+    $stmt->execute([$scenarioId]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $out = [];
+    foreach ($rows as $row) {
+        $id = (int)($row['id'] ?? 0);
+        if ($id <= 0) continue;
+        $title = trim((string)($row['title'] ?? ''));
+        if ($title === '') $title = 'Сообщение';
+        $out[] = [
+            'id' => $id,
+            'title' => $title,
+            'label' => $title . ' — Сообщение #' . $id,
+            'ref' => 'Сообщение #' . $id,
+        ];
+    }
+    return $out;
+}
+
+function asr_tg_scenario_message_block_labels(PDO $pdo, int $scenarioId, array $blockIds): array {
+    $ids = array_values(array_unique(array_filter(array_map('intval', $blockIds), static fn($id) => $id > 0)));
+    if (!$ids || $scenarioId <= 0) return [];
+    $map = [];
+    foreach (asr_tg_scenario_message_blocks_for_delete_action($pdo, $scenarioId) as $row) {
+        $map[(int)$row['id']] = (string)$row['label'];
+    }
+    $out = [];
+    foreach ($ids as $id) {
+        if (isset($map[$id])) $out[$id] = $map[$id];
+    }
+    return $out;
+}
+
+function asr_tg_scenario_sent_message_record(PDO $pdo, array $data): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    $botId = max(0, (int)($data['bot_id'] ?? 0));
+    $subscriberId = max(0, (int)($data['subscriber_id'] ?? 0));
+    $messageId = max(0, (int)($data['telegram_message_id'] ?? 0));
+    $chatId = trim((string)($data['chat_id'] ?? ''));
+    if ($scenarioId <= 0 || $blockId <= 0 || $botId <= 0 || $subscriberId <= 0 || $messageId <= 0 || $chatId === '') return 0;
+    $telegramUserId = null;
+    try {
+        $stmt = $pdo->prepare('SELECT telegram_user_id FROM oca_telegram_bot_subscribers WHERE id = ? LIMIT 1');
+        $stmt->execute([$subscriberId]);
+        $rawUserId = $stmt->fetchColumn();
+        if ($rawUserId !== false && $rawUserId !== null && $rawUserId !== '') $telegramUserId = (int)$rawUserId;
+    } catch (Throwable $ignored) {}
+    $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_sent_messages
+        (scenario_id, block_id, bot_id, subscriber_id, telegram_user_id, chat_id, card_index, card_type, telegram_message_id, sent_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
+    $stmt->execute([
+        $scenarioId,
+        $blockId,
+        $botId,
+        $subscriberId,
+        $telegramUserId,
+        $chatId,
+        max(0, (int)($data['card_index'] ?? 0)),
+        mb_substr(trim((string)($data['card_type'] ?? 'text')), 0, 40, 'UTF-8') ?: 'text',
+        $messageId,
+    ]);
+    return (int)$pdo->lastInsertId();
+}
+
+
+
+function asr_tg_yandex_metrika_event_enqueue(PDO $pdo, array $data): array {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+
+    $botId = max(0, (int)($data['bot_id'] ?? 0));
+    $subscriberId = max(0, (int)($data['subscriber_id'] ?? 0));
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    $actionIndex = max(0, (int)($data['action_index'] ?? 0));
+    $counterId = mb_substr(trim((string)($data['counter_id'] ?? '')), 0, 40, 'UTF-8');
+    $target = mb_substr(trim((string)($data['target'] ?? '')), 0, 120, 'UTF-8');
+    $clientId = mb_substr(trim((string)($data['client_id'] ?? '')), 0, 190, 'UTF-8');
+    $status = trim((string)($data['status'] ?? 'pending'));
+    if (!in_array($status, ['pending','skipped','failed'], true)) $status = 'pending';
+    $lastError = mb_substr(trim((string)($data['last_error'] ?? '')), 0, 2000, 'UTF-8');
+    $payload = $data['payload'] ?? [];
+    if (!is_array($payload)) $payload = [];
+
+    if ($botId <= 0 || $subscriberId <= 0 || $scenarioId <= 0 || $blockId <= 0 || $counterId === '' || $target === '') {
+        return ['ok' => false, 'id' => 0, 'status' => 'failed', 'error' => 'Недостаточно данных для постановки события Яндекс.Метрики в очередь.'];
+    }
+
+    $telegramUserId = null;
+    try {
+        $stmt = $pdo->prepare('SELECT telegram_user_id FROM oca_telegram_bot_subscribers WHERE id = ? LIMIT 1');
+        $stmt->execute([$subscriberId]);
+        $rawUserId = $stmt->fetchColumn();
+        if ($rawUserId !== false && $rawUserId !== null && $rawUserId !== '') $telegramUserId = (int)$rawUserId;
+    } catch (Throwable $ignored) {}
+
+    if ($clientId === '') {
+        $status = 'skipped';
+        if ($lastError === '') $lastError = 'У подписчика не заполнен Yandex Client ID.';
+    }
+
+    $payloadJson = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($payloadJson === false) $payloadJson = '{}';
+
+    $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_yandex_metrika_events
+        (bot_id, subscriber_id, telegram_user_id, scenario_id, block_id, action_index, counter_id, target, client_id, conversion_at, status, last_error, payload_json, queued_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?, ?, NOW(), NOW())');
+    $stmt->execute([
+        $botId,
+        $subscriberId,
+        $telegramUserId,
+        $scenarioId,
+        $blockId,
+        $actionIndex,
+        $counterId,
+        $target,
+        $clientId !== '' ? $clientId : null,
+        $status,
+        $lastError !== '' ? $lastError : null,
+        $payloadJson,
+        $status === 'pending' ? date('Y-m-d H:i:s') : null,
+    ]);
+    $id = (int)$pdo->lastInsertId();
+    return ['ok' => true, 'id' => $id, 'status' => $status, 'error' => $lastError, 'client_id' => $clientId, 'counter_id' => $counterId, 'target' => $target];
+}
+
+function asr_tg_scenario_action_type_labels(): array {
+    return [
+        'add_tag' => 'Добавить тег',
+        'remove_tag' => 'Удалить тег',
+        'set_field' => 'Изменить поле / переменную',
+        'stop_scenario' => 'Остановить сценарий',
+        'notify_staff' => 'Отправить уведомление',
+        'webhook_subscriber' => 'Отправить данные подписчика через Webhook',
+        'unsubscribe_bot' => 'Отписать от бота',
+        'delete_step_message' => 'Удалить шаг-сообщение',
+        'external_request' => 'Внешний запрос',
+        'yandex_metrika' => 'Передать данные о событии в Яндекс.Метрику',
+    ];
+}
+
+function asr_tg_scenario_action_summary(array $action): string {
+    $type = (string)($action['type'] ?? '');
+    $title = (string)($action['title'] ?? 'Действие');
+    if ($type === 'add_tag') {
+        $tag = trim((string)($action['tag_name'] ?? ''));
+        return 'Добавить тег' . ($tag !== '' ? ': ' . $tag : '');
+    }
+    if ($type === 'remove_tag') {
+        $tag = trim((string)($action['tag_name'] ?? ''));
+        return 'Удалить тег' . ($tag !== '' ? ': ' . $tag : '');
+    }
+    if ($type === 'set_field') {
+        $field = trim((string)($action['field_title'] ?? 'поле'));
+        $operation = (string)($action['operation'] ?? 'set');
+        $operationTitle = ['set' => 'установить', 'clear' => 'очистить', 'inc' => 'прибавить', 'dec' => 'вычесть'][$operation] ?? 'изменить';
+        return 'Поле «' . $field . '»: ' . $operationTitle;
+    }
+    if ($type === 'stop_scenario') return 'Остановить сценарий';
+    if ($type === 'notify_staff') return 'Отправить уведомление';
+    if ($type === 'webhook_subscriber') return 'Webhook: данные подписчика';
+    if ($type === 'unsubscribe_bot') return 'Отписать от бота';
+    if ($type === 'delete_step_message') {
+        $steps = $action['step_labels'] ?? [];
+        if (is_array($steps) && $steps) {
+            $first = array_slice(array_values(array_filter(array_map('strval', $steps))), 0, 2);
+            $extra = count($steps) - count($first);
+            return 'Удалить шаг-сообщение: ' . implode(', ', $first) . ($extra > 0 ? ' +' . $extra : '');
+        }
+        return 'Удалить шаг-сообщение';
+    }
+    if ($type === 'external_request') {
+        $method = strtoupper(trim((string)($action['method'] ?? 'GET')));
+        $url = trim((string)($action['url'] ?? ''));
+        $maps = isset($action['mappings']) && is_array($action['mappings']) ? count($action['mappings']) : 0;
+        return 'Внешний запрос' . ($url !== '' ? ': ' . $method . ' ' . $url : '') . ($maps > 0 ? ' → ' . $maps . ' сопост.' : '');
+    }
+    if ($type === 'yandex_metrika') {
+        $target = trim((string)($action['target'] ?? ''));
+        $counter = trim((string)($action['counter_id'] ?? ''));
+        return 'Яндекс.Метрика' . ($target !== '' ? ': ' . $target : '') . ($counter !== '' ? ' · счётчик ' . $counter : '');
+    }
+    return $title;
+}
+
+function asr_tg_scenario_normalize_action_settings(PDO $pdo, array $data): array {
+    $rawJson = trim((string)($data['action_cards_json'] ?? $data['actions_json'] ?? ''));
+    $rawActions = [];
+    if ($rawJson !== '') {
+        $decoded = json_decode($rawJson, true);
+        if (is_array($decoded)) $rawActions = array_values($decoded);
+    }
+    if (!$rawActions && isset($data['scenario_actions']) && is_array($data['scenario_actions'])) {
+        $rawActions = array_values($data['scenario_actions']);
+    }
+
+    $labels = asr_tg_scenario_action_type_labels();
+    $tags = function_exists('asr_tg_tags_all_light') ? asr_tg_tags_all_light($pdo, 0) : [];
+    $tagTitles = [];
+    foreach ($tags as $tag) {
+        $id = (int)($tag['id'] ?? 0);
+        if ($id > 0) $tagTitles[$id] = trim((string)($tag['title'] ?? $tag['name'] ?? ''));
+    }
+    $fieldCatalog = function_exists('asr_tg_scenario_condition_parameter_catalog') ? asr_tg_scenario_condition_parameter_catalog($pdo) : [];
+    $fieldsByKey = [];
+    foreach ($fieldCatalog as $field) {
+        $key = (string)($field['key'] ?? '');
+        if ($key !== '') $fieldsByKey[$key] = $field;
+    }
+
+    $out = [];
+    $invalidRows = 0;
+    foreach ($rawActions as $item) {
+        if (!is_array($item)) continue;
+        $type = trim((string)($item['type'] ?? ''));
+        if (!isset($labels[$type])) { $invalidRows++; continue; }
+        $action = ['type' => $type, 'title' => $labels[$type], 'valid' => true];
+
+        if ($type === 'add_tag' || $type === 'remove_tag') {
+            $tagId = max(0, (int)($item['tag_id'] ?? $item['value'] ?? 0));
+            $action['tag_id'] = $tagId;
+            $action['tag_name'] = $tagTitles[$tagId] ?? '';
+            if ($tagId <= 0) $action['valid'] = false;
+        } elseif ($type === 'set_field') {
+            $paramKey = trim((string)($item['param_key'] ?? $item['field_key'] ?? ''));
+            $field = $fieldsByKey[$paramKey] ?? [];
+            $paramType = (string)($field['param_type'] ?? $item['param_type'] ?? 'text');
+            if (!in_array($paramType, ['text','number','date','datetime'], true)) $paramType = 'text';
+            $fieldCodeForAction = trim((string)($field['field_code'] ?? ''));
+            if (strpos($paramKey, 'field:') === 0 && !in_array($fieldCodeForAction, ['first_name','last_name','phone','email'], true)) {
+                $field = [];
+            }
+            $operation = trim((string)($item['operation'] ?? 'set'));
+            if (!in_array($operation, ['set','clear','inc','dec'], true)) $operation = 'set';
+            if (!in_array($paramType, ['number'], true) && in_array($operation, ['inc','dec'], true)) $operation = 'set';
+            $value = trim((string)($item['value'] ?? ''));
+            $action += [
+                'param_key' => $paramKey,
+                'field_title' => trim((string)($field['title'] ?? $item['field_title'] ?? '')),
+                'param_type' => $paramType,
+                'operation' => $operation,
+                'value' => $value,
+            ];
+            if ($paramKey === '' || empty($field)) $action['valid'] = false;
+            if ($operation !== 'clear' && $value === '') $action['valid'] = false;
+        } elseif ($type === 'notify_staff') {
+            $staffUserId = max(0, (int)($item['staff_user_id'] ?? 0));
+            $message = trim((string)($item['message'] ?? ''));
+            $action['staff_user_id'] = $staffUserId;
+            $action['message'] = mb_substr($message, 0, 4000, 'UTF-8');
+            $action['add_dialog_link'] = !empty($item['add_dialog_link']);
+            if ($staffUserId <= 0 || $message === '') $action['valid'] = false;
+        } elseif ($type === 'webhook_subscriber') {
+            $url = trim((string)($item['url'] ?? ''));
+            $action['url'] = mb_substr($url, 0, 500, 'UTF-8');
+            $action['include_custom_fields'] = array_key_exists('include_custom_fields', $item) ? !empty($item['include_custom_fields']) : true;
+            $action['include_tags'] = array_key_exists('include_tags', $item) ? !empty($item['include_tags']) : true;
+            if ($url === '' || !preg_match('~^https?://~i', $url)) $action['valid'] = false;
+        } elseif ($type === 'delete_step_message') {
+            $rawIds = $item['block_ids'] ?? $item['step_ids'] ?? $item['block_id'] ?? [];
+            if (!is_array($rawIds)) $rawIds = [$rawIds];
+            $blockIds = array_values(array_unique(array_filter(array_map('intval', $rawIds), static fn($id) => $id > 0)));
+            $labels = asr_tg_scenario_message_block_labels($pdo, (int)($data['scenario_id'] ?? 0), $blockIds);
+            $validIds = array_values(array_map('intval', array_keys($labels)));
+            $action['block_ids'] = $validIds;
+            $action['step_labels'] = array_values($labels);
+            if (!$validIds) $action['valid'] = false;
+        } elseif ($type === 'external_request') {
+            $method = strtoupper(trim((string)($item['method'] ?? 'GET')));
+            if (!in_array($method, ['GET','POST','PUT','PATCH','DELETE'], true)) $method = 'GET';
+            $url = trim((string)($item['url'] ?? ''));
+            $headersRaw = $item['headers'] ?? [];
+            if (!is_array($headersRaw)) $headersRaw = [];
+            $headers = [];
+            foreach ($headersRaw as $header) {
+                if (!is_array($header)) continue;
+                $key = mb_substr(trim((string)($header['key'] ?? '')), 0, 120, 'UTF-8');
+                $value = mb_substr(trim((string)($header['value'] ?? '')), 0, 500, 'UTF-8');
+                if ($key === '' && $value === '') continue;
+                $headers[] = ['key' => $key, 'value' => $value];
+                if (count($headers) >= 20) break;
+            }
+            $mappingsRaw = $item['mappings'] ?? $item['response_mappings'] ?? [];
+            if (!is_array($mappingsRaw)) $mappingsRaw = [];
+            $mappings = [];
+            foreach ($mappingsRaw as $mapping) {
+                if (!is_array($mapping)) continue;
+                $path = mb_substr(trim((string)($mapping['response_path'] ?? $mapping['path'] ?? '')), 0, 240, 'UTF-8');
+                $target = trim((string)($mapping['target_param_key'] ?? $mapping['param_key'] ?? ''));
+                if ($path === '' && $target === '') continue;
+                $field = $fieldsByKey[$target] ?? [];
+                if ($path === '' || $target === '' || empty($field)) {
+                    $action['valid'] = false;
+                    continue;
+                }
+                $paramType = (string)($field['param_type'] ?? 'text');
+                if (!in_array($paramType, ['text','number','date','datetime'], true)) $paramType = 'text';
+                $mappings[] = [
+                    'response_path' => $path,
+                    'target_param_key' => $target,
+                    'target_title' => trim((string)($field['title'] ?? $target)),
+                    'target_type' => $paramType,
+                ];
+                if (count($mappings) >= 20) break;
+            }
+            $action['method'] = $method;
+            $action['url'] = mb_substr($url, 0, 700, 'UTF-8');
+            $action['headers'] = $headers;
+            $action['body'] = mb_substr((string)($item['body'] ?? ''), 0, 20000, 'UTF-8');
+            $action['mappings'] = $mappings;
+            if ($url === '' || !preg_match('~^https://~i', $url)) $action['valid'] = false;
+        } elseif ($type === 'yandex_metrika') {
+            $counterId = mb_substr(trim((string)($item['counter_id'] ?? '')), 0, 40, 'UTF-8');
+            $token = mb_substr(trim((string)($item['token'] ?? '')), 0, 1000, 'UTF-8');
+            $target = mb_substr(trim((string)($item['target'] ?? '')), 0, 120, 'UTF-8');
+            $clientParamKey = trim((string)($item['client_id_param_key'] ?? $item['client_field'] ?? ''));
+            $clientField = $fieldsByKey[$clientParamKey] ?? [];
+            if (empty($clientField) || (string)($clientField['source'] ?? '') !== 'custom' || (string)($clientField['param_type'] ?? 'text') !== 'text') {
+                $clientField = [];
+            }
+            $action['counter_id'] = $counterId;
+            $action['token'] = $token;
+            $action['target'] = $target;
+            $action['client_id_param_key'] = $clientParamKey;
+            $action['client_id_field_title'] = trim((string)($clientField['title'] ?? ''));
+            $action['queue_enabled'] = true;
+            if ($counterId === '' || $token === '' || $target === '' || $clientParamKey === '' || empty($clientField)) $action['valid'] = false;
+        } elseif ($type === 'stop_scenario') {
+            $action['valid'] = true;
+        } elseif ($type === 'unsubscribe_bot') {
+            $action['valid'] = true;
+        }
+        $action['summary'] = asr_tg_scenario_action_summary($action);
+        if (empty($action['valid'])) $invalidRows++;
+        $out[] = $action;
+        if (count($out) >= 30) break;
+    }
+
+    return [
+        'version' => 1,
+        'actions' => $out,
+        'actions_valid' => count($out) > 0 && $invalidRows === 0,
+        'invalid_rows' => $invalidRows,
+        'runtime_plan' => ['enabled' => true, 'prepared_for' => 'actions_runner', 'enabled_actions' => ['add_tag','remove_tag','set_field','stop_scenario','notify_staff','webhook_subscriber','unsubscribe_bot','external_request','yandex_metrika']],
+    ];
+}
+
+function asr_tg_scenario_actions_block_save(PDO $pdo, array $data): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($blockId > 0 && !asr_tg_scenario_block_find($pdo, $blockId, $scenarioId)) throw new InvalidArgumentException('Блок сценария не найден.');
+    $title = trim((string)($data['block_title'] ?? ''));
+    if ($title === '') $title = 'Действия';
+    $settings = asr_tg_scenario_normalize_action_settings($pdo, $data);
+    $settingsJson = json_encode($settings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить данные блока действий.');
+    if ($blockId > 0) {
+        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_scenario_blocks SET type = 'actions', title = ?, settings_json = ?, updated_at = NOW() WHERE id = ? AND scenario_id = ?");
+        $stmt->execute([$title, $settingsJson, $blockId, $scenarioId]);
+        return $blockId;
+    }
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type <> 'start'");
+    $stmt->execute([$scenarioId]);
+    $blockCount = (int)($stmt->fetchColumn() ?: 0);
+    $positionX = 430 + (($blockCount % 4) * 330);
+    $positionY = 140 + ((int)floor($blockCount / 4) * 250);
+    $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'actions', ?, ?, ?, ?, ?, NOW(), NOW())");
+    $stmt->execute([$scenarioId, $title, $settingsJson, $positionX, $positionY, $sortOrder]);
+    $blockId = (int)$pdo->lastInsertId();
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
 function asr_tg_scenario_normalize_delay_settings(array $data): array {
     $mode = (string)($data['delay_mode'] ?? $data['mode'] ?? 'after');
     if (!in_array($mode, ['after', 'tomorrow', 'at'], true)) $mode = 'after';
@@ -4755,6 +5183,9 @@ function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): i
     }
     if ($type === 'condition') {
         return asr_tg_scenario_condition_block_save($pdo, $data);
+    }
+    if ($type === 'actions') {
+        return asr_tg_scenario_actions_block_save($pdo, $data);
     }
     // Стартовый блок создаётся системой отдельно. Через эту форму сохраняются только сообщения.
     if ($type !== 'message') $type = 'message';
@@ -5152,7 +5583,7 @@ function asr_tg_scenario_quick_message_create_from_post(PDO $pdo, array $post): 
 
     $pdo->beginTransaction();
     try {
-        $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'message', 'Новый шаг', ?, ?, ?, ?, NOW(), NOW())");
+        $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'message', 'Сообщение', ?, ?, ?, ?, NOW(), NOW())");
         $stmt->execute([$scenarioId, $settingsJson, $x, $y, $sortOrder]);
         $blockId = (int)$pdo->lastInsertId();
         $pdo->commit();
@@ -5290,6 +5721,56 @@ function asr_tg_scenario_quick_condition_create_from_post(PDO $pdo, array $post)
     return $blockId;
 }
 
+
+function asr_tg_scenario_link_from_quick_block(PDO $pdo, int $scenarioId, int $fromBlockId, int $blockId, string $sourceHandle): void {
+    if ($fromBlockId <= 0 || $blockId <= 0) return;
+    if (strpos($sourceHandle, 'btn-') === 0) {
+        asr_tg_scenario_button_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+    } elseif (preg_match('/^q-a\d+-\d+$/', $sourceHandle)) {
+        asr_tg_scenario_question_answer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+    } elseif (preg_match('/^q-noanswer-c\d+$/', $sourceHandle)) {
+        asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+    } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
+        asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+    } else {
+        asr_tg_scenario_link_save($pdo, $scenarioId, $fromBlockId, $blockId);
+    }
+}
+
+function asr_tg_scenario_quick_actions_create_from_post(PDO $pdo, array $post): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($post['scenario_id'] ?? 0));
+    $fromBlockId = max(0, (int)($post['from_block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($fromBlockId > 0 && !asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId)) throw new InvalidArgumentException('Исходный блок не найден.');
+    $x = max(-10000, min(20000, (int)($post['position_x'] ?? 430)));
+    $y = max(-10000, min(20000, (int)($post['position_y'] ?? 140)));
+    $settingsJson = json_encode([
+        'version' => 1,
+        'actions' => [],
+        'actions_valid' => false,
+        'invalid_rows' => 0,
+        'runtime_plan' => ['enabled' => false, 'prepared_for' => 'actions_runner'],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить новый блок действий.');
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'actions', 'Действия', ?, ?, ?, ?, NOW(), NOW())");
+        $stmt->execute([$scenarioId, $settingsJson, $x, $y, $sortOrder]);
+        $blockId = (int)$pdo->lastInsertId();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    asr_tg_scenario_link_from_quick_block($pdo, $scenarioId, $fromBlockId, $blockId, trim((string)($post['source_handle'] ?? 'out')));
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
 function asr_tg_scenario_block_delete(PDO $pdo, int $scenarioId, int $blockId): void {
     asr_tg_repository_ensure_scenario_schema($pdo);
     if ($scenarioId <= 0 || $blockId <= 0) throw new InvalidArgumentException('Блок не выбран.');
@@ -5409,3 +5890,43 @@ function asr_tg_scenario_blocks_positions_save_from_post(PDO $pdo, array $post):
 }
 }
 
+
+if (!function_exists('asr_tg_yandex_metrika_queue_stats')) {
+function asr_tg_yandex_metrika_queue_stats(PDO $pdo): array {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $stats = [
+        'total' => 0,
+        'pending' => 0,
+        'retry' => 0,
+        'sent' => 0,
+        'skipped' => 0,
+        'failed' => 0,
+    ];
+    $stmt = $pdo->query("SELECT status, COUNT(*) AS cnt FROM oca_telegram_bot_yandex_metrika_events GROUP BY status");
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $status = (string)($row['status'] ?? '');
+        $cnt = (int)($row['cnt'] ?? 0);
+        if ($status !== '') {
+            $stats[$status] = $cnt;
+        }
+        $stats['total'] += $cnt;
+    }
+    return $stats;
+}
+}
+
+if (!function_exists('asr_tg_yandex_metrika_queue_recent')) {
+function asr_tg_yandex_metrika_queue_recent(PDO $pdo, int $limit = 50): array {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $limit = max(1, min(200, $limit));
+    $sql = "SELECT ym.*, b.title AS bot_title, s.title AS scenario_title, bl.title AS block_title
+            FROM oca_telegram_bot_yandex_metrika_events ym
+            LEFT JOIN oca_telegram_bots b ON b.id = ym.bot_id
+            LEFT JOIN oca_telegram_bot_scenarios s ON s.id = ym.scenario_id
+            LEFT JOIN oca_telegram_bot_scenario_blocks bl ON bl.id = ym.block_id
+            ORDER BY ym.id DESC
+            LIMIT " . (int)$limit;
+    $stmt = $pdo->query($sql);
+    return $stmt ? $stmt->fetchAll(PDO::FETCH_ASSOC) : [];
+}
+}

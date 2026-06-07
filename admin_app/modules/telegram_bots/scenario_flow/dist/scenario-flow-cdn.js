@@ -1,4 +1,4 @@
-// v3.5.141 condition block UI polish
+// v3.5.143 actions block UI scaffold
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'https://esm.sh/react@18.3.1';
 import {createRoot} from 'https://esm.sh/react-dom@18.3.1/client';
 import {
@@ -575,6 +575,7 @@ function NodeShell({id, data, isStart}) {
   const blockType = String(data && data.blockType ? data.blockType : '');
   const isDelay = blockType === 'delay';
   const isCondition = blockType === 'condition';
+  const isActions = blockType === 'actions';
   const edit = (event) => {
     if (event) {
       event.preventDefault();
@@ -696,7 +697,7 @@ function NodeShell({id, data, isStart}) {
     );
   };
   const deeplinkText = String((data && (data.deeplinkUrl || data.deeplinkCode)) || '').trim();
-  const showDeeplink = !isStart && !isDelay && !isCondition && !!deeplinkText;
+  const showDeeplink = !isStart && !isDelay && !isCondition && !isActions && !!deeplinkText;
   const copyDeeplink = (event) => {
     stop(event);
     if (!deeplinkText) return;
@@ -706,10 +707,13 @@ function NodeShell({id, data, isStart}) {
       showFlowToast(deeplinkText, 'success');
     }
   };
-  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
+  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isActions ? ' is-actions' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isActions && data.actionsInvalid ? ' is-actions-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
     !isStart && React.createElement(Handle, {id: 'in', type: 'target', position: Position.Left, className: 'tg-flow-in-handle', isConnectable: true}),
     React.createElement('div', {className: 'tg-flow-node-head'},
-      React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : 'Сообщение')),
+      React.createElement('div', {className: 'tg-flow-node-title-wrap'},
+        React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : (isActions ? 'Действия' : 'Сообщение'))),
+        !isStart ? React.createElement('div', {className: 'tg-flow-node-id'}, 'Блок #' + String(data.blockId || id || '').replace(/^node-/, '')) : null
+      ),
       React.createElement('div', {className: 'tg-flow-node-actions', onMouseDown: (event) => event.stopPropagation(), onClick: (event) => event.stopPropagation()},
         React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: 'Тестировать с этого шага', onClick: testFromStep}, '▶'),
         React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: 'Редактировать', onClick: edit}, isStart ? '⚙' : '✎'),
@@ -718,7 +722,7 @@ function NodeShell({id, data, isStart}) {
       )
     ),
     React.createElement('div', {className: 'tg-flow-node-body'},
-      (!isStart && !isDelay && !isCondition) ? React.createElement('div', {className: 'tg-flow-node-stats'},
+      (!isStart && !isDelay && !isCondition && !isActions) ? React.createElement('div', {className: 'tg-flow-node-stats'},
         React.createElement('div', {className: 'tg-flow-node-stat'},
           React.createElement('span', {className: 'tg-flow-node-stat-value'}, String(Number.isFinite(sentCount) ? sentCount : 0)),
           React.createElement('span', {className: 'tg-flow-node-stat-label'}, 'Отправлено')
@@ -759,9 +763,22 @@ function NodeShell({id, data, isStart}) {
             ),
             React.createElement('div', {className: 'tg-flow-delay-preview-days'}, data.delayWeekdaysTitle || 'Пн, Вт, Ср, Чт, Пт, Сб, Вс')
           )
-          : (cards.length
-            ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
-            : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение')))),
+          : (isActions
+            ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-actions-preview'},
+              React.createElement('div', {className: 'tg-flow-actions-preview-head'},
+                React.createElement('span', null, data.actionsInvalid ? 'Нужно настроить действия' : 'Действия'),
+                !data.actionsInvalid ? React.createElement('span', {className: 'tg-flow-actions-preview-count'}, String(data.actionsCount || 0)) : null
+              ),
+              (Array.isArray(data.actionsSummaries) && data.actionsSummaries.length)
+                ? React.createElement('div', {className: 'tg-flow-actions-list'},
+                  data.actionsSummaries.map((item, index) => React.createElement('div', {className: 'tg-flow-actions-row', key: index}, item)),
+                  Number(data.actionsExtraCount || 0) > 0 ? React.createElement('div', {className: 'tg-flow-actions-more'}, '+ ещё ' + Number(data.actionsExtraCount || 0)) : null
+                )
+                : React.createElement('div', {className: 'tg-flow-actions-empty'}, 'Не добавлено ни одного действия')
+            )
+            : (cards.length
+              ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
+              : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение'))))),
       !isCondition ? React.createElement('div', {className: 'tg-flow-next-row'},
         React.createElement('span', {className: 'tg-flow-node-muted'}, isStart ? 'Начало сценария' : 'Следующий шаг'),
         React.createElement(Handle, {id: 'out', type: 'source', position: Position.Right, className: 'tg-flow-main-out-handle', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'out')})
@@ -777,8 +794,9 @@ function StartNode(props) { return React.createElement(NodeShell, {...props, isS
 function MessageNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function DelayNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function ConditionNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
+function ActionsNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 
-function AddMenu({menu, onClose, onCreateMessage, onCreateDelay, onCreateCondition}) {
+function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay, onCreateCondition}) {
   if (!menu) return null;
   const item = (type, glyph, name, disabled, onClick) => React.createElement('button', {
     type: 'button',
@@ -800,7 +818,7 @@ function AddMenu({menu, onClose, onCreateMessage, onCreateDelay, onCreateConditi
     onClick: (event) => event.stopPropagation()
   },
     item('message', '≣', 'Сообщение', false, onCreateMessage),
-    item('actions', '⚡', 'Действия', true),
+    item('actions', '⚡', 'Действия', false, onCreateActions),
     item('delay', '◴', 'Задержка', false, onCreateDelay),
     item('condition', '⇄', 'Условие', false, onCreateCondition),
     item('schedule', '□', 'Расписание', true),
@@ -840,7 +858,7 @@ function ScenarioSmoothEdge(props) {
 }
 
 function ScenarioFlow() {
-  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, delayNode: DelayNode, conditionNode: ConditionNode}), []);
+  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, actionsNode: ActionsNode, delayNode: DelayNode, conditionNode: ConditionNode}), []);
   const edgeTypes = useMemo(() => ({scenarioSmooth: ScenarioSmoothEdge}), []);
   const blockLimit = Number(cfg.blockLimit || 550);
   const initialNodes = Array.isArray(cfg.nodes) ? cfg.nodes : [];
@@ -1235,7 +1253,7 @@ function ScenarioFlow() {
       setMenu(null);
       return;
     }
-    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : 'tg_scenario_quick_message_create');
+    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : (kind === 'actions' ? 'tg_scenario_quick_actions_create' : 'tg_scenario_quick_message_create'));
     setMenu(null);
     try {
       await postAction(action, {
@@ -1252,6 +1270,7 @@ function ScenarioFlow() {
   }, [menu, flow, nodes.length, blockLimit, isSourceHandleAllowed]);
 
   const createMessageFromMenu = useCallback(() => createBlockFromMenu('message'), [createBlockFromMenu]);
+  const createActionsFromMenu = useCallback(() => createBlockFromMenu('actions'), [createBlockFromMenu]);
   const createDelayFromMenu = useCallback(() => createBlockFromMenu('delay'), [createBlockFromMenu]);
   const createConditionFromMenu = useCallback(() => createBlockFromMenu('condition'), [createBlockFromMenu]);
 
@@ -1335,7 +1354,7 @@ function ScenarioFlow() {
       React.createElement(Controls, {showInteractive: false})
     ),
     React.createElement('div', {className: 'tg-flow-block-counter'}, nodes.length + '/' + blockLimit + ' блоков использовано'),
-    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu})
+    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateActions: createActionsFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu})
   );
 }
 

@@ -12,6 +12,7 @@ if (PHP_SAPI !== 'cli') {
 define('ASR_ADMIN', true);
 require_once dirname(__DIR__, 3) . '/config.php';
 require_once __DIR__ . '/service.php';
+require_once __DIR__ . '/yandex_metrika_service.php';
 
 $limit = isset($argv[1]) ? (int)$argv[1] : 30;
 $broadcastId = isset($argv[2]) ? (int)$argv[2] : 0;
@@ -27,15 +28,20 @@ try {
     $queueBeforeLine = function_exists('asr_tg_queue_diag_format_compact') ? asr_tg_queue_diag_format_compact($queueBefore, 'queue_before') : 'queue_before_available=0';
     $sendQueueBefore = function_exists('asr_tg_send_queue_stats') ? asr_tg_send_queue_stats($pdo, false) : [];
     $sendQueueBeforeLine = function_exists('asr_tg_send_queue_format_stats') ? asr_tg_send_queue_format_stats($sendQueueBefore, 'send_queue_before') : 'send_queue_before_available=0';
+    $ymQueueBefore = function_exists('asr_tg_yandex_metrika_stats') ? asr_tg_yandex_metrika_stats($pdo) : [];
+    $ymQueueBeforeLine = function_exists('asr_tg_yandex_metrika_format_stats') ? asr_tg_yandex_metrika_format_stats($ymQueueBefore, 'ym_before') : 'ym_before_available=0';
     $activated = asr_tg_broadcast_activate_due_scheduled($pdo, 200);
     $result = asr_tg_process_broadcast_queue($pdo, $limit, $broadcastId);
     $delayResult = function_exists('asr_tg_runtime_process_due_delays') ? asr_tg_runtime_process_due_delays($pdo, $limit) : ['processed' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
     $questionResult = function_exists('asr_tg_runtime_process_due_questions') ? asr_tg_runtime_process_due_questions($pdo, $limit) : ['processed' => 0, 'reminded' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
     $sendQueueResult = function_exists('asr_tg_process_send_queue') ? asr_tg_process_send_queue($pdo, $limit) : ['processed' => 0, 'sent' => 0, 'failed' => 0, 'retry' => 0, 'skipped' => 0, 'stale_processing_reset' => 0, 'unsupported' => 0];
+    $ymQueueResult = function_exists('asr_tg_yandex_metrika_process_queue') ? asr_tg_yandex_metrika_process_queue($pdo, $limit) : ['processed' => 0, 'sent' => 0, 'failed' => 0, 'retry' => 0, 'skipped' => 0, 'batches' => 0, 'stale_processing_reset' => 0];
     $queueAfter = function_exists('asr_tg_queue_diag_broadcast_snapshot') ? asr_tg_queue_diag_broadcast_snapshot($pdo, $broadcastId, 10) : [];
     $queueAfterLine = function_exists('asr_tg_queue_diag_format_compact') ? asr_tg_queue_diag_format_compact($queueAfter, 'queue_after') : 'queue_after_available=0';
     $sendQueueAfter = function_exists('asr_tg_send_queue_stats') ? asr_tg_send_queue_stats($pdo, false) : [];
     $sendQueueAfterLine = function_exists('asr_tg_send_queue_format_stats') ? asr_tg_send_queue_format_stats($sendQueueAfter, 'send_queue_after') : 'send_queue_after_available=0';
+    $ymQueueAfter = function_exists('asr_tg_yandex_metrika_stats') ? asr_tg_yandex_metrika_stats($pdo) : [];
+    $ymQueueAfterLine = function_exists('asr_tg_yandex_metrika_format_stats') ? asr_tg_yandex_metrika_format_stats($ymQueueAfter, 'ym_after') : 'ym_after_available=0';
     echo 'now=' . $now
         . ' due_before=' . (int)$dueBefore
         . ' delay_pending_before=' . (int)$delayPendingBefore
@@ -65,10 +71,19 @@ try {
         . ' send_queue_skipped=' . (int)($sendQueueResult['skipped'] ?? 0)
         . ' send_queue_stale_processing_reset=' . (int)($sendQueueResult['stale_processing_reset'] ?? 0)
         . ' send_queue_unsupported=' . (int)($sendQueueResult['unsupported'] ?? 0)
+        . ' ym_processed=' . (int)($ymQueueResult['processed'] ?? 0)
+        . ' ym_sent=' . (int)($ymQueueResult['sent'] ?? 0)
+        . ' ym_failed=' . (int)($ymQueueResult['failed'] ?? 0)
+        . ' ym_retry=' . (int)($ymQueueResult['retry'] ?? 0)
+        . ' ym_skipped=' . (int)($ymQueueResult['skipped'] ?? 0)
+        . ' ym_batches=' . (int)($ymQueueResult['batches'] ?? 0)
+        . ' ym_stale_processing_reset=' . (int)($ymQueueResult['stale_processing_reset'] ?? 0)
         . ' ' . $queueBeforeLine
         . ' ' . $queueAfterLine
         . ' ' . $sendQueueBeforeLine
         . ' ' . $sendQueueAfterLine
+        . ' ' . $ymQueueBeforeLine
+        . ' ' . $ymQueueAfterLine
         . PHP_EOL;
 } catch (Throwable $e) {
     echo 'error=' . $e->getMessage() . PHP_EOL;

@@ -9,6 +9,7 @@ require_once __DIR__ . '/telegram_error_policy.php';
 require_once __DIR__ . '/queue_service.php';
 require_once __DIR__ . '/scenario_stats.php';
 require_once __DIR__ . '/scenario_condition_runtime.php';
+require_once __DIR__ . '/scenario_action_runtime.php';
 
 function asr_tg_can(string $permission): bool {
     $key = 'telegram_bots.' . $permission;
@@ -3422,6 +3423,23 @@ function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, 
             'telegram' => $sent['result'] ?? null,
         ]);
 
+        if ($sentMessageId > 0 && function_exists('asr_tg_scenario_sent_message_record')) {
+            try {
+                asr_tg_scenario_sent_message_record($pdo, [
+                    'scenario_id' => $scenarioId,
+                    'block_id' => $blockId,
+                    'bot_id' => $botId,
+                    'subscriber_id' => $subscriberId,
+                    'chat_id' => (string)$chatId,
+                    'card_index' => (int)$index,
+                    'card_type' => $originalType,
+                    'telegram_message_id' => $sentMessageId,
+                ]);
+            } catch (Throwable $recordError) {
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_message_sent_record_failed', 'Не удалось сохранить идентификатор отправленного сообщения для будущего удаления.', ['card_index' => $index, 'error' => $recordError->getMessage()]);
+            }
+        }
+
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_message_sent', 'Отправлена карточка блока «Сообщение».', [
             'card_index' => $index,
             'card_type' => $originalType,
@@ -3536,8 +3554,11 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
         if ($type === 'condition') {
             return asr_tg_runtime_execute_condition_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
-        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.5 пока выполняет блоки «Сообщение», «Задержка» и «Условие».', ['block_type' => $type, 'source' => $source]);
-        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.5 пока выполняет блоки «Сообщение», «Задержка» и «Условие».');
+        if ($type === 'actions') {
+            return asr_tg_runtime_execute_actions_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
+        }
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.6 пока выполняет блоки «Сообщение», «Задержка», «Условие» и «Действия».', ['block_type' => $type, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.6 пока выполняет блоки «Сообщение», «Задержка», «Условие» и «Действия».');
         return true;
     } catch (Throwable $e) {
         asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $e->getMessage());
