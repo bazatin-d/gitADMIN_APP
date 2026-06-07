@@ -6,6 +6,7 @@ require_once __DIR__ . '/telegram_api.php';
 require_once __DIR__ . '/repository.php';
 require_once __DIR__ . '/queue_diagnostics.php';
 require_once __DIR__ . '/telegram_error_policy.php';
+require_once __DIR__ . '/queue_service.php';
 
 function asr_tg_can(string $permission): bool {
     $key = 'telegram_bots.' . $permission;
@@ -1452,6 +1453,9 @@ function asr_tg_cards_from_broadcast_item(array $item): array {
 
 function asr_tg_process_broadcast_queue(PDO $pdo, int $limit = 30, int $broadcastId = 0): array {
     asr_tg_repository_ensure_schema($pdo);
+    if (function_exists('asr_tg_send_queue_ensure_schema')) {
+        asr_tg_send_queue_ensure_schema($pdo);
+    }
     $limit = max(1, min(200, $limit));
     asr_tg_broadcast_activate_due_scheduled($pdo, 200);
     $staleReset = asr_tg_broadcast_reset_stale_processing($pdo, $broadcastId, 10);
@@ -2125,29 +2129,54 @@ function asr_tg_runtime_first_block_after(PDO $pdo, int $scenarioId, int $fromBl
 }
 
 
-function asr_tg_runtime_question_deadline_sql(array $card, ?DateTimeImmutable $now = null): ?string {
-    $hasNoAnswerTarget = max(0, (int)($card['no_answer_target_block_id'] ?? 0)) > 0;
-    $hasCheck = !empty($card['enable_check']);
-    $hasReminder = !empty($card['remind_no_answer']);
-    if (!$hasNoAnswerTarget && !$hasCheck && !$hasReminder) return null;
+function asr_tg_runtime_question_no_answer_target_block_id(PDO $pdo, int $scenarioId, int $blockId, array $card): int {
+    $targetBlockId = max(0, (int)($card['no_answer_target_block_id'] ?? 0));
+    if ($targetBlockId > 0) return $targetBlockId;
+    if ($scenarioId <= 0 || $blockId <= 0) return 0;
+    try {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_scenario_links')) return 0;
+        $stmt = $pdo->prepare("SELECT to_block_id FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND link_type = 'question_no_answer' AND to_block_id IS NOT NULL AND to_block_id > 0 ORDER BY sort_order ASC, id ASC LIMIT 1");
+        $stmt->execute([$scenarioId, $blockId]);
+        return max(0, (int)($stmt->fetchColumn() ?: 0));
+    } catch (Throwable $e) {
+        return 0;
+    }
+}
 
-    $value = max(1, min(999, (int)($card['wait_value'] ?? 24)));
-    $unit = (string)($card['wait_unit'] ?? 'hours');
-    if (!in_array($unit, ['minutes', 'hours', 'days'], true)) $unit = 'hours';
+
+function asr_tg_runtime_question_datetime_with_offset(array $card, string $valueKey, string $unitKey, int $defaultValue, string $defaultUnit, ?DateTimeImmutable $now = null): string {
+    $value = max(1, min(999, (int)($card[$valueKey] ?? $defaultValue)));
+    $unit = (string)($card[$unitKey] ?? $defaultUnit);
+    if (!in_array($unit, ['minutes', 'hours', 'days'], true)) $unit = $defaultUnit;
     $tzName = defined('ASR_APP_TIMEZONE') ? (string)ASR_APP_TIMEZONE : 'Asia/Almaty';
     try { $tz = new DateTimeZone($tzName); } catch (Throwable $e) { $tz = new DateTimeZone('Asia/Almaty'); }
     $now = $now ? $now->setTimezone($tz) : new DateTimeImmutable('now', $tz);
     return $now->modify('+' . $value . ' ' . $unit)->format('Y-m-d H:i:s');
 }
 
+function asr_tg_runtime_question_wait_deadline_sql(array $card, ?DateTimeImmutable $now = null): ?string {
+    $hasNoAnswerTarget = max(0, (int)($card['no_answer_target_block_id'] ?? 0)) > 0;
+    $hasCheck = !empty($card['enable_check']);
+    $hasReminder = !empty($card['remind_no_answer']);
+    if (!$hasNoAnswerTarget && !$hasCheck && !$hasReminder) return null;
+    return asr_tg_runtime_question_datetime_with_offset($card, 'wait_value', 'wait_unit', 24, 'hours', $now);
+}
+
 function asr_tg_runtime_question_reminder_next_sql(array $card, ?DateTimeImmutable $now = null): string {
-    $value = max(1, min(999, (int)($card['remind_value'] ?? 5)));
-    $unit = (string)($card['remind_unit'] ?? 'minutes');
-    if (!in_array($unit, ['minutes', 'hours', 'days'], true)) $unit = 'minutes';
-    $tzName = defined('ASR_APP_TIMEZONE') ? (string)ASR_APP_TIMEZONE : 'Asia/Almaty';
-    try { $tz = new DateTimeZone($tzName); } catch (Throwable $e) { $tz = new DateTimeZone('Asia/Almaty'); }
-    $now = $now ? $now->setTimezone($tz) : new DateTimeImmutable('now', $tz);
-    return $now->modify('+' . $value . ' ' . $unit)->format('Y-m-d H:i:s');
+    return asr_tg_runtime_question_datetime_with_offset($card, 'remind_value', 'remind_unit', 5, 'minutes', $now);
+}
+
+function asr_tg_runtime_question_first_check_sql(array $card, ?DateTimeImmutable $now = null): ?string {
+    $waitDeadlineAt = asr_tg_runtime_question_wait_deadline_sql($card, $now);
+    if ($waitDeadlineAt === null) return null;
+    if (empty($card['remind_no_answer'])) return $waitDeadlineAt;
+    $reminderAt = asr_tg_runtime_question_reminder_next_sql($card, $now);
+    return strcmp($reminderAt, $waitDeadlineAt) < 0 ? $reminderAt : $waitDeadlineAt;
+}
+
+function asr_tg_runtime_question_deadline_sql(array $card, ?DateTimeImmutable $now = null): ?string {
+    return asr_tg_runtime_question_first_check_sql($card, $now);
 }
 
 function asr_tg_runtime_question_wait_event(PDO $pdo, int $botId, int $subscriberId, int $scenarioId, int $blockId): ?array {
@@ -2217,7 +2246,7 @@ function asr_tg_runtime_remember_position(PDO $pdo, int $botId, int $subscriberI
         $telegramUserId = (int)($stmt->fetchColumn() ?: 0);
     } catch (Throwable $ignored) {}
     try {
-        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET current_block_id = ?, status = ?, next_run_at = ?, last_error = ?, stopped_at = CASE WHEN ? IN ('stopped','finished','error') THEN NOW() ELSE stopped_at END, finished_at = CASE WHEN ? = 'finished' THEN NOW() ELSE finished_at END, updated_at = NOW() WHERE scenario_id = ? AND subscriber_id = ? AND bot_id = ? AND status IN ('active','waiting','error') ORDER BY id DESC LIMIT 1");
+        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET current_block_id = ?, status = ?, next_run_at = ?, last_error = ?, stopped_at = CASE WHEN ? IN ('stopped','finished','error') THEN NOW() ELSE stopped_at END, finished_at = CASE WHEN ? = 'finished' THEN NOW() ELSE finished_at END, updated_at = NOW() WHERE scenario_id = ? AND subscriber_id = ? AND bot_id = ? AND status IN ('active','waiting','error','queued','processing') ORDER BY id DESC LIMIT 1");
         $stmt->execute([$blockId > 0 ? $blockId : null, $status, $nextRunAt, $lastError !== '' ? $lastError : null, $status, $status, $scenarioId, $subscriberId, $botId]);
         if ($stmt->rowCount() > 0) return;
     } catch (Throwable $ignored) {}
@@ -2991,8 +3020,13 @@ function asr_tg_runtime_execute_delay_block(PDO $pdo, array $bot, int $botId, in
 function asr_tg_runtime_process_due_delays(PDO $pdo, int $limit = 30): array {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $limit = max(1, min(200, $limit));
-    $result = ['processed' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
+    $result = ['processed' => 0, 'queued' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
     if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return $result;
+
+    if (!function_exists('asr_tg_send_queue_enqueue')) {
+        // Без универсальной очереди безопаснее ничего не запускать массово напрямую.
+        return $result;
+    }
 
     $nowSql = asr_tg_runtime_now_sql();
     // Не используем SQL NOW(): у БД и приложения может быть разный часовой пояс.
@@ -3025,31 +3059,55 @@ function asr_tg_runtime_process_due_delays(PDO $pdo, int $limit = 30): array {
             try {
                 $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'error', last_error = ?, updated_at = NOW() WHERE id = ? AND status = 'delayed'")
                     ->execute(['Канал, сценарий или подписчик недоступен для продолжения задержки.', $stateId]);
-                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_skipped', 'Задержанный шаг не запущен: канал, сценарий или подписчик недоступен.', ['state_id' => $stateId]);
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_skipped', 'Задержанный шаг не поставлен в очередь: канал, сценарий или подписчик недоступен.', ['state_id' => $stateId]);
             } catch (Throwable $ignored) {}
             continue;
         }
         try {
-            $claim = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'processing', updated_at = NOW() WHERE id = ? AND status = 'delayed' AND next_run_at <= ?");
+            $claim = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'queued', last_error = NULL, updated_at = NOW() WHERE id = ? AND status = 'delayed' AND next_run_at <= ?");
             $claim->execute([$stateId, $nowSql]);
             if ($claim->rowCount() <= 0) { $result['skipped']++; continue; }
 
-            $bot = asr_tg_bot_find($pdo, $botId);
-            if (!$bot) throw new RuntimeException('Канал задержанного сценария не найден.');
-            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_due', 'Задержка завершена, запускаем следующий шаг.', ['state_id' => $stateId]);
-            asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $blockId, 'delay_runner', ['state_id' => $stateId]);
-            $result['started']++;
+            $queueId = asr_tg_send_queue_enqueue($pdo, [
+                'bot_id' => $botId,
+                'subscriber_id' => $subscriberId,
+                'chat_id' => $chatId,
+                'task_type' => 'scenario_delay_continue',
+                'source_type' => 'scenario_delay',
+                'source_id' => $stateId,
+                'scenario_id' => $scenarioId,
+                'block_id' => $blockId,
+                'state_id' => $stateId,
+                'payload' => [
+                    'state_id' => $stateId,
+                    'source' => 'delay_runner',
+                    'queued_at' => $nowSql,
+                    'due_at' => (string)($row['next_run_at'] ?? ''),
+                ],
+                'status' => 'pending',
+                'scheduled_at' => $nowSql,
+                'max_attempts' => 5,
+                'dedupe_key' => 'scenario_delay_continue:' . $stateId . ':' . $blockId,
+            ]);
+            if ($queueId <= 0) {
+                throw new RuntimeException('Не удалось поставить задержанный сценарий в универсальную очередь.');
+            }
+
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_queued', 'Задержка завершена, продолжение поставлено в универсальную очередь.', [
+                'state_id' => $stateId,
+                'queue_id' => $queueId,
+            ]);
+            $result['queued']++;
         } catch (Throwable $e) {
             $result['failed']++;
             try {
                 $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'error', last_error = ?, updated_at = NOW() WHERE id = ?")->execute([$e->getMessage(), $stateId]);
-                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_failed', $e->getMessage(), ['state_id' => $stateId]);
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_queue_failed', $e->getMessage(), ['state_id' => $stateId]);
             } catch (Throwable $ignored) {}
         }
     }
     return $result;
 }
-
 
 function asr_tg_runtime_due_questions_count(PDO $pdo): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
@@ -3069,8 +3127,13 @@ function asr_tg_runtime_pending_questions_count(PDO $pdo): int {
 function asr_tg_runtime_process_due_questions(PDO $pdo, int $limit = 30): array {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $limit = max(1, min(200, $limit));
-    $result = ['processed' => 0, 'reminded' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
+    $result = ['processed' => 0, 'queued' => 0, 'reminded' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
     if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return $result;
+
+    if (!function_exists('asr_tg_send_queue_enqueue')) {
+        // Без универсальной очереди не запускаем массовые timeout-вопросы напрямую.
+        return $result;
+    }
 
     $nowSql = asr_tg_runtime_now_sql();
     $sql = "SELECT ss.*, sub.chat_id, sub.status AS subscriber_status, b.bot_token_encrypted, b.status AS bot_status, s.status AS scenario_status
@@ -3131,17 +3194,66 @@ function asr_tg_runtime_process_due_questions(PDO $pdo, int $limit = 30): array 
 
             $remind = !empty($card['remind_no_answer']);
             $remindedAlready = $waitEventId > 0 && asr_tg_runtime_question_has_reminder_after($pdo, $botId, $subscriberId, $scenarioId, $blockId, $waitEventId);
-            if ($remind && !$remindedAlready) {
+            $waitDeadlineAt = trim((string)($payload['wait_deadline_at'] ?? ''));
+            if ($waitDeadlineAt === '') {
+                // Совместимость со старыми waiting-записями, созданными до фикса: считаем дедлайн от времени события ожидания.
+                try {
+                    $tzName = defined('ASR_APP_TIMEZONE') ? (string)ASR_APP_TIMEZONE : 'Asia/Almaty';
+                    $tz = new DateTimeZone($tzName ?: 'Asia/Almaty');
+                    $eventCreatedAt = trim((string)($waitEvent['created_at'] ?? ''));
+                    $base = $eventCreatedAt !== '' ? new DateTimeImmutable($eventCreatedAt, $tz) : new DateTimeImmutable('now', $tz);
+                    $waitDeadlineAt = (string)asr_tg_runtime_question_wait_deadline_sql($card, $base);
+                } catch (Throwable $ignored) {
+                    $waitDeadlineAt = (string)($row['next_run_at'] ?? '');
+                }
+            }
+            $isFinalDeadlineDue = $waitDeadlineAt !== '' && strcmp($nowSql, $waitDeadlineAt) >= 0;
+
+            if ($remind && !$remindedAlready && !$isFinalDeadlineDue) {
                 $remindText = trim((string)($card['remind_text'] ?? '')) ?: 'Пожалуйста, ответьте на вопрос.';
-                asr_tg_runtime_send_system_text($pdo, $row, $botId, $chatId, $remindText);
-                $nextRunAt = asr_tg_runtime_question_reminder_next_sql($card);
-                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET next_run_at = ?, updated_at = NOW() WHERE id = ?")->execute([$nextRunAt, $stateId]);
-                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_reminder_sent', 'Подписчику отправлено напоминание по вопросу.', ['card_index' => $cardIndex, 'next_run_at' => $nextRunAt]);
-                $result['reminded']++;
+                // После единственного напоминания следующий контроль должен быть финальным дедлайном ожидания, а не ещё одним remind_value.
+                $nextRunAt = $waitDeadlineAt !== '' ? $waitDeadlineAt : asr_tg_runtime_question_wait_deadline_sql($card);
+                $claim = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET next_run_at = NULL, last_error = NULL, updated_at = NOW() WHERE id = ? AND status = 'waiting' AND next_run_at <= ?");
+                $claim->execute([$stateId, $nowSql]);
+                if ($claim->rowCount() <= 0) { $result['skipped']++; continue; }
+
+                $queueId = asr_tg_send_queue_enqueue($pdo, [
+                    'bot_id' => $botId,
+                    'subscriber_id' => $subscriberId,
+                    'chat_id' => $chatId,
+                    'task_type' => 'scenario_question_reminder',
+                    'source_type' => 'scenario_question',
+                    'source_id' => $stateId,
+                    'scenario_id' => $scenarioId,
+                    'block_id' => $blockId,
+                    'state_id' => $stateId,
+                    'payload' => [
+                        'state_id' => $stateId,
+                        'wait_event_id' => $waitEventId,
+                        'card_index' => $cardIndex,
+                        'remind_text' => $remindText,
+                        'next_run_at' => $nextRunAt,
+                        'wait_deadline_at' => $waitDeadlineAt,
+                        'queued_at' => $nowSql,
+                    ],
+                    'status' => 'pending',
+                    'scheduled_at' => $nowSql,
+                    'max_attempts' => 5,
+                    'dedupe_key' => 'scenario_question_reminder:' . $stateId . ':' . $blockId . ':' . $waitEventId,
+                ]);
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_reminder_queued', 'Напоминание по вопросу поставлено в универсальную очередь.', ['card_index' => $cardIndex, 'next_run_at' => $nextRunAt, 'wait_deadline_at' => $waitDeadlineAt, 'queue_id' => $queueId]);
+                $result['queued']++;
                 continue;
             }
 
-            $targetBlockId = max(0, (int)($card['no_answer_target_block_id'] ?? 0));
+            if (!$isFinalDeadlineDue) {
+                $nextCheckAt = $waitDeadlineAt !== '' ? $waitDeadlineAt : null;
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET next_run_at = ?, updated_at = NOW() WHERE id = ? AND status = 'waiting'")->execute([$nextCheckAt, $stateId]);
+                $result['skipped']++;
+                continue;
+            }
+
+            $targetBlockId = asr_tg_runtime_question_no_answer_target_block_id($pdo, $scenarioId, $blockId, $card);
             if ($targetBlockId <= 0) {
                 asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_no_answer_no_target', 'Подписчик не ответил, но выход «Подписчик не ответил» не настроен.', ['card_index' => $cardIndex]);
                 $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'active', next_run_at = NULL, updated_at = NOW() WHERE id = ?")->execute([$stateId]);
@@ -3149,10 +3261,34 @@ function asr_tg_runtime_process_due_questions(PDO $pdo, int $limit = 30): array 
                 continue;
             }
 
-            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_no_answer', 'Истекло ожидание ответа подписчика.', ['card_index' => $cardIndex, 'target_block_id' => $targetBlockId]);
-            $bot = ['bot_token_encrypted' => (string)($row['bot_token_encrypted'] ?? '')];
-            $started = asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'question_no_answer', ['from_block_id' => $blockId, 'card_index' => $cardIndex]);
-            if ($started) $result['started']++; else $result['failed']++;
+            $claim = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'queued', next_run_at = NULL, last_error = NULL, updated_at = NOW() WHERE id = ? AND status = 'waiting' AND next_run_at <= ?");
+            $claim->execute([$stateId, $nowSql]);
+            if ($claim->rowCount() <= 0) { $result['skipped']++; continue; }
+
+            $queueId = asr_tg_send_queue_enqueue($pdo, [
+                'bot_id' => $botId,
+                'subscriber_id' => $subscriberId,
+                'chat_id' => $chatId,
+                'task_type' => 'scenario_question_timeout',
+                'source_type' => 'scenario_question',
+                'source_id' => $stateId,
+                'scenario_id' => $scenarioId,
+                'block_id' => $blockId,
+                'state_id' => $stateId,
+                'payload' => [
+                    'state_id' => $stateId,
+                    'wait_event_id' => $waitEventId,
+                    'card_index' => $cardIndex,
+                    'target_block_id' => $targetBlockId,
+                    'queued_at' => $nowSql,
+                ],
+                'status' => 'pending',
+                'scheduled_at' => $nowSql,
+                'max_attempts' => 5,
+                'dedupe_key' => 'scenario_question_timeout:' . $stateId . ':' . $blockId . ':' . $targetBlockId,
+            ]);
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_no_answer_queued', 'Ветка «Подписчик не ответил» поставлена в универсальную очередь.', ['card_index' => $cardIndex, 'target_block_id' => $targetBlockId, 'queue_id' => $queueId]);
+            $result['queued']++;
         } catch (Throwable $e) {
             $result['failed']++;
             try {
@@ -3258,15 +3394,19 @@ function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, 
         ]);
 
         if ($originalType === 'question') {
-            $questionDeadline = asr_tg_runtime_question_deadline_sql($card);
+            $questionDeadline = asr_tg_runtime_question_first_check_sql($card);
+            $waitDeadlineAt = asr_tg_runtime_question_wait_deadline_sql($card);
+            $reminderAt = !empty($card['remind_no_answer']) ? asr_tg_runtime_question_reminder_next_sql($card) : null;
             $GLOBALS['asr_tg_runtime_last_message_waiting_question'] = [
                 'block_id' => $blockId,
                 'card_index' => (int)$index,
                 'save_field_code' => asr_tg_runtime_question_save_field_code($card),
                 'answers_count' => count((array)($card['answers'] ?? [])),
-                'no_answer_target_block_id' => max(0, (int)($card['no_answer_target_block_id'] ?? 0)),
+                'no_answer_target_block_id' => asr_tg_runtime_question_no_answer_target_block_id($pdo, $scenarioId, $blockId, $card),
                 'enable_check' => !empty($card['enable_check']),
                 'remind_no_answer' => !empty($card['remind_no_answer']),
+                'reminder_at' => $reminderAt,
+                'wait_deadline_at' => $waitDeadlineAt,
                 'next_run_at' => $questionDeadline,
             ];
             asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_waiting', 'Вопрос отправлен, ожидаем ответ подписчика.', $GLOBALS['asr_tg_runtime_last_message_waiting_question']);
