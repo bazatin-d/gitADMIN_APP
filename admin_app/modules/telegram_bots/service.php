@@ -8,6 +8,7 @@ require_once __DIR__ . '/queue_diagnostics.php';
 require_once __DIR__ . '/telegram_error_policy.php';
 require_once __DIR__ . '/queue_service.php';
 require_once __DIR__ . '/scenario_stats.php';
+require_once __DIR__ . '/scenario_condition_runtime.php';
 
 function asr_tg_can(string $permission): bool {
     $key = 'telegram_bots.' . $permission;
@@ -3532,8 +3533,11 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
         if ($type === 'delay') {
             return asr_tg_runtime_execute_delay_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
-        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.4 пока выполняет блоки «Сообщение» и «Задержка».', ['block_type' => $type, 'source' => $source]);
-        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.4 пока выполняет блоки «Сообщение» и «Задержка».');
+        if ($type === 'condition') {
+            return asr_tg_runtime_execute_condition_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
+        }
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.5 пока выполняет блоки «Сообщение», «Задержка» и «Условие».', ['block_type' => $type, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.5 пока выполняет блоки «Сообщение», «Задержка» и «Условие».');
         return true;
     } catch (Throwable $e) {
         asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $e->getMessage());

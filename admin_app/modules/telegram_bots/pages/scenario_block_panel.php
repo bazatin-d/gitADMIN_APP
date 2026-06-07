@@ -58,6 +58,355 @@ if ($type === 'start') {
     return;
 }
 
+
+if ($type === 'condition') {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $matchMode = (string)($settings['condition_match_mode'] ?? 'all');
+    if (!in_array($matchMode, ['all','any'], true)) $matchMode = 'all';
+    $conditions = isset($settings['conditions']) && is_array($settings['conditions']) ? array_values($settings['conditions']) : [];
+    if (!$conditions) $conditions = [[]];
+    $tags = function_exists('asr_tg_tags_all_light') ? asr_tg_tags_all_light($pdo, 0) : [];
+    $channels = function_exists('asr_tg_bots_all_light') ? asr_tg_bots_all_light($pdo) : [];
+    $parameters = function_exists('asr_tg_scenario_condition_parameter_catalog') ? array_values(asr_tg_scenario_condition_parameter_catalog($pdo)) : [];
+    if (!$parameters) {
+        $parameters = [
+            ['key' => 'special:tag', 'title' => 'Тег', 'param_type' => 'tag'],
+            ['key' => 'special:current_date', 'title' => 'Текущая дата', 'param_type' => 'current_date'],
+            ['key' => 'special:current_time', 'title' => 'Текущее время', 'param_type' => 'current_time'],
+            ['key' => 'special:weekday', 'title' => 'День недели', 'param_type' => 'weekday'],
+            ['key' => 'field:first_name', 'title' => 'Имя', 'param_type' => 'text', 'field_code' => 'first_name'],
+            ['key' => 'field:email', 'title' => 'Email', 'param_type' => 'text', 'field_code' => 'email'],
+        ];
+    }
+    $paramByKey = [];
+    foreach ($parameters as $param) {
+        $key = (string)($param['key'] ?? '');
+        if ($key !== '') $paramByKey[$key] = $param;
+    }
+    $weekdays = [1 => 'Понедельник', 2 => 'Вторник', 3 => 'Среда', 4 => 'Четверг', 5 => 'Пятница', 6 => 'Суббота', 7 => 'Воскресенье'];
+    $conditionView = static function(array $rule) use ($paramByKey): array {
+        $paramKey = trim((string)($rule['param_key'] ?? ''));
+        $operator = trim((string)($rule['operator'] ?? ''));
+        $value = trim((string)($rule['value'] ?? ''));
+        $value2 = trim((string)($rule['value2'] ?? ''));
+        $legacyType = (string)($rule['type'] ?? '');
+        if ($paramKey === '') {
+            if ($legacyType === 'tag') {
+                $paramKey = 'special:tag';
+                $value = (string)((int)($rule['tag_id'] ?? $value));
+            } elseif ($legacyType === 'current_date') {
+                $paramKey = 'special:current_date';
+                $value = trim((string)($rule['date'] ?? $value));
+            } elseif ($legacyType === 'current_time') {
+                $paramKey = 'special:current_time';
+                $value = trim((string)($rule['time'] ?? $value));
+            } elseif ($legacyType === 'weekday') {
+                $paramKey = 'special:weekday';
+                $value = (string)((int)($rule['weekday'] ?? $value ?: 1));
+            } elseif ($legacyType === 'channel') {
+                $paramKey = 'special:channel';
+                $value = (string)((int)($rule['bot_id'] ?? $value));
+            } else {
+                $fieldCode = trim((string)($rule['field_code'] ?? ''));
+                $fieldType = (string)($rule['field_type'] ?? 'text');
+                $prefix = (string)($rule['field_source'] ?? '') === 'custom' ? 'custom:' : 'field:';
+                $paramKey = $fieldCode !== '' ? ($prefix . $fieldCode) : '';
+                if ($paramKey !== '' && !isset($paramByKey[$paramKey])) {
+                    $paramKey = 'custom:' . $fieldCode;
+                    if (!isset($paramByKey[$paramKey])) $paramKey = 'field:' . $fieldCode;
+                }
+            }
+        }
+        return [
+            'param_key' => $paramKey,
+            'operator' => $operator,
+            'value' => $value,
+            'value2' => $value2,
+        ];
+    };
+    $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
+    ?>
+    <section id="tg-flow-panel" class="tg-flow-panel">
+        <form method="POST" id="scenario-message-form" class="tg-flow-panel-form">
+            <div class="tg-flow-panel-head tg-condition-panel-head">
+                <div>
+                    <div class="tg-flow-panel-title">Редактировать блок «Условие»</div>
+                    <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?> · ветки «Да» и «Нет»</div>
+                </div>
+                <div class="tg-flow-panel-actions">
+                    <div class="tg-flow-panel-menu-wrap">
+                        <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
+                        <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
+                            <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
+                        </div>
+                    </div>
+                    <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
+                </div>
+            </div>
+            <div class="tg-flow-panel-body">
+                <div id="scenario-message-alert" class="tg-flow-panel-alert"></div>
+                <input type="hidden" name="action" value="tg_scenario_block_save">
+                <input type="hidden" name="return_page" value="scenario_flow">
+                <input type="hidden" name="scenario_id" value="<?php echo (int)$scenarioId; ?>">
+                <input type="hidden" name="block_id" value="<?php echo (int)$blockId; ?>">
+                <input type="hidden" name="block_type" value="condition">
+                <input type="hidden" name="scenario_cards_json" id="scenario-cards-json" value="[]">
+                <?php if ($csrf !== ''): ?><input type="hidden" name="csrf_token" value="<?php echo $h($csrf); ?>"><?php endif; ?>
+
+                <label class="tg-flow-panel-field">
+                    <span class="tg-flow-panel-label">Название блока</span>
+                    <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Условие')); ?>" maxlength="190">
+                </label>
+
+                <div class="tg-condition-box" data-condition-box data-max="15">
+                    <div class="tg-condition-section-title">Условие</div>
+                    <label class="tg-flow-panel-field tg-condition-match-field">
+                        <span class="tg-flow-panel-label">Подписчик соответствует</span>
+                        <select class="tg-flow-panel-input" name="condition_match_mode">
+                            <option value="all" <?php echo $matchMode === 'all' ? 'selected' : ''; ?>>Каждому из этих условий</option>
+                            <option value="any" <?php echo $matchMode === 'any' ? 'selected' : ''; ?>>Любому из этих условий</option>
+                        </select>
+                    </label>
+
+                    <div class="tg-condition-rules" data-condition-rules>
+                        <?php foreach ($conditions as $rule): ?>
+                            <?php
+                            $view = $conditionView(is_array($rule) ? $rule : []);
+                            $rParamKey = (string)$view['param_key'];
+                            if ($rParamKey === '' || !isset($paramByKey[$rParamKey])) $rParamKey = (string)($parameters[0]['key'] ?? '');
+                            $rOperator = (string)$view['operator'];
+                            $rValue = (string)$view['value'];
+                            $rValue2 = (string)$view['value2'];
+                            ?>
+                            <div class="tg-condition-rule" data-condition-rule>
+                                <div class="tg-condition-rule-top">
+                                    <label class="tg-flow-panel-field tg-condition-param-field">
+                                        <span class="tg-flow-panel-label">Поле / параметр</span>
+                                        <select class="tg-flow-panel-input" name="condition_param_key[]" data-condition-param>
+                                            <?php foreach ($parameters as $param): ?>
+                                                <?php $pKey = (string)($param['key'] ?? ''); if ($pKey === '') continue; $pType = (string)($param['param_type'] ?? 'text'); ?>
+                                                <option value="<?php echo $h($pKey); ?>" data-param-type="<?php echo $h($pType); ?>" <?php echo $rParamKey === $pKey ? 'selected' : ''; ?>><?php echo $h((string)($param['title'] ?? $pKey)); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </label>
+                                    <button type="button" class="tg-condition-remove" data-condition-remove title="Удалить условие" aria-label="Удалить условие">🗑</button>
+                                </div>
+
+                                <div class="tg-condition-rule-grid">
+                                    <label class="tg-flow-panel-field" data-cond-op-wrap>
+                                        <span class="tg-flow-panel-label">Условие</span>
+                                        <select class="tg-flow-panel-input" name="condition_operator[]" data-condition-operator data-value="<?php echo $h($rOperator); ?>"></select>
+                                    </label>
+                                    <label class="tg-flow-panel-field" data-cond-value-text-wrap>
+                                        <span class="tg-flow-panel-label">Значение</span>
+                                        <input class="tg-flow-panel-input" type="text" name="condition_value_text[]" value="<?php echo $h($rValue); ?>" placeholder="Например: Москва">
+                                    </label>
+                                    <label class="tg-flow-panel-field" data-cond-value-number-wrap>
+                                        <span class="tg-flow-panel-label">Значение</span>
+                                        <input class="tg-flow-panel-input" type="number" step="any" name="condition_value_number[]" value="<?php echo $h($rValue); ?>" placeholder="Например: 1000">
+                                    </label>
+                                    <label class="tg-flow-panel-field" data-cond-value-date-wrap>
+                                        <span class="tg-flow-panel-label">Дата</span>
+                                        <input class="tg-flow-panel-input" type="date" name="condition_value_date[]" value="<?php echo $h(preg_match('~^\d{4}-\d{2}-\d{2}$~', $rValue) ? $rValue : date('Y-m-d')); ?>">
+                                    </label>
+                                    <label class="tg-flow-panel-field" data-cond-value-datetime-wrap>
+                                        <span class="tg-flow-panel-label">Дата и время</span>
+                                        <input class="tg-flow-panel-input" type="datetime-local" name="condition_value_datetime[]" value="<?php echo $h(preg_match('~^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$~', $rValue) ? $rValue : ''); ?>">
+                                    </label>
+                                    <label class="tg-flow-panel-field" data-cond-value-time-wrap>
+                                        <span class="tg-flow-panel-label">Время</span>
+                                        <input class="tg-flow-panel-input" type="time" name="condition_value_time[]" value="<?php echo $h(preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $rValue) ? $rValue : '12:00'); ?>">
+                                    </label>
+                                    <label class="tg-flow-panel-field" data-cond-value-weekday-wrap>
+                                        <span class="tg-flow-panel-label">День недели</span>
+                                        <select class="tg-flow-panel-input" name="condition_value_weekday[]">
+                                            <?php foreach ($weekdays as $dayNum => $dayTitle): ?>
+                                                <option value="<?php echo (int)$dayNum; ?>" <?php echo (int)$rValue === (int)$dayNum ? 'selected' : ''; ?>><?php echo $h($dayTitle); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </label>
+                                    <label class="tg-flow-panel-field" data-cond-value-tag-wrap>
+                                        <span class="tg-flow-panel-label">Тег</span>
+                                        <select class="tg-flow-panel-input" name="condition_value_tag[]">
+                                            <option value="0">Выберите тег</option>
+                                            <?php foreach ($tags as $tag): ?>
+                                                <?php $tagId = (int)($tag['id'] ?? 0); if ($tagId <= 0) continue; ?>
+                                                <option value="<?php echo $tagId; ?>" <?php echo (int)$rValue === $tagId ? 'selected' : ''; ?>><?php echo $h((string)($tag['name'] ?? ('Тег #' . $tagId))); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </label>
+                                    <label class="tg-flow-panel-field" data-cond-value-channel-wrap>
+                                        <span class="tg-flow-panel-label">Канал</span>
+                                        <select class="tg-flow-panel-input" name="condition_value_channel[]">
+                                            <option value="0">Выберите канал</option>
+                                            <?php foreach ($channels as $channel): ?>
+                                                <?php $channelId = (int)($channel['id'] ?? 0); if ($channelId <= 0) continue; ?>
+                                                <option value="<?php echo $channelId; ?>" <?php echo (int)$rValue === $channelId ? 'selected' : ''; ?>><?php echo $h((string)($channel['title'] ?? $channel['name'] ?? ('Канал #' . $channelId))); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </label>
+                                    <input type="hidden" name="condition_value2[]" value="<?php echo $h($rValue2); ?>">
+                                </div>
+                                <div class="tg-condition-rule-error" data-condition-rule-error>Заполните условие полностью.</div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="tg-condition-actions"><button type="button" class="tg-flow-panel-secondary" data-condition-add>+ Добавить условие</button><span data-condition-counter></span></div>
+                    <div class="tg-condition-note">Сначала выбираем поле или параметр. Тип данных определяется автоматически, поэтому лишнего выбора «текст/число/дата» больше нет.</div>
+                </div>
+            </div>
+            <div class="tg-flow-panel-footer"><button type="submit" class="tg-flow-panel-primary">Сохранить блок</button></div>
+        </form>
+    </section>
+    <style data-flow-panel-style="scenario-condition-panel-v3.5.141">
+    .tg-condition-panel-head{border-bottom-color:#d9edc8}.tg-condition-box{border:1px solid #d9edc8;background:#fbfff7;border-radius:18px;padding:20px;margin-top:12px;box-shadow:0 10px 24px rgba(15,23,42,.04)}.tg-condition-section-title{font-size:18px;font-weight:650;color:#2f3a2b;margin:0 0 14px}.tg-condition-match-field{margin-bottom:22px}.tg-condition-rules{display:flex;flex-direction:column;gap:14px;margin-top:10px}.tg-condition-rule{background:#f6f7f4;border:1px solid #edf0e8;border-radius:8px;padding:18px 16px 16px;position:relative}.tg-condition-rule.is-invalid{border-color:#ff6b73;box-shadow:0 0 0 1px rgba(255,107,115,.55);background:#fffafa}.tg-condition-rule-error{display:none;margin-top:8px;color:#dc2626;font-size:12px;font-weight:650;line-height:1.35}.tg-condition-rule.is-invalid .tg-condition-rule-error{display:block}.tg-condition-rule.is-invalid .tg-flow-panel-input[data-invalid="1"]{border-color:#ff6b73!important;box-shadow:0 0 0 3px rgba(255,107,115,.12)!important}.tg-condition-rule-top{display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:start;gap:12px;margin-bottom:12px}.tg-condition-param-field{margin:0}.tg-condition-rule-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.tg-condition-rule .tg-flow-panel-field{margin:0}.tg-condition-rule .tg-flow-panel-label,.tg-condition-match-field .tg-flow-panel-label{font-size:12px;font-weight:650;color:#7b8176;background:transparent}.tg-condition-rule .tg-flow-panel-input,.tg-condition-match-field .tg-flow-panel-input{background:#fff;border-color:#cfd6cb;border-radius:4px;min-height:48px;font-size:15px;color:#2f3437}.tg-condition-rule .tg-flow-panel-input:focus,.tg-condition-match-field .tg-flow-panel-input:focus{border-color:#8db85f;box-shadow:0 0 0 3px rgba(141,184,95,.16)}.tg-condition-remove{border:0;background:transparent;color:#a8aaa6;font-size:18px;line-height:1;cursor:pointer;padding:10px 6px;border-radius:8px}.tg-condition-remove:hover{color:#dc2626;background:#fff1f1}.tg-condition-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.tg-condition-actions span{font-size:12px;font-weight:650;color:#6b7280}.tg-condition-note{margin-top:14px;border:1px solid #e5e7eb;background:#fff;border-radius:14px;padding:11px 12px;color:#64748b;font-size:12px;line-height:1.45}.tg-condition-rule-grid [data-cond-value-text-wrap],.tg-condition-rule-grid [data-cond-value-number-wrap],.tg-condition-rule-grid [data-cond-value-date-wrap],.tg-condition-rule-grid [data-cond-value-datetime-wrap],.tg-condition-rule-grid [data-cond-value-time-wrap],.tg-condition-rule-grid [data-cond-value-weekday-wrap],.tg-condition-rule-grid [data-cond-value-tag-wrap],.tg-condition-rule-grid [data-cond-value-channel-wrap]{display:none}.tg-condition-rule[data-param-type="text"] [data-cond-value-text-wrap],.tg-condition-rule[data-param-type="number"] [data-cond-value-number-wrap],.tg-condition-rule[data-param-type="date"] [data-cond-value-date-wrap],.tg-condition-rule[data-param-type="datetime"] [data-cond-value-datetime-wrap],.tg-condition-rule[data-param-type="current_date"] [data-cond-value-date-wrap],.tg-condition-rule[data-param-type="current_time"] [data-cond-value-time-wrap],.tg-condition-rule[data-param-type="weekday"] [data-cond-value-weekday-wrap],.tg-condition-rule[data-param-type="tag"] [data-cond-value-tag-wrap],.tg-condition-rule[data-param-type="channel"] [data-cond-value-channel-wrap]{display:block}.tg-condition-rule[data-op-no-value="1"] [data-cond-value-text-wrap],.tg-condition-rule[data-op-no-value="1"] [data-cond-value-number-wrap],.tg-condition-rule[data-op-no-value="1"] [data-cond-value-date-wrap],.tg-condition-rule[data-op-no-value="1"] [data-cond-value-datetime-wrap],.tg-condition-rule[data-op-no-value="1"] [data-cond-value-time-wrap],.tg-condition-rule[data-op-no-value="1"] [data-cond-value-weekday-wrap],.tg-condition-rule[data-op-no-value="1"] [data-cond-value-tag-wrap],.tg-condition-rule[data-op-no-value="1"] [data-cond-value-channel-wrap]{display:none}@media(max-width:680px){.tg-condition-box{padding:16px}.tg-condition-rule-grid,.tg-condition-rule-top{grid-template-columns:1fr}.tg-condition-remove{justify-self:end}.tg-condition-actions{align-items:stretch;flex-direction:column}.tg-condition-actions button{width:100%}}
+    </style>
+    <script data-flow-panel-script>
+    (function(){
+      var box = document.querySelector('[data-condition-box]');
+      if (!box || box.dataset.bound === '1') return;
+      box.dataset.bound = '1';
+      var rulesBox = box.querySelector('[data-condition-rules]');
+      var addBtn = box.querySelector('[data-condition-add]');
+      var counter = box.querySelector('[data-condition-counter]');
+      var max = parseInt(box.getAttribute('data-max') || '15', 10) || 15;
+      var operatorGroups = {
+        text: [['equals','Соответствует'], ['not_equals','Не соответствует'], ['contains','Содержит'], ['not_contains','Не содержит'], ['is_empty','Неизвестно'], ['is_filled','Имеет какое-то значение']],
+        number: [['eq','Равно'], ['ne','Не равно'], ['gt','Больше'], ['gte','Больше либо равно'], ['lt','Меньше'], ['lte','Меньше либо равно'], ['is_empty','Не заполнено'], ['is_filled','Заполнено']],
+        date: [['eq','Равно'], ['ne','Не равно'], ['gt','Позже'], ['gte','Позже или равно'], ['lt','Раньше'], ['lte','Раньше или равно'], ['is_empty','Не заполнено'], ['is_filled','Заполнено']],
+        datetime: [['eq','Равно'], ['ne','Не равно'], ['gt','Позже'], ['gte','Позже или равно'], ['lt','Раньше'], ['lte','Раньше или равно'], ['is_empty','Не заполнено'], ['is_filled','Заполнено']],
+        current_date: [['eq','Равно'], ['gte','Больше либо равно'], ['lte','Меньше либо равно']],
+        current_time: [['gte','Больше либо равно'], ['lte','Меньше либо равно']],
+        weekday: [['eq','Соответствует'], ['ne','Не соответствует']],
+        tag: [['has_tag','Есть тег'], ['not_has_tag','Нет тега']],
+        channel: [['has_channel','Подписан'], ['not_has_channel','Не подписан']]
+      };
+      var noValueOps = {is_empty:1,is_filled:1};
+      function paramType(rule){
+        var param = rule.querySelector('[data-condition-param]');
+        var selected = param && param.options ? param.options[param.selectedIndex] : null;
+        return (selected && selected.getAttribute('data-param-type')) || 'text';
+      }
+      function syncRule(rule){
+        var type = paramType(rule);
+        var opEl = rule.querySelector('[data-condition-operator]');
+        rule.setAttribute('data-param-type', type);
+        if (opEl) {
+          var selected = opEl.getAttribute('data-value') || opEl.value || '';
+          var ops = operatorGroups[type] || operatorGroups.text;
+          opEl.innerHTML = '';
+          ops.forEach(function(pair){ var opt = document.createElement('option'); opt.value = pair[0]; opt.textContent = pair[1]; if (pair[0] === selected) opt.selected = true; opEl.appendChild(opt); });
+          if (!opEl.value && ops[0]) opEl.value = ops[0][0];
+          opEl.setAttribute('data-value', opEl.value);
+          rule.setAttribute('data-op-no-value', noValueOps[opEl.value] ? '1' : '0');
+        }
+      }
+      function allRules(){ return Array.prototype.slice.call(rulesBox ? rulesBox.querySelectorAll('[data-condition-rule]') : []); }
+      function visibleValueInput(rule, type){
+        var map = {text:'[data-cond-value-text-wrap] input', number:'[data-cond-value-number-wrap] input', date:'[data-cond-value-date-wrap] input', datetime:'[data-cond-value-datetime-wrap] input', current_date:'[data-cond-value-date-wrap] input', current_time:'[data-cond-value-time-wrap] input', weekday:'[data-cond-value-weekday-wrap] select', tag:'[data-cond-value-tag-wrap] select', channel:'[data-cond-value-channel-wrap] select'};
+        return rule.querySelector(map[type] || '[data-cond-value-text-wrap] input');
+      }
+      function validateRule(rule){
+        if (!rule) return false;
+        rule.classList.remove('is-invalid');
+        rule.querySelectorAll('[data-invalid]').forEach(function(el){ el.removeAttribute('data-invalid'); });
+        var error = rule.querySelector('[data-condition-rule-error]');
+        if (error) error.textContent = 'Заполните условие полностью.';
+        var param = rule.querySelector('[data-condition-param]');
+        var op = rule.querySelector('[data-condition-operator]');
+        var type = paramType(rule);
+        var ok = true;
+        if (!param || !param.value) { ok = false; if (param) param.setAttribute('data-invalid','1'); }
+        if (!op || !op.value) { ok = false; if (op) op.setAttribute('data-invalid','1'); }
+        if (op && noValueOps[op.value]) return ok;
+        var input = visibleValueInput(rule, type);
+        var value = input ? String(input.value || '').trim() : '';
+        if (!input || value === '' || ((type === 'tag' || type === 'channel' || type === 'weekday') && value === '0')) {
+          ok = false;
+          if (input) input.setAttribute('data-invalid','1');
+        }
+        if (!ok) rule.classList.add('is-invalid');
+        return ok;
+      }
+      function validateAll(){
+        var rules = allRules();
+        var validCount = 0;
+        rules.forEach(function(rule){ if (validateRule(rule)) validCount++; });
+        return {ok: validCount > 0 && validCount === rules.length, total: rules.length, valid: validCount};
+      }
+      function syncAll(){
+        allRules().forEach(syncRule);
+        var count = allRules().length;
+        if (counter) counter.textContent = count + ' из ' + max + ' условий';
+        if (addBtn) addBtn.disabled = count >= max;
+        validateAll();
+      }
+      function resetValue(el){
+        if (!el) return;
+        if (el.tagName === 'SELECT') el.selectedIndex = 0;
+        else if (el.type === 'time') el.value = '12:00';
+        else if (el.type === 'date') el.value = new Date().toISOString().slice(0,10);
+        else el.value = '';
+        if (el.matches('[data-condition-operator]')) el.setAttribute('data-value','');
+      }
+      if (rulesBox) {
+        rulesBox.addEventListener('change', function(e){
+          var rule = e.target.closest ? e.target.closest('[data-condition-rule]') : null;
+          if (!rule) return;
+          if (e.target.matches('[data-condition-operator]')) e.target.setAttribute('data-value', e.target.value || '');
+          if (e.target.matches('[data-condition-param]')) {
+            var op = rule.querySelector('[data-condition-operator]');
+            if (op) op.setAttribute('data-value','');
+          }
+          syncRule(rule);
+        });
+        rulesBox.addEventListener('click', function(e){
+          var btn = e.target.closest ? e.target.closest('[data-condition-remove]') : null;
+          if (!btn) return;
+          var rules = allRules();
+          if (rules.length <= 1) {
+            var rule = rules[0];
+            if (rule) rule.querySelectorAll('input,select').forEach(resetValue);
+          } else {
+            btn.closest('[data-condition-rule]').remove();
+          }
+          syncAll();
+        });
+      }
+      if (rulesBox) rulesBox.addEventListener('input', function(e){
+        var rule = e.target.closest ? e.target.closest('[data-condition-rule]') : null;
+        if (rule) validateRule(rule);
+      });
+      if (addBtn && rulesBox) addBtn.addEventListener('click', function(){
+        var rules = allRules();
+        if (rules.length >= max || !rules[0]) return;
+        var clone = rules[0].cloneNode(true);
+        clone.querySelectorAll('input,select').forEach(resetValue);
+        rulesBox.appendChild(clone);
+        syncAll();
+      });
+      var form = box.closest ? box.closest('form') : null;
+      if (form) form.tgFlowPrepareSave = function(){
+        var result = validateAll();
+        if (result.ok) return {ok:true};
+        var alertBox = form.querySelector('#scenario-message-alert') || form.querySelector('.tg-flow-panel-alert');
+        if (alertBox) {
+          alertBox.textContent = 'Заполните условие полностью: выберите поле, оператор и значение. Некорректные строки подсвечены красным.';
+          alertBox.classList.add('is-open');
+        }
+        var firstBad = box.querySelector('.tg-condition-rule.is-invalid');
+        if (firstBad && firstBad.scrollIntoView) firstBad.scrollIntoView({behavior:'smooth', block:'center'});
+        return {ok:false, message:'Заполните условие полностью.'};
+      };
+      syncAll();
+    })();
+    </script>
+    <?php
+    return;
+}
+
 if ($type === 'delay') {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
@@ -942,6 +1291,33 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     }
     const out=document.createElement('div'); Array.from(wrap.childNodes).forEach(ch=>out.appendChild(clean(ch))); return out.innerHTML;
   }
+  function plainTextToEditorHtml(text){
+    return esc(String(text||'').replace(/\u200b/g,'')).replace(/\r\n|\r|\n/g,'<br>');
+  }
+  function resetTypingFormatState(){
+    ['bold','italic','underline','strikeThrough'].forEach(cmd=>{
+      try { if(document.queryCommandState(cmd)) document.execCommand(cmd,false,null); } catch(e) {}
+    });
+  }
+  function nearestInlineFormatAncestor(editor,node){
+    const tags=new Set(['B','STRONG','I','EM','U','S','STRIKE','CODE','TG-SPOILER','A']);
+    let current=node&&node.nodeType===Node.ELEMENT_NODE?node:node?.parentNode;
+    let found=null;
+    while(current&&current!==editor){
+      if(current.nodeType===Node.ELEMENT_NODE&&tags.has(current.tagName)) found=current;
+      current=current.parentNode;
+    }
+    return found;
+  }
+  function placeCaretAfter(node){
+    const sel=window.getSelection();
+    if(!sel)return;
+    const range=document.createRange();
+    range.setStartAfter(node);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
   function insertHtmlAtSelection(editor, html){
     editor.focus(); const sel=window.getSelection(); if(!sel||!sel.rangeCount){editor.insertAdjacentHTML('beforeend',html); return;}
     const range=sel.getRangeAt(0); if(!editor.contains(range.commonAncestorContainer)){editor.insertAdjacentHTML('beforeend',html); return;}
@@ -951,6 +1327,34 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     editor.focus(); const sel=window.getSelection(); const text=sel&&sel.rangeCount?String(sel):''; if(text){insertHtmlAtSelection(editor,before+esc(text)+after);} else insertHtmlAtSelection(editor,before+after);
   }
   function insertPlainBreak(editor){insertHtmlAtSelection(editor,'<br>');}
+  function insertCleanBreak(editor){
+    editor.focus();
+    const sel=window.getSelection();
+    if(!sel||!sel.rangeCount){editor.insertAdjacentHTML('beforeend','<br>'); resetTypingFormatState(); return;}
+    const range=sel.getRangeAt(0);
+    if(!editor.contains(range.commonAncestorContainer)){editor.insertAdjacentHTML('beforeend','<br>'); resetTypingFormatState(); return;}
+    if(!range.collapsed){range.deleteContents();}
+    const inline=nearestInlineFormatAncestor(editor,range.startContainer);
+    if(inline){
+      const br=document.createElement('br');
+      inline.parentNode.insertBefore(br,inline.nextSibling);
+      placeCaretAfter(br);
+    } else {
+      insertHtmlAtSelection(editor,'<br>');
+    }
+    resetTypingFormatState();
+  }
+  function clearEditorDefaultText(editor){
+    if(!editor || editor.dataset.clearOnFocus!=='1') return false;
+    const text=String(editor.innerText||'').replace(/\u200b/g,'').trim();
+    if(text==='Новое сообщение'){
+      editor.innerHTML='';
+      editor.dataset.clearOnFocus='0';
+      return true;
+    }
+    editor.dataset.clearOnFocus='0';
+    return false;
+  }
   function panelNotice(message, keep=false){
     const alert=panel ? panel.querySelector('#scenario-message-alert') : document.getElementById('scenario-message-alert');
     if(alert){
@@ -1059,7 +1463,9 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
   function editorTemplate(type, text, visible=true){
     const limit=(type==='text'||type==='question')?4096:1024; const placeholder=type==='question'?'Текст вопроса':(type==='text'?'Текст сообщения':'Подпись к медиа');
     const hidden = visible ? '' : ' style="display:none"';
-    return '<div class="tg-caption-editor" data-caption-editor'+hidden+'><div class="tg-card-toolbar"><button type="button" title="Жирный" data-format="bold">'+adminIcon('bold')+'</button><button type="button" title="Курсив" data-format="italic">'+adminIcon('italic')+'</button><button type="button" title="Подчёркнутый" data-format="underline">'+adminIcon('underline')+'</button><button type="button" title="Зачёркнутый" data-format="strikeThrough">'+adminIcon('strike')+'</button><button type="button" title="Моноширинный текст" data-wrap="<code>|</code>">'+adminIcon('mono')+'</button><button type="button" title="Скрытый текст" data-wrap="<tg-spoiler>|</tg-spoiler>">'+adminIcon('spoiler')+'</button><button type="button" title="Код" data-wrap="<pre>|</pre>">'+adminIcon('code')+'</button><button type="button" title="Цитата" data-wrap="<blockquote>|</blockquote>">'+adminIcon('quote')+'</button><span class="tg-toolbar-sep"></span><button type="button" title="Дата / напоминание" data-date>'+adminIcon('calendar')+'</button><button type="button" title="Ссылка" data-link>'+adminIcon('link')+'</button></div><div class="tg-editor-wrap"><div class="tg-card-editor" contenteditable="true" data-editor data-placeholder="'+esc(placeholder)+'" spellcheck="true">'+(text||'')+'</div><div class="tg-card-bottom"><div class="tg-editor-tools"><button type="button" class="tg-mini-btn" data-emoji>'+adminIcon('emoji')+'<span>Эмодзи</span></button><button type="button" class="tg-mini-btn" data-macro>'+adminIcon('variables')+'<span>Переменные</span></button><button type="button" class="tg-mini-btn" data-clear-format>'+adminIcon('clear')+'<span>Очистить</span></button><div class="tg-emoji-menu">'+emojiHtml()+'</div><div class="tg-macro-menu">'+macroMenuHtml()+'</div></div><div class="tg-char-count"><span data-char-count>0</span> / '+limit+'</div></div></div></div>';
+    const rawText=String(text||'');
+    const clearOnFocus=(type==='text' && rawText.replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').trim()==='Новое сообщение')?' data-clear-on-focus="1"':'';
+    return '<div class="tg-caption-editor" data-caption-editor'+hidden+'><div class="tg-card-toolbar"><button type="button" title="Жирный" data-format="bold">'+adminIcon('bold')+'</button><button type="button" title="Курсив" data-format="italic">'+adminIcon('italic')+'</button><button type="button" title="Подчёркнутый" data-format="underline">'+adminIcon('underline')+'</button><button type="button" title="Зачёркнутый" data-format="strikeThrough">'+adminIcon('strike')+'</button><button type="button" title="Моноширинный текст" data-wrap="<code>|</code>">'+adminIcon('mono')+'</button><button type="button" title="Скрытый текст" data-wrap="<tg-spoiler>|</tg-spoiler>">'+adminIcon('spoiler')+'</button><button type="button" title="Код" data-wrap="<pre>|</pre>">'+adminIcon('code')+'</button><button type="button" title="Цитата" data-wrap="<blockquote>|</blockquote>">'+adminIcon('quote')+'</button><span class="tg-toolbar-sep"></span><button type="button" title="Дата / напоминание" data-date>'+adminIcon('calendar')+'</button><button type="button" title="Ссылка" data-link>'+adminIcon('link')+'</button></div><div class="tg-editor-wrap"><div class="tg-card-editor" contenteditable="true" data-editor data-placeholder="'+esc(placeholder)+'" spellcheck="true"'+clearOnFocus+'>'+(text||'')+'</div><div class="tg-card-bottom"><div class="tg-editor-tools"><button type="button" class="tg-mini-btn" data-emoji>'+adminIcon('emoji')+'<span>Эмодзи</span></button><button type="button" class="tg-mini-btn" data-macro>'+adminIcon('variables')+'<span>Переменные</span></button><button type="button" class="tg-mini-btn" data-clear-format>'+adminIcon('clear')+'<span>Очистить</span></button><div class="tg-emoji-menu">'+emojiHtml()+'</div><div class="tg-macro-menu">'+macroMenuHtml()+'</div></div><div class="tg-char-count"><span data-char-count>0</span> / '+limit+'</div></div></div></div>';
   }
   function disablePreviewOptionHtml(source){
     const checked = source && source.disable_web_page_preview ? ' checked' : '';
@@ -1292,8 +1698,9 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
   }
   function bindCard(card){
     const editor=card.querySelector('[data-editor]');
-    editor.addEventListener('paste',e=>{e.preventDefault(); const data=e.clipboardData||window.clipboardData; const html=data?.getData('text/html')||''; const text=data?.getData('text/plain')||''; insertHtmlAtSelection(editor, html?sanitizeEditorHtml(html):esc(text).replace(/\n/g,'<br>')); collectCards(); updateCharCount(card);});
-    editor.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault(); insertPlainBreak(editor); collectCards(); updateCharCount(card);}});
+    editor.addEventListener('focus',()=>{if(clearEditorDefaultText(editor)){collectCards();updateCharCount(card);}});
+    editor.addEventListener('paste',e=>{e.preventDefault(); clearEditorDefaultText(editor); const data=e.clipboardData||window.clipboardData; const text=data?.getData('text/plain')||''; insertHtmlAtSelection(editor, plainTextToEditorHtml(text)); resetTypingFormatState(); collectCards(); updateCharCount(card);});
+    editor.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault(); clearEditorDefaultText(editor); insertCleanBreak(editor); collectCards(); updateCharCount(card);}});
     editor.addEventListener('keyup',()=>rememberEditorSelection(editor));
     editor.addEventListener('mouseup',()=>rememberEditorSelection(editor));
     editor.addEventListener('touchend',()=>setTimeout(()=>rememberEditorSelection(editor),0));

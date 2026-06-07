@@ -4315,6 +4315,334 @@ function asr_tg_scenario_apply_card_uploads(array $cards, array $files = []): ar
 }
 
 
+
+function asr_tg_scenario_condition_rule_summary(array $rule): string {
+    $type = (string)($rule['type'] ?? '');
+    $operator = (string)($rule['operator'] ?? '');
+    if ($type === 'tag') {
+        $name = trim((string)($rule['tag_name'] ?? 'тег'));
+        return ($operator === 'not_has_tag' ? 'Нет тега: ' : 'Есть тег: ') . $name;
+    }
+    if ($type === 'channel') {
+        $name = trim((string)($rule['channel_name'] ?? 'канал'));
+        return ($operator === 'not_has_channel' ? 'Не подписан на: ' : 'Подписан на: ') . $name;
+    }
+    if ($type === 'current_date') {
+        $date = trim((string)($rule['value'] ?? $rule['date'] ?? ''));
+        $label = $operator === 'eq' ? 'Текущая дата = ' : ($operator === 'lte' ? 'Текущая дата ≤ ' : 'Текущая дата ≥ ');
+        return $label . $date;
+    }
+    if ($type === 'current_time') {
+        $time = trim((string)($rule['value'] ?? $rule['time'] ?? '00:00'));
+        return ($operator === 'lte' ? 'Текущее время ≤ ' : 'Текущее время ≥ ') . $time;
+    }
+    if ($type === 'weekday') {
+        $days = [1 => 'Понедельник', 2 => 'Вторник', 3 => 'Среда', 4 => 'Четверг', 5 => 'Пятница', 6 => 'Суббота', 7 => 'Воскресенье'];
+        $day = (int)($rule['value'] ?? $rule['weekday'] ?? 0);
+        $title = $days[$day] ?? 'день недели';
+        return ($operator === 'ne' ? 'День недели ≠ ' : 'День недели = ') . $title;
+    }
+    $fieldTitle = trim((string)($rule['field_title'] ?? $rule['param_label'] ?? $rule['field_code'] ?? 'поле'));
+    $value = trim((string)($rule['value'] ?? ''));
+    $map = [
+        'equals' => ' = ', 'not_equals' => ' ≠ ', 'contains' => ' содержит ', 'not_contains' => ' не содержит ',
+        'is_empty' => ' не заполнено', 'is_filled' => ' заполнено',
+        'eq' => ' = ', 'ne' => ' ≠ ', 'gt' => ' > ', 'gte' => ' ≥ ', 'lt' => ' < ', 'lte' => ' ≤ ',
+    ];
+    if (in_array($operator, ['is_empty','is_filled'], true)) return $fieldTitle . ($map[$operator] ?? '');
+    return $fieldTitle . ($map[$operator] ?? ' ') . $value;
+}
+
+function asr_tg_scenario_condition_field_catalog(PDO $pdo): array {
+    $fields = [
+        'first_name' => ['code' => 'first_name', 'title' => 'Имя', 'field_type' => 'text', 'source' => 'system'],
+        'last_name' => ['code' => 'last_name', 'title' => 'Фамилия', 'field_type' => 'text', 'source' => 'system'],
+        'username' => ['code' => 'username', 'title' => 'Username', 'field_type' => 'text', 'source' => 'system'],
+        'phone' => ['code' => 'phone', 'title' => 'Телефон', 'field_type' => 'text', 'source' => 'system'],
+        'email' => ['code' => 'email', 'title' => 'Email', 'field_type' => 'text', 'source' => 'system'],
+    ];
+    try {
+        foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
+            $code = trim((string)($field['code'] ?? ''));
+            if ($code === '') continue;
+            $type = (string)($field['field_type'] ?? 'text');
+            if (!in_array($type, ['text','number','date','datetime'], true)) $type = 'text';
+            $fields[$code] = ['code' => $code, 'title' => trim((string)($field['title'] ?? $code)) ?: $code, 'field_type' => $type, 'source' => 'custom'];
+        }
+    } catch (Throwable $e) {}
+    return $fields;
+}
+
+function asr_tg_scenario_condition_parameter_catalog(PDO $pdo): array {
+    $params = [
+        'special:tag' => ['key' => 'special:tag', 'title' => 'Тег', 'param_type' => 'tag', 'source' => 'special'],
+        'special:current_date' => ['key' => 'special:current_date', 'title' => 'Текущая дата', 'param_type' => 'current_date', 'source' => 'special'],
+        'special:current_time' => ['key' => 'special:current_time', 'title' => 'Текущее время', 'param_type' => 'current_time', 'source' => 'special'],
+        'special:weekday' => ['key' => 'special:weekday', 'title' => 'День недели', 'param_type' => 'weekday', 'source' => 'special'],
+        'special:channel' => ['key' => 'special:channel', 'title' => 'Подписан на канал', 'param_type' => 'channel', 'source' => 'special'],
+    ];
+    foreach (asr_tg_scenario_condition_field_catalog($pdo) as $field) {
+        $code = trim((string)($field['code'] ?? ''));
+        if ($code === '') continue;
+        $source = (string)($field['source'] ?? 'system');
+        $prefix = $source === 'custom' ? 'custom:' : 'field:';
+        $type = (string)($field['field_type'] ?? 'text');
+        if (!in_array($type, ['text','number','date','datetime'], true)) $type = 'text';
+        $params[$prefix . $code] = [
+            'key' => $prefix . $code,
+            'title' => trim((string)($field['title'] ?? $code)) ?: $code,
+            'param_type' => $type,
+            'source' => $source,
+            'field_code' => $code,
+            'field_type' => $type,
+        ];
+    }
+    return $params;
+}
+
+function asr_tg_scenario_condition_value_for_type(array $data, string $type, int $i): string {
+    $pick = static function(string $key) use ($data, $i): string {
+        $list = is_array($data[$key] ?? null) ? $data[$key] : [];
+        return trim((string)($list[$i] ?? ''));
+    };
+    if ($type === 'tag') return (string)max(0, (int)$pick('condition_value_tag'));
+    if ($type === 'channel') return (string)max(0, (int)$pick('condition_value_channel'));
+    if ($type === 'weekday') return (string)max(0, (int)$pick('condition_value_weekday'));
+    if ($type === 'current_time') return $pick('condition_value_time');
+    if ($type === 'current_date' || $type === 'date') return $pick('condition_value_date');
+    if ($type === 'datetime') return $pick('condition_value_datetime');
+    if ($type === 'number') return $pick('condition_value_number');
+    return $pick('condition_value_text');
+}
+
+function asr_tg_scenario_normalize_condition_settings(PDO $pdo, array $data): array {
+    $matchMode = (string)($data['condition_match_mode'] ?? $data['match_mode'] ?? 'all');
+    if (!in_array($matchMode, ['all', 'any'], true)) $matchMode = 'all';
+
+    $parameters = asr_tg_scenario_condition_parameter_catalog($pdo);
+    $tagNames = [];
+    try {
+        foreach (asr_tg_tags_all_light($pdo, 0) as $tag) {
+            $tagId = (int)($tag['id'] ?? 0);
+            if ($tagId > 0) $tagNames[$tagId] = trim((string)($tag['name'] ?? 'Тег #' . $tagId)) ?: ('Тег #' . $tagId);
+        }
+    } catch (Throwable $e) {}
+    $channelNames = [];
+    try {
+        foreach (asr_tg_bots_all_light($pdo) as $bot) {
+            $botId = (int)($bot['id'] ?? 0);
+            if ($botId > 0) $channelNames[$botId] = trim((string)($bot['title'] ?? $bot['name'] ?? 'Канал #' . $botId)) ?: ('Канал #' . $botId);
+        }
+    } catch (Throwable $e) {}
+
+    $rules = [];
+    $invalidRows = 0;
+
+    $paramKeys = is_array($data['condition_param_key'] ?? null) ? $data['condition_param_key'] : [];
+    if ($paramKeys) {
+        $operators = is_array($data['condition_operator'] ?? null) ? $data['condition_operator'] : [];
+        $value2s = is_array($data['condition_value2'] ?? null) ? $data['condition_value2'] : [];
+        $limit = min(20, count($paramKeys));
+        for ($i = 0; $i < $limit; $i++) {
+            if (count($rules) >= 15) { $invalidRows++; continue; }
+            $paramKey = trim((string)($paramKeys[$i] ?? ''));
+            if ($paramKey === '' || !isset($parameters[$paramKey])) { $invalidRows++; continue; }
+            $param = $parameters[$paramKey];
+            $paramType = (string)($param['param_type'] ?? 'text');
+            $operator = trim((string)($operators[$i] ?? ''));
+            $value = asr_tg_scenario_condition_value_for_type($data, $paramType, $i);
+            $value2 = trim((string)($value2s[$i] ?? ''));
+            $rule = [
+                'param_key' => $paramKey,
+                'param_label' => (string)($param['title'] ?? $paramKey),
+                'param_type' => $paramType,
+                'operator' => $operator,
+                'value' => $value,
+                'value2' => $value2,
+            ];
+
+            if ($paramType === 'tag') {
+                if (!in_array($operator, ['has_tag','not_has_tag'], true)) $operator = 'has_tag';
+                $tagId = max(0, (int)$value);
+                if ($tagId <= 0 || !isset($tagNames[$tagId])) { $invalidRows++; continue; }
+                $rule['type'] = 'tag'; $rule['operator'] = $operator; $rule['tag_id'] = $tagId; $rule['tag_name'] = $tagNames[$tagId]; $rule['value'] = (string)$tagId;
+            } elseif ($paramType === 'channel') {
+                if (!in_array($operator, ['has_channel','not_has_channel'], true)) $operator = 'has_channel';
+                $botId = max(0, (int)$value);
+                if ($botId <= 0 || !isset($channelNames[$botId])) { $invalidRows++; continue; }
+                $rule['type'] = 'channel'; $rule['operator'] = $operator; $rule['bot_id'] = $botId; $rule['channel_name'] = $channelNames[$botId]; $rule['value'] = (string)$botId;
+            } elseif ($paramType === 'current_date') {
+                if (!in_array($operator, ['eq','gte','lte'], true)) $operator = 'gte';
+                if (!preg_match('~^\d{4}-\d{2}-\d{2}$~', $value)) { $invalidRows++; continue; }
+                [$yy, $mo, $dd] = array_map('intval', explode('-', $value));
+                if (!checkdate($mo, $dd, $yy)) { $invalidRows++; continue; }
+                $value = sprintf('%04d-%02d-%02d', $yy, $mo, $dd);
+                $rule['type'] = 'current_date'; $rule['operator'] = $operator; $rule['date'] = $value; $rule['value'] = $value;
+            } elseif ($paramType === 'current_time') {
+                if (!in_array($operator, ['gte','lte'], true)) $operator = 'gte';
+                if (!preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $value)) { $invalidRows++; continue; }
+                [$hh, $mm] = array_map('intval', explode(':', $value));
+                $value = sprintf('%02d:%02d', $hh, $mm);
+                $rule['type'] = 'current_time'; $rule['operator'] = $operator; $rule['time'] = $value; $rule['value'] = $value;
+            } elseif ($paramType === 'weekday') {
+                if (!in_array($operator, ['eq','ne'], true)) $operator = 'eq';
+                $weekday = max(0, (int)$value);
+                if ($weekday < 1 || $weekday > 7) { $invalidRows++; continue; }
+                $rule['type'] = 'weekday'; $rule['operator'] = $operator; $rule['weekday'] = $weekday; $rule['value'] = (string)$weekday;
+            } else {
+                $fieldCode = trim((string)($param['field_code'] ?? ''));
+                if ($fieldCode === '') { $invalidRows++; continue; }
+                $rule['field_code'] = $fieldCode;
+                $rule['field_title'] = (string)($param['title'] ?? $fieldCode);
+                $rule['field_type'] = $paramType;
+                $rule['field_source'] = (string)($param['source'] ?? 'system');
+                if ($paramType === 'number') {
+                    if (!in_array($operator, ['eq','ne','gt','gte','lt','lte','is_empty','is_filled'], true)) $operator = 'eq';
+                    if (!in_array($operator, ['is_empty','is_filled'], true)) {
+                        $normalizedNumber = str_replace([' ', ','], ['', '.'], $value);
+                        if ($normalizedNumber === '' || !preg_match('/^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/', $normalizedNumber)) { $invalidRows++; continue; }
+                        $value = $normalizedNumber;
+                    } else {
+                        $value = '';
+                    }
+                    $rule['type'] = 'field_number';
+                } elseif ($paramType === 'date') {
+                    if (!in_array($operator, ['eq','ne','gt','gte','lt','lte','is_empty','is_filled'], true)) $operator = 'eq';
+                    if (!in_array($operator, ['is_empty','is_filled'], true)) {
+                        if (!preg_match('~^\d{4}-\d{2}-\d{2}$~', $value)) { $invalidRows++; continue; }
+                        [$yy, $mo, $dd] = array_map('intval', explode('-', $value));
+                        if (!checkdate($mo, $dd, $yy)) { $invalidRows++; continue; }
+                        $value = sprintf('%04d-%02d-%02d', $yy, $mo, $dd);
+                    } else {
+                        $value = '';
+                    }
+                    $rule['type'] = 'field_date';
+                } elseif ($paramType === 'datetime') {
+                    if (!in_array($operator, ['eq','ne','gt','gte','lt','lte','is_empty','is_filled'], true)) $operator = 'eq';
+                    if (!in_array($operator, ['is_empty','is_filled'], true)) {
+                        if (!preg_match('~^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$~', $value)) { $invalidRows++; continue; }
+                    } else {
+                        $value = '';
+                    }
+                    $rule['type'] = 'field_datetime';
+                } else {
+                    if (!in_array($operator, ['equals','not_equals','contains','not_contains','is_empty','is_filled'], true)) $operator = 'equals';
+                    if (!in_array($operator, ['is_empty','is_filled'], true) && $value === '') { $invalidRows++; continue; }
+                    if (in_array($operator, ['is_empty','is_filled'], true)) $value = '';
+                    $rule['type'] = 'field_text';
+                }
+                $rule['operator'] = $operator;
+                $rule['value'] = $value;
+            }
+            $rule['summary'] = asr_tg_scenario_condition_rule_summary($rule);
+            $rules[] = $rule;
+        }
+    } else {
+        $types = $data['condition_type'] ?? [];
+        if (!is_array($types)) $types = [];
+        $operators = is_array($data['condition_operator'] ?? null) ? $data['condition_operator'] : [];
+        $fields = is_array($data['condition_field_code'] ?? null) ? $data['condition_field_code'] : [];
+        $values = is_array($data['condition_value'] ?? null) ? $data['condition_value'] : [];
+        $tagIds = is_array($data['condition_tag_id'] ?? null) ? $data['condition_tag_id'] : [];
+        $times = is_array($data['condition_time'] ?? null) ? $data['condition_time'] : [];
+        $dates = is_array($data['condition_date'] ?? null) ? $data['condition_date'] : [];
+        $weekdays = is_array($data['condition_weekday'] ?? null) ? $data['condition_weekday'] : [];
+        $fieldCatalog = asr_tg_scenario_condition_field_catalog($pdo);
+        $limit = min(20, count($types));
+        for ($i = 0; $i < $limit; $i++) {
+            if (count($rules) >= 15) { $invalidRows++; continue; }
+            $type = (string)($types[$i] ?? 'field_text');
+            if (!in_array($type, ['tag','field_text','field_number','current_date','current_time','weekday'], true)) $type = 'field_text';
+            $operator = trim((string)($operators[$i] ?? ''));
+            $fieldCode = trim((string)($fields[$i] ?? ''));
+            $value = trim((string)($values[$i] ?? ''));
+            $tagId = max(0, (int)($tagIds[$i] ?? 0));
+            $time = trim((string)($times[$i] ?? ''));
+            $date = trim((string)($dates[$i] ?? ''));
+            $weekday = max(0, (int)($weekdays[$i] ?? 0));
+            if ($type === 'tag') {
+                if (!in_array($operator, ['has_tag','not_has_tag'], true)) $operator = 'has_tag';
+                if ($tagId <= 0 || !isset($tagNames[$tagId])) { $invalidRows++; continue; }
+                $rule = ['type' => 'tag', 'param_key' => 'special:tag', 'param_label' => 'Тег', 'param_type' => 'tag', 'operator' => $operator, 'tag_id' => $tagId, 'tag_name' => $tagNames[$tagId], 'value' => (string)$tagId];
+                $rule['summary'] = asr_tg_scenario_condition_rule_summary($rule); $rules[] = $rule; continue;
+            }
+            if ($type === 'current_date') {
+                if (!in_array($operator, ['eq','gte','lte'], true)) $operator = 'gte';
+                if (!preg_match('~^\d{4}-\d{2}-\d{2}$~', $date)) { $invalidRows++; continue; }
+                [$yy, $mo, $dd] = array_map('intval', explode('-', $date));
+                if (!checkdate($mo, $dd, $yy)) { $invalidRows++; continue; }
+                $value = sprintf('%04d-%02d-%02d', $yy, $mo, $dd);
+                $rule = ['type' => 'current_date', 'param_key' => 'special:current_date', 'param_label' => 'Текущая дата', 'param_type' => 'current_date', 'operator' => $operator, 'date' => $value, 'value' => $value];
+                $rule['summary'] = asr_tg_scenario_condition_rule_summary($rule); $rules[] = $rule; continue;
+            }
+            if ($type === 'current_time') {
+                if (!in_array($operator, ['gte','lte'], true)) $operator = 'gte';
+                if (!preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $time)) { $invalidRows++; continue; }
+                [$hh, $mm] = array_map('intval', explode(':', $time));
+                $value = sprintf('%02d:%02d', $hh, $mm);
+                $rule = ['type' => 'current_time', 'param_key' => 'special:current_time', 'param_label' => 'Текущее время', 'param_type' => 'current_time', 'operator' => $operator, 'time' => $value, 'value' => $value];
+                $rule['summary'] = asr_tg_scenario_condition_rule_summary($rule); $rules[] = $rule; continue;
+            }
+            if ($type === 'weekday') {
+                if (!in_array($operator, ['eq','ne'], true)) $operator = 'eq';
+                if ($weekday < 1 || $weekday > 7) { $invalidRows++; continue; }
+                $rule = ['type' => 'weekday', 'param_key' => 'special:weekday', 'param_label' => 'День недели', 'param_type' => 'weekday', 'operator' => $operator, 'weekday' => $weekday, 'value' => (string)$weekday];
+                $rule['summary'] = asr_tg_scenario_condition_rule_summary($rule); $rules[] = $rule; continue;
+            }
+            if ($fieldCode === '' || !isset($fieldCatalog[$fieldCode])) { $invalidRows++; continue; }
+            $field = $fieldCatalog[$fieldCode];
+            $fieldType = (string)($field['field_type'] ?? 'text');
+            $source = (string)($field['source'] ?? 'system');
+            if ($type === 'field_number') $fieldType = 'number';
+            $paramKey = ($source === 'custom' ? 'custom:' : 'field:') . $fieldCode;
+            $paramData = ['condition_match_mode' => $matchMode, 'condition_param_key' => [$paramKey], 'condition_operator' => [$operator], 'condition_value_text' => [$value], 'condition_value_number' => [$value], 'condition_value_date' => [$value], 'condition_value_datetime' => [$value], 'condition_value_time' => [$value], 'condition_value_weekday' => [$value], 'condition_value_tag' => [$value], 'condition_value_channel' => [$value], 'condition_value2' => ['']];
+            $normalized = asr_tg_scenario_normalize_condition_settings($pdo, $paramData);
+            if (!empty($normalized['conditions'][0])) $rules[] = $normalized['conditions'][0]; else $invalidRows++;
+        }
+    }
+
+    return [
+        'version' => 2,
+        'condition_match_mode' => $matchMode,
+        'conditions' => $rules,
+        'condition_valid' => count($rules) > 0,
+        'invalid_rows' => $invalidRows,
+        'max_conditions' => 15,
+        'runtime_plan' => ['enabled' => true, 'prepared_for' => 'condition_runner'],
+    ];
+}
+
+function asr_tg_scenario_condition_block_save(PDO $pdo, array $data): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($blockId > 0 && !asr_tg_scenario_block_find($pdo, $blockId, $scenarioId)) throw new InvalidArgumentException('Блок сценария не найден.');
+    $title = trim((string)($data['block_title'] ?? '')) ?: 'Условие';
+    $settings = asr_tg_scenario_normalize_condition_settings($pdo, $data);
+    $settingsJson = json_encode($settings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить данные условия.');
+    if ($blockId > 0) {
+        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_scenario_blocks SET type = 'condition', title = ?, settings_json = ?, updated_at = NOW() WHERE id = ? AND scenario_id = ?");
+        $stmt->execute([$title, $settingsJson, $blockId, $scenarioId]);
+        return $blockId;
+    }
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type <> 'start'");
+    $stmt->execute([$scenarioId]);
+    $blockCount = (int)($stmt->fetchColumn() ?: 0);
+    $positionX = 430 + (($blockCount % 4) * 330);
+    $positionY = 140 + ((int)floor($blockCount / 4) * 250);
+    $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'condition', ?, ?, ?, ?, ?, NOW(), NOW())");
+    $stmt->execute([$scenarioId, $title, $settingsJson, $positionX, $positionY, $sortOrder]);
+    $blockId = (int)$pdo->lastInsertId();
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
 function asr_tg_scenario_normalize_delay_settings(array $data): array {
     $mode = (string)($data['delay_mode'] ?? $data['mode'] ?? 'after');
     if (!in_array($mode, ['after', 'tomorrow', 'at'], true)) $mode = 'after';
@@ -4418,6 +4746,9 @@ function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): i
     if ($type === 'delay') {
         return asr_tg_scenario_delay_block_save($pdo, $data);
     }
+    if ($type === 'condition') {
+        return asr_tg_scenario_condition_block_save($pdo, $data);
+    }
     // Стартовый блок создаётся системой отдельно. Через эту форму сохраняются только сообщения.
     if ($type !== 'message') $type = 'message';
     $title = trim((string)($data['block_title'] ?? ''));
@@ -4506,6 +4837,31 @@ function asr_tg_scenario_sync_block_links(PDO $pdo, int $scenarioId, int $blockI
                 $sortOrder += 100;
             }
         }
+    }
+}
+
+
+function asr_tg_scenario_condition_link_save(PDO $pdo, int $scenarioId, int $fromBlockId, int $toBlockId, string $sourceHandle): void {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    if ($scenarioId <= 0 || $fromBlockId <= 0 || $toBlockId <= 0) throw new InvalidArgumentException('Не выбраны блоки для связи.');
+    if ($fromBlockId === $toBlockId) throw new InvalidArgumentException('Блок нельзя соединить с самим собой.');
+    $from = asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId);
+    $to = asr_tg_scenario_block_find($pdo, $toBlockId, $scenarioId);
+    if (!$from || !$to) throw new InvalidArgumentException('Один из блоков не найден.');
+    if ((string)($from['type'] ?? '') !== 'condition') throw new InvalidArgumentException('Исходный блок не является условием.');
+    if ((string)($to['type'] ?? '') === 'start') throw new InvalidArgumentException('Нельзя вести переход в стартовый блок.');
+    $linkType = $sourceHandle === 'condition-no' ? 'condition_no' : 'condition_yes';
+    $buttonText = $linkType === 'condition_no' ? 'Нет' : 'Да';
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("DELETE FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND link_type = ?")->execute([$scenarioId, $fromBlockId, $linkType]);
+        $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_links (scenario_id, from_block_id, to_block_id, link_type, condition_json, button_text, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, NOW(), NOW())');
+        $stmt->execute([$scenarioId, $fromBlockId, $toBlockId, $linkType, $buttonText, $linkType === 'condition_yes' ? 60 : 70]);
+        $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET updated_at = NOW() WHERE id = ?')->execute([$scenarioId]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
     }
 }
 
@@ -4667,6 +5023,10 @@ function asr_tg_scenario_link_save_from_post(PDO $pdo, array $post): void {
         asr_tg_scenario_question_noanswer_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0), $sourceHandle);
         return;
     }
+    if (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
+        asr_tg_scenario_condition_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0), $sourceHandle);
+        return;
+    }
     asr_tg_scenario_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0));
 }
 
@@ -4766,8 +5126,8 @@ function asr_tg_scenario_quick_message_create_from_post(PDO $pdo, array $post): 
     if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
     if ($fromBlockId > 0 && !asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId)) throw new InvalidArgumentException('Исходный блок не найден.');
 
-    $x = max(40, min(2600, (int)($post['position_x'] ?? 430)));
-    $y = max(80, min(1800, (int)($post['position_y'] ?? 140)));
+    $x = max(-10000, min(20000, (int)($post['position_x'] ?? 430)));
+    $y = max(-10000, min(20000, (int)($post['position_y'] ?? 140)));
     $settingsJson = json_encode([
         'version' => 2,
         'cards' => [[
@@ -4802,6 +5162,8 @@ function asr_tg_scenario_quick_message_create_from_post(PDO $pdo, array $post): 
             asr_tg_scenario_question_answer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (preg_match('/^q-noanswer-c\d+$/', $sourceHandle)) {
             asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
+            asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } else {
             asr_tg_scenario_link_save($pdo, $scenarioId, $fromBlockId, $blockId);
         }
@@ -4817,8 +5179,8 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
     if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
     if ($fromBlockId > 0 && !asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId)) throw new InvalidArgumentException('Исходный блок не найден.');
 
-    $x = (int)($post['position_x'] ?? 430);
-    $y = (int)($post['position_y'] ?? 140);
+    $x = max(-10000, min(20000, (int)($post['position_x'] ?? 430)));
+    $y = max(-10000, min(20000, (int)($post['position_y'] ?? 140)));
     $scenarioTimezone = asr_tg_scenario_timezone($pdo, $scenarioId);
     $settingsJson = json_encode([
         'version' => 2,
@@ -4861,6 +5223,58 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
             asr_tg_scenario_question_answer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (preg_match('/^q-noanswer-c\d+$/', $sourceHandle)) {
             asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
+            asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } else {
+            asr_tg_scenario_link_save($pdo, $scenarioId, $fromBlockId, $blockId);
+        }
+    }
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
+
+function asr_tg_scenario_quick_condition_create_from_post(PDO $pdo, array $post): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($post['scenario_id'] ?? 0));
+    $fromBlockId = max(0, (int)($post['from_block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($fromBlockId > 0 && !asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId)) throw new InvalidArgumentException('Исходный блок не найден.');
+    $x = max(-10000, min(20000, (int)($post['position_x'] ?? 430)));
+    $y = max(-10000, min(20000, (int)($post['position_y'] ?? 140)));
+    $settingsJson = json_encode([
+        'version' => 1,
+        'condition_match_mode' => 'all',
+        'conditions' => [],
+        'condition_valid' => false,
+        'invalid_rows' => 0,
+        'max_conditions' => 15,
+        'runtime_plan' => ['enabled' => false, 'prepared_for' => 'condition_runner'],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить новый блок условия.');
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'condition', 'Условие', ?, ?, ?, ?, NOW(), NOW())");
+        $stmt->execute([$scenarioId, $settingsJson, $x, $y, $sortOrder]);
+        $blockId = (int)$pdo->lastInsertId();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    if ($fromBlockId > 0) {
+        $sourceHandle = trim((string)($post['source_handle'] ?? 'out'));
+        if (strpos($sourceHandle, 'btn-') === 0) {
+            asr_tg_scenario_button_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (preg_match('/^q-a\d+-\d+$/', $sourceHandle)) {
+            asr_tg_scenario_question_answer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (preg_match('/^q-noanswer-c\d+$/', $sourceHandle)) {
+            asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
+            asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } else {
             asr_tg_scenario_link_save($pdo, $scenarioId, $fromBlockId, $blockId);
         }

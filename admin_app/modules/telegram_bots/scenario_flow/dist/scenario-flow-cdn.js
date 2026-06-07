@@ -1,4 +1,4 @@
-// v3.5.65 React Flow stable AJAX actions + broadcast-like block editor
+// v3.5.141 condition block UI polish
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'https://esm.sh/react@18.3.1';
 import {createRoot} from 'https://esm.sh/react-dom@18.3.1/client';
 import {
@@ -9,6 +9,7 @@ import {
   MarkerType,
   Position,
   BaseEdge,
+  EdgeLabelRenderer,
   getBezierPath,
   addEdge,
   useEdgesState,
@@ -20,7 +21,7 @@ import {
 (function(){
   const boot = window.__tgScenarioFlowBoot || (window.__tgScenarioFlowBoot = {});
   boot.evaluated = true;
-  boot.version = '3.5.123';
+  boot.version = '3.5.141';
   const status = document.getElementById('tg-flow-boot-status');
   if (status) status.textContent = 'PHP: ' + (boot.nodes ?? '?') + ' блоков / ' + (boot.edges ?? '?') + ' связей · React: модуль загружен';
 })();
@@ -56,6 +57,38 @@ function tgFlowResolveSourceHandle(nodeId, reportedHandle) {
   }
   return value || 'out';
 }
+
+function tgFlowScreenToFlowPoint(flow, screenX, screenY) {
+  const sx = Number(screenX);
+  const sy = Number(screenY);
+  const bounds = rootEl ? rootEl.getBoundingClientRect() : {left: 0, top: 0};
+  if (!Number.isFinite(sx) || !Number.isFinite(sy)) return {x: 430, y: 140};
+  try {
+    if (flow && typeof flow.screenToFlowPosition === 'function') {
+      const p = flow.screenToFlowPosition({x: sx, y: sy}, {snapToGrid: false});
+      if (p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y))) return {x: Number(p.x), y: Number(p.y)};
+    }
+  } catch (e) {}
+  try {
+    if (flow && typeof flow.project === 'function') {
+      const p = flow.project({x: sx - bounds.left, y: sy - bounds.top});
+      if (p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y))) return {x: Number(p.x), y: Number(p.y)};
+    }
+  } catch (e) {}
+  return {x: sx - bounds.left, y: sy - bounds.top};
+}
+
+function tgFlowClientPointFromEvent(event) {
+  if (!event) return null;
+  const touch = event.changedTouches && event.changedTouches[0] ? event.changedTouches[0] : (event.touches && event.touches[0] ? event.touches[0] : null);
+  const rawX = touch ? touch.clientX : event.clientX;
+  const rawY = touch ? touch.clientY : event.clientY;
+  const x = Number(rawX);
+  const y = Number(rawY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return {x, y};
+}
+
 function showFlowToast(message, type = 'info') {
   const text = String(message || '').trim();
   if (!text) return;
@@ -488,6 +521,39 @@ function flowStripHtml(value) {
   div.innerHTML = String(value || '');
   return (div.textContent || div.innerText || '').replace(/\s+/g, ' ').trim();
 }
+function flowSanitizePreviewHtml(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const root = document.createElement('div');
+  root.innerHTML = raw;
+  const allowed = new Set(['B','STRONG','I','EM','U','S','DEL','STRIKE','CODE','PRE','BR','P','DIV','SPAN','A','BLOCKQUOTE','UL','OL','LI']);
+  const unwrap = (node) => {
+    const parent = node.parentNode;
+    if (!parent) return;
+    while (node.firstChild) parent.insertBefore(node.firstChild, node);
+    parent.removeChild(node);
+  };
+  Array.from(root.querySelectorAll('*')).forEach((node) => {
+    if (!allowed.has(node.tagName)) {
+      unwrap(node);
+      return;
+    }
+    Array.from(node.attributes || []).forEach((attr) => {
+      const name = String(attr.name || '').toLowerCase();
+      if (node.tagName === 'A' && name === 'href') {
+        const href = String(attr.value || '').trim();
+        if (/^(https?:|mailto:|tel:)/i.test(href)) {
+          node.setAttribute('href', href);
+          node.setAttribute('target', '_blank');
+          node.setAttribute('rel', 'noopener noreferrer');
+          return;
+        }
+      }
+      node.removeAttribute(attr.name);
+    });
+  });
+  return root.innerHTML.trim();
+}
 function flowMediaSrc(card) {
   const raw = String((card && (card.media_file_path || card.media_url || card.media)) || '').trim();
   if (!raw) return '';
@@ -497,8 +563,18 @@ function flowMediaSrc(card) {
 function flowCardTitle(type) {
   return {text: 'Сообщение', image: 'Картинка', file: 'Файл', audio: 'Аудио', video: 'Видео', video_note: 'Видео-заметка', gallery: 'Галерея', question: 'Вопрос'}[type] || 'Сообщение';
 }
+function flowMediaSummary(card, type, galleryCount, mediaSrc) {
+  const title = flowCardTitle(type);
+  if (type === 'gallery') return galleryCount ? ('Добавлена галерея: ' + galleryCount + ' элем.') : 'Добавлена галерея';
+  const fileName = String((card && (card.media_file_name || card.file_name || card.name)) || '').trim();
+  if (fileName) return 'Добавлено: ' + title + ' — ' + fileName;
+  if (mediaSrc) return 'Добавлено: ' + title;
+  return title;
+}
 function NodeShell({id, data, isStart}) {
-  const isDelay = String(data && data.blockType ? data.blockType : '') === 'delay';
+  const blockType = String(data && data.blockType ? data.blockType : '');
+  const isDelay = blockType === 'delay';
+  const isCondition = blockType === 'condition';
   const edit = (event) => {
     if (event) {
       event.preventDefault();
@@ -566,7 +642,8 @@ function NodeShell({id, data, isStart}) {
   };
   const renderCard = (card, cardIndex) => {
     const type = card && card.type ? card.type : 'text';
-    const text = flowStripHtml(card && card.text ? card.text : card && card.textPreview ? card.textPreview : '');
+    const rawText = card && card.text ? card.text : card && card.textPreview ? card.textPreview : '';
+    const previewHtml = flowSanitizePreviewHtml(rawText);
     const mediaSrc = flowMediaSrc(card);
     const buttons = [];
     (Array.isArray(card && card.buttons) ? card.buttons : []).forEach((row) => {
@@ -591,23 +668,16 @@ function NodeShell({id, data, isStart}) {
         })
       );
     };
-    const renderGalleryThumb = (item, index) => {
-      const raw = String((item && (item.media_file_path || item.media_url || item.url)) || '').trim();
-      const src = raw ? (/^(https?:)?\/\//i.test(raw) || raw.startsWith('/') ? raw : '/' + raw.replace(/^\/+/, '')) : '';
-      return src ? React.createElement('img', {key: 'g' + index, src, alt: ''}) : React.createElement('span', {key: 'g' + index}, '—');
-    };
+    const mediaSummary = flowMediaSummary(card, type, galleryItems.length, mediaSrc);
     return React.createElement('div', {className: 'tg-flow-preview-card is-' + type, key: cardIndex},
       React.createElement('div', {className: 'tg-flow-preview-card-label'}, flowCardTitle(type)),
       type === 'image' && mediaSrc
         ? React.createElement('img', {className: 'tg-flow-preview-image', src: mediaSrc, alt: 'Картинка'})
         : null,
-      type === 'gallery' && galleryItems.length
-        ? React.createElement('div', {className: 'tg-flow-preview-gallery'}, galleryItems.slice(0, 5).map(renderGalleryThumb).concat(galleryItems.length > 5 ? [React.createElement('span', {className: 'tg-flow-preview-gallery-more', key: 'more'}, '+' + (galleryItems.length - 5))] : []))
+      type !== 'text' && type !== 'image' && type !== 'question'
+        ? React.createElement('div', {className: 'tg-flow-preview-media'}, mediaSummary)
         : null,
-      type !== 'text' && type !== 'image' && type !== 'gallery' && type !== 'question'
-        ? React.createElement('div', {className: 'tg-flow-preview-media'}, card.media_file_name || mediaSrc || flowCardTitle(type))
-        : null,
-      text ? React.createElement('div', {className: 'tg-flow-preview-text'}, text) : null,
+      previewHtml ? React.createElement('div', {className: 'tg-flow-preview-text', dangerouslySetInnerHTML: {__html: previewHtml}}) : null,
       type === 'question' && answers.length ? React.createElement('div', {className: 'tg-flow-preview-buttons'}, answers.map(renderAnswer)) : null,
       type === 'question' ? React.createElement('div', {className: 'tg-flow-preview-button is-muted'},
         React.createElement('span', {className: 'tg-flow-preview-button-text'}, 'Подписчик не ответил'),
@@ -626,7 +696,7 @@ function NodeShell({id, data, isStart}) {
     );
   };
   const deeplinkText = String((data && (data.deeplinkUrl || data.deeplinkCode)) || '').trim();
-  const showDeeplink = !isStart && !isDelay && !!deeplinkText;
+  const showDeeplink = !isStart && !isDelay && !isCondition && !!deeplinkText;
   const copyDeeplink = (event) => {
     stop(event);
     if (!deeplinkText) return;
@@ -636,7 +706,7 @@ function NodeShell({id, data, isStart}) {
       showFlowToast(deeplinkText, 'success');
     }
   };
-  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
+  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
     !isStart && React.createElement(Handle, {id: 'in', type: 'target', position: Position.Left, className: 'tg-flow-in-handle', isConnectable: true}),
     React.createElement('div', {className: 'tg-flow-node-head'},
       React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : 'Сообщение')),
@@ -648,7 +718,7 @@ function NodeShell({id, data, isStart}) {
       )
     ),
     React.createElement('div', {className: 'tg-flow-node-body'},
-      (!isStart && !isDelay) ? React.createElement('div', {className: 'tg-flow-node-stats'},
+      (!isStart && !isDelay && !isCondition) ? React.createElement('div', {className: 'tg-flow-node-stats'},
         React.createElement('div', {className: 'tg-flow-node-stat'},
           React.createElement('span', {className: 'tg-flow-node-stat-value'}, String(Number.isFinite(sentCount) ? sentCount : 0)),
           React.createElement('span', {className: 'tg-flow-node-stat-label'}, 'Отправлено')
@@ -660,7 +730,24 @@ function NodeShell({id, data, isStart}) {
       ) : null,
       isStart
         ? React.createElement('div', {className: 'tg-flow-node-card'}, data.preview || 'По кнопке «Начать»')
-        : (isDelay
+        : (isCondition
+          ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-condition-preview'},
+            React.createElement('div', {className: 'tg-flow-condition-preview-head'},
+              React.createElement('span', null, data.conditionInvalid ? 'Нужно настроить условие' : (data.conditionMatchTitle || ('Проверяем: ' + (data.conditionMatchLabel || 'каждому из условий')))),
+              !data.conditionInvalid ? React.createElement('span', {className: 'tg-flow-condition-preview-count'}, String(data.conditionCount || 0)) : null
+            ),
+            (Array.isArray(data.conditionSummaries) && data.conditionSummaries.length)
+              ? React.createElement('div', {className: 'tg-flow-condition-list'},
+                data.conditionSummaries.map((item, index) => React.createElement('div', {className: 'tg-flow-condition-row', key: index}, item)),
+                Number(data.conditionExtraCount || 0) > 0 ? React.createElement('div', {className: 'tg-flow-condition-more'}, '+ ещё ' + Number(data.conditionExtraCount || 0)) : null
+              )
+              : React.createElement('div', {className: 'tg-flow-condition-empty'}, 'Добавьте хотя бы одно правило'),
+            React.createElement('div', {className: 'tg-flow-condition-branches'},
+              React.createElement('div', {className: 'tg-flow-condition-branch is-yes'}, React.createElement('span', null, 'Да'), React.createElement(Handle, {id: 'condition-yes', type: 'source', position: Position.Right, className: 'tg-flow-condition-handle is-yes', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'condition-yes'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'condition-yes'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'condition-yes')})),
+              React.createElement('div', {className: 'tg-flow-condition-branch is-no'}, React.createElement('span', null, 'Нет'), React.createElement(Handle, {id: 'condition-no', type: 'source', position: Position.Right, className: 'tg-flow-condition-handle is-no', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'condition-no'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'condition-no'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'condition-no')}))
+            )
+          )
+          : (isDelay
           ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-delay-preview'},
             React.createElement('div', {className: 'tg-flow-delay-preview-col'},
               React.createElement('span', {className: 'tg-flow-delay-preview-label'}, 'Отправить'),
@@ -674,11 +761,11 @@ function NodeShell({id, data, isStart}) {
           )
           : (cards.length
             ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
-            : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение'))),
-      React.createElement('div', {className: 'tg-flow-next-row'},
+            : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение')))),
+      !isCondition ? React.createElement('div', {className: 'tg-flow-next-row'},
         React.createElement('span', {className: 'tg-flow-node-muted'}, isStart ? 'Начало сценария' : 'Следующий шаг'),
         React.createElement(Handle, {id: 'out', type: 'source', position: Position.Right, className: 'tg-flow-main-out-handle', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'out')})
-      )
+      ) : null
     ),
     showDeeplink ? React.createElement('div', {className: 'tg-flow-node-deeplink', title: 'Нажмите, чтобы скопировать диплинк', onClick: copyDeeplink},
       'Диплинк',
@@ -689,8 +776,9 @@ function NodeShell({id, data, isStart}) {
 function StartNode(props) { return React.createElement(NodeShell, {...props, isStart: true}); }
 function MessageNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function DelayNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
+function ConditionNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 
-function AddMenu({menu, onClose, onCreateMessage, onCreateDelay}) {
+function AddMenu({menu, onClose, onCreateMessage, onCreateDelay, onCreateCondition}) {
   if (!menu) return null;
   const item = (type, glyph, name, disabled, onClick) => React.createElement('button', {
     type: 'button',
@@ -714,7 +802,7 @@ function AddMenu({menu, onClose, onCreateMessage, onCreateDelay}) {
     item('message', '≣', 'Сообщение', false, onCreateMessage),
     item('actions', '⚡', 'Действия', true),
     item('delay', '◴', 'Задержка', false, onCreateDelay),
-    item('condition', '⇄', 'Условие', true),
+    item('condition', '⇄', 'Условие', false, onCreateCondition),
     item('schedule', '□', 'Расписание', true),
     item('random', '✦', 'Случайный выбор', true),
     item('formula', 'ƒ', 'Формула', true)
@@ -726,7 +814,7 @@ function ScenarioSmoothEdge(props) {
   const radius = 13;
   const startX = props.sourcePosition === Position.Right ? props.sourceX + radius : props.sourceX;
   const endX = props.targetPosition === Position.Left ? props.targetX - radius : props.targetX;
-  const [edgePath] = getBezierPath({
+  const [edgePath, labelX, labelY] = getBezierPath({
     sourceX: startX,
     sourceY: props.sourceY,
     sourcePosition: props.sourcePosition,
@@ -735,16 +823,24 @@ function ScenarioSmoothEdge(props) {
     targetPosition: props.targetPosition,
     curvature: 0.42
   });
-  return React.createElement(BaseEdge, {
-    id: props.id,
-    path: edgePath,
-    markerEnd: props.markerEnd,
-    style: Object.assign({stroke: '#6f7378', strokeWidth: 1.9}, props.style || {})
-  });
+  const data = props.data || {};
+  const label = String(data.label || '').trim();
+  const kind = String(data.kind || '');
+  return React.createElement(React.Fragment, null,
+    React.createElement(BaseEdge, {
+      id: props.id,
+      path: edgePath,
+      markerEnd: props.markerEnd,
+      style: Object.assign({stroke: '#6f7378', strokeWidth: 1.9}, props.style || {})
+    }),
+    label ? React.createElement(EdgeLabelRenderer, null,
+      React.createElement('div', {className: 'tg-flow-edge-label ' + (kind === 'condition_yes' ? 'is-yes' : (kind === 'condition_no' ? 'is-no' : '')), style: {transform: 'translate(-50%, -50%) translate(' + labelX + 'px,' + labelY + 'px)'}}, label)
+    ) : null
+  );
 }
 
 function ScenarioFlow() {
-  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, delayNode: DelayNode}), []);
+  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, delayNode: DelayNode, conditionNode: ConditionNode}), []);
   const edgeTypes = useMemo(() => ({scenarioSmooth: ScenarioSmoothEdge}), []);
   const blockLimit = Number(cfg.blockLimit || 550);
   const initialNodes = Array.isArray(cfg.nodes) ? cfg.nodes : [];
@@ -765,6 +861,7 @@ function ScenarioFlow() {
   const saveTimer = useRef(null);
   const latestNodesRef = useRef(initialNodes);
   const positionsDirtyRef = useRef(false);
+  const lastPointerRef = useRef(null);
 
   React.useEffect(() => {
     const addBtn = document.getElementById('tg-flow-add-block-btn');
@@ -780,17 +877,53 @@ function ScenarioFlow() {
       const y = Math.max(16, Math.min(Math.round((bounds.height - menuHeight) / 2), Math.max(16, bounds.height - menuHeight - 16)));
       const screenX = bounds.left + x + Math.round(menuWidth / 2);
       const screenY = bounds.top + y + Math.round(menuHeight / 2);
+      const flowPos = tgFlowScreenToFlowPoint(flow, screenX, screenY);
       setMenu({
         source: '',
         x,
         y,
         screenX,
-        screenY
+        screenY,
+        flowX: flowPos.x,
+        flowY: flowPos.y
       });
     };
     if (addBtn) addBtn.addEventListener('click', openAddMenu);
     return () => { if (addBtn) addBtn.removeEventListener('click', openAddMenu); };
-  }, [nodes.length, blockLimit]);
+  }, [nodes.length, blockLimit, flow]);
+
+  const rememberPointer = useCallback((event) => {
+    const client = tgFlowClientPointFromEvent(event);
+    if (!client) return null;
+    const flowPos = tgFlowScreenToFlowPoint(flow, client.x, client.y);
+    const point = {
+      screenX: client.x,
+      screenY: client.y,
+      flowX: flowPos.x,
+      flowY: flowPos.y,
+      at: Date.now()
+    };
+    lastPointerRef.current = point;
+    return point;
+  }, [flow]);
+
+  React.useEffect(() => {
+    const handler = (event) => { rememberPointer(event); };
+    document.addEventListener('pointermove', handler, true);
+    document.addEventListener('mousemove', handler, true);
+    document.addEventListener('touchmove', handler, true);
+    document.addEventListener('pointerup', handler, true);
+    document.addEventListener('mouseup', handler, true);
+    document.addEventListener('touchend', handler, true);
+    return () => {
+      document.removeEventListener('pointermove', handler, true);
+      document.removeEventListener('mousemove', handler, true);
+      document.removeEventListener('touchmove', handler, true);
+      document.removeEventListener('pointerup', handler, true);
+      document.removeEventListener('mouseup', handler, true);
+      document.removeEventListener('touchend', handler, true);
+    };
+  }, [rememberPointer]);
 
   React.useEffect(() => {
     latestNodesRef.current = nodes;
@@ -959,25 +1092,66 @@ function ScenarioFlow() {
     setNodes((current) => {
       const next = current.map((item) => item.id === node.id ? {...item, position: {...node.position}} : item);
       latestNodesRef.current = next;
-      scheduleSave(next);
+      flushPositions(next, false);
       return next;
     });
-  }, [setNodes, scheduleSave]);
+  }, [setNodes, flushPositions]);
 
   const isSourceHandleAllowed = useCallback((handleId) => {
     const value = String(handleId || '');
-    return value === 'out' || value.indexOf('btn-') === 0 || /^q-a\d+-\d+$/.test(value) || /^q-noanswer-c\d+$/.test(value);
+    return value === 'out' || value === 'condition-yes' || value === 'condition-no' || value.indexOf('btn-') === 0 || /^q-a\d+-\d+$/.test(value) || /^q-noanswer-c\d+$/.test(value);
   }, []);
 
   const onConnectStart = useCallback((event, params) => {
     setMenu(null);
     connectedRef.current = false;
+    rememberPointer(event);
     const sourceNodeId = String((params && params.nodeId) || '');
     const handleId = tgFlowResolveSourceHandle(sourceNodeId, (params && params.handleId) || '');
     connectingRef.current = params && params.handleType === 'source' && isSourceHandleAllowed(handleId)
       ? {source: sourceNodeId, sourceHandle: handleId}
       : null;
-  }, [isSourceHandleAllowed]);
+  }, [isSourceHandleAllowed, rememberPointer]);
+
+  const deleteSelectedEdges = useCallback(async () => {
+    const selectedEdges = edges.filter((edge) => edge && edge.selected && String(edge.id || '').indexOf('link-') === 0);
+    if (!selectedEdges.length) return false;
+    const backupEdges = edges;
+    const selectedIds = new Set(selectedEdges.map((edge) => String(edge.id)));
+    setEdges((current) => current.filter((edge) => !selectedIds.has(String(edge.id || ''))));
+    setMenu(null);
+    try {
+      for (const edge of selectedEdges) {
+        await postAction('tg_scenario_link_delete', {
+          edge_id: edge.id || '',
+          source_handle: edge.sourceHandle || 'out'
+        });
+      }
+      await refreshFlowFromServer();
+      showFlowToast(selectedEdges.length > 1 ? 'Связи удалены.' : 'Связь удалена.', 'success');
+      return true;
+    } catch (e) {
+      console.error('Scenario link delete error', e);
+      setEdges(backupEdges);
+      showFlowToast(e && e.message ? e.message : 'Не удалось удалить связь.', 'error');
+      await refreshFlowFromServer();
+      return false;
+    }
+  }, [edges, setEdges]);
+
+  React.useEffect(() => {
+    const handler = (event) => {
+      if (!event || (event.key !== 'Delete' && event.key !== 'Backspace')) return;
+      const target = event.target;
+      if (target && target.closest && target.closest('input, textarea, select, [contenteditable="true"], .ProseMirror, .tg-flow-add-menu, .tg-flow-drawer, .tg-scenario-block-panel')) return;
+      if (!edges.some((edge) => edge && edge.selected && String(edge.id || '').indexOf('link-') === 0)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      deleteSelectedEdges();
+    };
+    document.addEventListener('keydown', handler, true);
+    return () => document.removeEventListener('keydown', handler, true);
+  }, [edges, deleteSelectedEdges]);
 
   const onConnect = useCallback(async (params) => {
     connectedRef.current = true;
@@ -1017,10 +1191,13 @@ function ScenarioFlow() {
     connectedRef.current = false;
     if (!source || wasConnected) return;
 
-    const clientX = event && event.changedTouches && event.changedTouches[0] ? event.changedTouches[0].clientX : event.clientX;
-    const clientY = event && event.changedTouches && event.changedTouches[0] ? event.changedTouches[0].clientY : event.clientY;
-    if (typeof clientX !== 'number' || typeof clientY !== 'number') return;
+    const freshPointer = rememberPointer(event);
+    const tracked = lastPointerRef.current && (Date.now() - Number(lastPointerRef.current.at || 0) < 1800) ? lastPointerRef.current : null;
+    const point = tracked || freshPointer;
+    if (!point || typeof point.screenX !== 'number' || typeof point.screenY !== 'number') return;
 
+    const clientX = point.screenX;
+    const clientY = point.screenY;
     const dropTarget = document.elementFromPoint(clientX, clientY);
     if (dropTarget && dropTarget.closest && dropTarget.closest('.react-flow__handle.target, .react-flow__handle-left')) return;
 
@@ -1032,9 +1209,11 @@ function ScenarioFlow() {
       x: Math.max(16, Math.min(clientX - bounds.left, bounds.width - 300)),
       y: Math.max(76, Math.min(clientY - bounds.top, bounds.height - 360)),
       screenX: clientX,
-      screenY: clientY
+      screenY: clientY,
+      flowX: point.flowX,
+      flowY: point.flowY
     });
-  }, []);
+  }, [rememberPointer]);
 
   const createBlockFromMenu = useCallback(async (kind) => {
     if (!menu) return;
@@ -1043,15 +1222,25 @@ function ScenarioFlow() {
       setMenu(null);
       return;
     }
-    const flowPos = flow.screenToFlowPosition({x: menu.screenX, y: menu.screenY});
-    const placeX = Math.round(flowPos.x);
-    const placeY = Math.round(menu.source ? (flowPos.y - 86) : flowPos.y);
-    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : 'tg_scenario_quick_message_create';
+    const fallbackFlowPos = tgFlowScreenToFlowPoint(flow, menu.screenX, menu.screenY);
+    const menuFlowX = Number(menu.flowX);
+    const menuFlowY = Number(menu.flowY);
+    const rawX = Number.isFinite(menuFlowX) ? menuFlowX : fallbackFlowPos.x;
+    const rawY = Number.isFinite(menuFlowY) ? menuFlowY : fallbackFlowPos.y;
+    const placeX = Math.round(rawX);
+    const placeY = Math.round(rawY);
+    const sourceHandle = tgFlowResolveSourceHandle(menu.source || '', menu.sourceHandle || 'out');
+    if (menu.source && !isSourceHandleAllowed(sourceHandle)) {
+      showFlowToast('Не удалось определить ветку для нового блока.', 'error');
+      setMenu(null);
+      return;
+    }
+    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : 'tg_scenario_quick_message_create');
     setMenu(null);
     try {
       await postAction(action, {
         from_block_id: menu.source || '',
-        source_handle: menu.sourceHandle || 'out',
+        source_handle: sourceHandle,
         position_x: placeX,
         position_y: placeY
       });
@@ -1060,10 +1249,11 @@ function ScenarioFlow() {
       console.error('Scenario quick block create error', e);
       showFlowToast(e && e.message ? e.message : 'Не удалось создать блок.', 'error');
     }
-  }, [menu, flow, nodes.length, blockLimit]);
+  }, [menu, flow, nodes.length, blockLimit, isSourceHandleAllowed]);
 
   const createMessageFromMenu = useCallback(() => createBlockFromMenu('message'), [createBlockFromMenu]);
   const createDelayFromMenu = useCallback(() => createBlockFromMenu('delay'), [createBlockFromMenu]);
+  const createConditionFromMenu = useCallback(() => createBlockFromMenu('condition'), [createBlockFromMenu]);
 
   const isValidConnection = useCallback((connection) => {
     if (!connection || !connection.source || !connection.target) return false;
@@ -1145,7 +1335,7 @@ function ScenarioFlow() {
       React.createElement(Controls, {showInteractive: false})
     ),
     React.createElement('div', {className: 'tg-flow-block-counter'}, nodes.length + '/' + blockLimit + ' блоков использовано'),
-    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateDelay: createDelayFromMenu})
+    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu})
   );
 }
 

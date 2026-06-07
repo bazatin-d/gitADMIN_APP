@@ -101,6 +101,35 @@ $getDelaySettings = static function(array $block, ?string $defaultTimezone = nul
         'preview' => $sendLabel,
     ];
 };
+
+$getConditionSettings = static function(array $block): array {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $matchMode = (string)($settings['condition_match_mode'] ?? $settings['match_mode'] ?? 'all');
+    if (!in_array($matchMode, ['all','any'], true)) $matchMode = 'all';
+    $conditions = isset($settings['conditions']) && is_array($settings['conditions']) ? array_values($settings['conditions']) : [];
+    $summaries = [];
+    foreach ($conditions as $rule) {
+        if (!is_array($rule)) continue;
+        $summary = trim((string)($rule['summary'] ?? ''));
+        if ($summary === '') {
+            $summary = trim((string)($rule['field_title'] ?? $rule['tag_name'] ?? $rule['type'] ?? 'Условие'));
+        }
+        if ($summary !== '') $summaries[] = $summary;
+        if (count($summaries) >= 4) break;
+    }
+    $count = count($conditions);
+    return [
+        'matchMode' => $matchMode,
+        'matchLabel' => $matchMode === 'any' ? 'любому из условий' : 'каждому из условий',
+        'conditions' => $conditions,
+        'conditionCount' => $count,
+        'summaries' => $summaries,
+        'isInvalid' => $count <= 0 || empty($settings['condition_valid']),
+        'preview' => $count > 0 ? (($matchMode === 'any' ? 'Любое из условий' : 'Все условия') . ': ' . implode('; ', $summaries)) : 'Условие не настроено',
+    ];
+};
+
 $getBlockCards = static function(array $block): array {
     if ((string)($block['type'] ?? '') === 'start') return [];
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
@@ -183,8 +212,12 @@ $normalizeFlowCards = static function(array $cards) use ($plainPreview): array {
     }
     return $out;
 };
-$findButtonHandleForLink = static function(array $cards, array $link): string {
+
+$findSourceHandleForLink = static function(array $nodeData, array $link): string {
     $linkType = (string)($link['link_type'] ?? '');
+    if ($linkType === 'condition_yes') return 'condition-yes';
+    if ($linkType === 'condition_no') return 'condition-no';
+    $cards = isset($nodeData['cards']) && is_array($nodeData['cards']) ? $nodeData['cards'] : [];
     if ($linkType === 'manual' || $linkType === 'start' || $linkType === 'next') return 'out';
     $to = (int)($link['to_block_id'] ?? 0);
     $buttonText = trim((string)($link['button_text'] ?? ''));
@@ -291,17 +324,23 @@ foreach ($blocks as $index => $block) {
     $type = (string)($block['type'] ?? 'message');
     $isStart = $type === 'start';
     $isDelay = $type === 'delay';
+    $isCondition = $type === 'condition';
     $delaySettings = $isDelay ? $getDelaySettings($block, $scenarioTimezone) : [];
-    $cards = $isDelay ? [] : $getBlockCards($block);
-    $flowCards = $isDelay ? [] : $normalizeFlowCards($cards);
+    $conditionSettings = $isCondition ? $getConditionSettings($block) : [];
+    $cards = ($isDelay || $isCondition) ? [] : $getBlockCards($block);
+    $flowCards = ($isDelay || $isCondition) ? [] : $normalizeFlowCards($cards);
     $firstCard = $flowCards[0] ?? [];
-    $x = (int)($block['position_x'] ?? 0);
-    $y = (int)($block['position_y'] ?? 0);
-    if ($x <= 0 || $y <= 0) {
+    $hasStoredPosition = is_numeric($block['position_x'] ?? null) && is_numeric($block['position_y'] ?? null);
+    $x = $hasStoredPosition ? (int)round((float)$block['position_x']) : 0;
+    $y = $hasStoredPosition ? (int)round((float)$block['position_y']) : 0;
+    // React Flow stores canvas coordinates. On long scenarios the canvas can be panned
+    // far from the initial viewport, so valid coordinates may be 0 or negative.
+    // Do not auto-layout such blocks again after refresh.
+    if (!$hasStoredPosition || (!$isStart && $x === 0 && $y === 0)) {
         $x = $isStart ? 120 : 470 + (($index % 4) * 320);
         $y = 140 + ((int)floor($index / 4) * 230);
     }
-    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : (string)($firstCard['textPreview'] ?? ''));
+    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : (string)($firstCard['textPreview'] ?? '')));
     $deeplink = !$isStart ? ($deeplinksByBlock[$blockId] ?? null) : null;
     $deeplinkCode = is_array($deeplink) ? trim((string)($deeplink['code'] ?? $deeplink['token'] ?? '')) : '';
     $deeplinkUrl = is_array($deeplink) ? trim((string)($deeplink['url'] ?? '')) : '';
@@ -325,13 +364,13 @@ foreach ($blocks as $index => $block) {
     }
     $nodes[] = [
         'id' => (string)$blockId,
-        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : 'messageNode'),
+        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : 'messageNode')),
         'position' => ['x' => $x, 'y' => $y],
         'data' => [
             'blockId' => $blockId,
             'blockType' => $type,
-            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : 'Сообщение')),
-            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : 'Пустой текст'),
+            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : 'Сообщение'))),
+            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : 'Пустой текст')),
             'delayMode' => (string)($delaySettings['mode'] ?? ''),
             'delayModeLabel' => (string)($delaySettings['modeLabel'] ?? ''),
             'delayValue' => (int)($delaySettings['value'] ?? 0),
@@ -341,10 +380,16 @@ foreach ($blocks as $index => $block) {
             'delayTimeLabel' => (string)($delaySettings['timeLabel'] ?? ''),
             'delayWeekdaysTitle' => (string)($delaySettings['weekdaysTitle'] ?? ''),
             'missingNext' => false,
+            'conditionInvalid' => !empty($conditionSettings['isInvalid']),
+            'conditionMatchLabel' => (string)($conditionSettings['matchLabel'] ?? ''),
+            'conditionMatchTitle' => (string)($conditionSettings['matchTitle'] ?? ''),
+            'conditionCount' => (int)($conditionSettings['conditionCount'] ?? 0),
+            'conditionExtraCount' => (int)($conditionSettings['extraCount'] ?? 0),
+            'conditionSummaries' => $conditionSettings['summaries'] ?? [],
             'cards' => $flowCards,
             'cardsCount' => count($flowCards),
             'stats' => $scenarioStats[$blockId] ?? ['sent' => 0, 'clicks' => 0, 'clickRate' => 0],
-            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.123',
+            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.131',
             'deleteAllowed' => !$isStart,
             'deeplinkCode' => $deeplinkCode,
             'deeplinkUrl' => $deeplinkUrl,
@@ -354,9 +399,9 @@ foreach ($blocks as $index => $block) {
 }
 
 $blockIds = array_fill_keys(array_map(static fn($n) => (string)$n['id'], $nodes), true);
-$nodeCardsById = [];
+$nodeDataById = [];
 foreach ($nodes as $node) {
-    $nodeCardsById[(string)($node['id'] ?? '')] = $node['data']['cards'] ?? [];
+    $nodeDataById[(string)($node['id'] ?? '')] = $node['data'] ?? [];
 }
 $edges = [];
 foreach ($links as $link) {
@@ -364,15 +409,20 @@ foreach ($links as $link) {
     $to = (string)((int)($link['to_block_id'] ?? 0));
     if (!$from || !$to || !isset($blockIds[$from], $blockIds[$to])) continue;
     $edgeId = 'link-' . (int)($link['id'] ?? 0);
+    $sourceHandle = $findSourceHandleForLink($nodeDataById[$from] ?? [], $link);
+    $edgeData = [];
+    if ($sourceHandle === 'condition-yes') $edgeData = ['label' => 'Да', 'kind' => 'condition_yes'];
+    if ($sourceHandle === 'condition-no') $edgeData = ['label' => 'Нет', 'kind' => 'condition_no'];
     $edges[] = [
         'id' => $edgeId,
         'source' => $from,
         'target' => $to,
-        'sourceHandle' => $findButtonHandleForLink($nodeCardsById[$from] ?? [], $link),
+        'sourceHandle' => $sourceHandle,
         'targetHandle' => 'in',
         'type' => 'scenarioSmooth',
         'markerEnd' => ['type' => 'arrowclosed', 'width' => 10, 'height' => 10],
         'style' => ['strokeWidth' => 1.8, 'stroke' => '#737373'],
+        'data' => $edgeData,
     ];
 }
 
@@ -446,7 +496,7 @@ $flowData = [
     'nodes' => $nodes,
     'edges' => $edges,
     'returnUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
-        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.123',
+        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.131',
     'flowUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
     'blockLimit' => 550,
     'listUrl' => 'admin.php?tab=telegram_bots&page=scenarios',
@@ -500,7 +550,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 @media(max-width:900px){.tg-flow-block-drawer .tg-scenario-media-box{grid-template-columns:1fr!important}.tg-flow-block-drawer .tg-scenario-modal{width:100vw!important}}
 
 /* v3.5.43: rich previews and button-level handles */
-.tg-flow-node{width:268px;overflow:visible!important}.tg-flow-node-body{padding:12px 12px 10px}.tg-flow-message-cards{display:flex;flex-direction:column;gap:9px}.tg-flow-preview-card{position:relative;background:#f7f7f8;border-radius:10px;padding:10px 10px 9px;border:1px solid transparent;min-height:42px}.tg-flow-preview-card-label{font-size:9px;font-weight:800;color:#a0a6b1;text-transform:none;margin-bottom:5px}.tg-flow-preview-text{font-size:12px;font-weight:650;color:#454b54;line-height:1.42;white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:7;-webkit-box-orient:vertical;overflow:hidden}.tg-flow-preview-image{display:block;width:100%;max-height:145px;object-fit:cover;border-radius:9px;margin:2px 0 6px;background:#e5e7eb}.tg-flow-preview-media{border:1px dashed #d8dde5;border-radius:9px;padding:9px;color:#6b7280;font-size:11px;font-weight:700;background:#fff}.tg-flow-preview-gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:4px 0 6px}.tg-flow-preview-gallery img,.tg-flow-preview-gallery span{width:100%;height:48px;border-radius:7px;object-fit:cover;background:#e5e7eb;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:10px;font-weight:800}.tg-flow-preview-gallery-more{background:#f1f5f9!important}.tg-flow-preview-buttons{display:flex;flex-direction:column;gap:6px;margin-top:8px}.tg-flow-preview-button{position:relative;min-height:28px;border:1px solid #e2e6ec;background:#fff;border-radius:9px;padding:6px 18px 6px 9px;text-align:center;color:#6b7280;font-size:11px;font-weight:750}.tg-flow-preview-button-text{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tg-flow-next-row{position:relative;display:flex;align-items:center;justify-content:flex-end;min-height:22px;margin-top:7px;padding-right:4px}.tg-flow-next-row .tg-flow-node-muted{margin-top:0}.tg-flow-node .tg-flow-main-out-handle{right:-21px!important;top:50%!important}.tg-flow-node .tg-flow-in-handle{left:-21px!important;top:50%!important}.tg-flow-node .tg-flow-button-handle,.tg-flow-node .tg-flow-question-handle{right:-22px!important;top:50%!important;width:13px!important;height:13px!important;border-width:2px!important;background:#fff!important;box-shadow:0 0 0 3px #fff!important}.tg-flow-node .tg-flow-button-handle:hover,.tg-flow-node .tg-flow-question-handle:hover,.tg-flow-node .tg-flow-main-out-handle:hover,.tg-flow-node .tg-flow-in-handle:hover{border-color:#737373!important}.tg-flow-node-card.is-empty{border:1px dashed #fecaca;background:#fff7f7;color:#ef4444;font-size:11px}.tg-flow-node-card.is-empty:after{content:'Для продолжения добавьте хотя бы одну карточку текста или файла.';display:block;margin-top:5px;color:#ef4444;font-size:10px;font-weight:700;line-height:1.3}.tg-flow-node.is-start .tg-flow-main-out-handle{right:-21px!important}.tg-flow-root .react-flow__edge-path{stroke-linecap:round;stroke-linejoin:round}.tg-flow-root .react-flow__edge .react-flow__edge-path{stroke:#6b6f76!important;stroke-width:1.9!important}.tg-flow-root .react-flow__edge:hover .react-flow__edge-path{stroke:#555a60!important;stroke-width:2.15!important}
+.tg-flow-node{width:268px;overflow:visible!important}.tg-flow-node-body{padding:12px 12px 10px}.tg-flow-message-cards{display:flex;flex-direction:column;gap:9px}.tg-flow-preview-card{position:relative;background:#f7f7f8;border-radius:10px;padding:10px 10px 9px;border:1px solid transparent;min-height:42px}.tg-flow-preview-card-label{font-size:9px;font-weight:800;color:#a0a6b1;text-transform:none;margin-bottom:5px}.tg-flow-preview-text{font-size:12px;font-weight:500;color:#454b54;line-height:1.42;white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:hidden}.tg-flow-preview-text b,.tg-flow-preview-text strong{font-weight:800}.tg-flow-preview-text i,.tg-flow-preview-text em{font-style:italic}.tg-flow-preview-text u{text-decoration:underline}.tg-flow-preview-text s,.tg-flow-preview-text del{text-decoration:line-through}.tg-flow-preview-text p,.tg-flow-preview-text div{margin:0 0 7px}.tg-flow-preview-text p:last-child,.tg-flow-preview-text div:last-child{margin-bottom:0}.tg-flow-preview-text blockquote{margin:6px 0;padding:0 0 0 8px;border-left:3px solid #d9dde5;color:#59616d}.tg-flow-preview-text code,.tg-flow-preview-text pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef1f4;border-radius:5px;padding:1px 4px}.tg-flow-preview-text a{color:#3573c3;text-decoration:underline;pointer-events:none}.tg-flow-preview-image{display:block;width:100%;max-height:145px;object-fit:cover;border-radius:9px;margin:2px 0 6px;background:#e5e7eb}.tg-flow-preview-media{border:1px dashed #d8dde5;border-radius:9px;padding:9px;color:#6b7280;font-size:11px;font-weight:700;background:#fff;line-height:1.35;word-break:break-word}.tg-flow-preview-buttons{display:flex;flex-direction:column;gap:6px;margin-top:8px}.tg-flow-preview-button{position:relative;min-height:28px;border:1px solid #e2e6ec;background:#fff;border-radius:9px;padding:6px 18px 6px 9px;text-align:center;color:#6b7280;font-size:11px;font-weight:750}.tg-flow-preview-button-text{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tg-flow-next-row{position:relative;display:flex;align-items:center;justify-content:flex-end;min-height:22px;margin-top:7px;padding-right:4px}.tg-flow-next-row .tg-flow-node-muted{margin-top:0}.tg-flow-node .tg-flow-main-out-handle{right:-21px!important;top:50%!important}.tg-flow-node .tg-flow-in-handle{left:-21px!important;top:50%!important}.tg-flow-node .tg-flow-button-handle,.tg-flow-node .tg-flow-question-handle{right:-22px!important;top:50%!important;width:13px!important;height:13px!important;border-width:2px!important;background:#fff!important;box-shadow:0 0 0 3px #fff!important}.tg-flow-node .tg-flow-button-handle:hover,.tg-flow-node .tg-flow-question-handle:hover,.tg-flow-node .tg-flow-main-out-handle:hover,.tg-flow-node .tg-flow-in-handle:hover{border-color:#737373!important}.tg-flow-node-card.is-empty{border:1px dashed #fecaca;background:#fff7f7;color:#ef4444;font-size:11px}.tg-flow-node-card.is-empty:after{content:'Для продолжения добавьте хотя бы одну карточку текста или файла.';display:block;margin-top:5px;color:#ef4444;font-size:10px;font-weight:700;line-height:1.3}.tg-flow-node.is-start .tg-flow-main-out-handle{right:-21px!important}.tg-flow-root .react-flow__edge-path{stroke-linecap:round;stroke-linejoin:round}.tg-flow-root .react-flow__edge .react-flow__edge-path{stroke:#6b6f76!important;stroke-width:1.9!important}.tg-flow-root .react-flow__edge:hover .react-flow__edge-path{stroke:#555a60!important;stroke-width:2.15!important}
 
 
 /* v3.5.52: clean React Flow drawer. Do not let the classic scenario modal control footer/layout. */
@@ -880,6 +930,15 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 
 
 /* v3.5.127: restore visible deeplink under message blocks */
+
+.tg-flow-add-icon--condition{background:#edf8df!important;color:#5f8f30!important;}
+.tg-flow-node.is-condition{border-color:#d9edc8;min-width:300px}
+.tg-flow-node.is-condition .tg-flow-node-head{background:#edf8df;border-bottom-color:#d9edc8}
+.tg-flow-node.is-condition .tg-flow-node-title{color:#4d7727}
+.tg-flow-node.is-condition.is-condition-invalid{border-color:#ff6b73;box-shadow:0 0 0 1px #ff6b73,0 14px 28px rgba(255,107,115,.14)}
+.tg-flow-node-card.tg-flow-condition-preview{background:#fff;color:#374151;border:0;display:flex;flex-direction:column;gap:9px;min-height:96px;padding:10px}
+.tg-flow-condition-preview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;font-weight:750;color:#6b7280;line-height:1.3}.tg-flow-condition-preview-count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:20px;border-radius:999px;background:#edf8df;color:#5f8f30;font-size:11px;font-weight:800}.tg-flow-condition-list{display:flex;flex-direction:column;gap:6px}.tg-flow-condition-row{border:1px solid #edf0f2;background:#f8fafc;border-radius:9px;padding:7px 8px;color:#4b5563;font-size:11px;font-weight:650;line-height:1.35;word-break:break-word}.tg-flow-condition-more{color:#8a9185;font-size:11px;font-weight:700;padding:0 2px}.tg-flow-condition-empty{border:1px dashed #fecaca;background:#fff7f7;border-radius:9px;padding:9px;color:#ef4444;font-size:11px;font-weight:700;line-height:1.35}.tg-flow-condition-branches{display:flex;flex-direction:column;gap:7px;margin-top:2px}.tg-flow-condition-branch{position:relative;min-height:30px;border:1px solid #e2e6ec;background:#fff;border-radius:10px;padding:7px 20px 7px 9px;color:#4b5563;font-size:11px;font-weight:800;text-align:center}.tg-flow-condition-branch.is-yes{border-color:#d9edc8;background:#fbfff7;color:#5f8f30}.tg-flow-condition-branch.is-no{border-color:#ffd6d9;background:#fffafa;color:#dc5a5f}.tg-flow-node .tg-flow-condition-handle{right:-22px!important;top:50%!important;width:13px!important;height:13px!important;border-width:2px!important;background:#fff!important;box-shadow:0 0 0 3px #fff!important}.tg-flow-node .tg-flow-condition-handle.is-yes{border-color:#7fb047!important}.tg-flow-node .tg-flow-condition-handle.is-no{border-color:#ef6b6b!important}.tg-flow-node.is-condition .tg-flow-main-out-handle{display:none!important}.tg-flow-node.is-condition .tg-flow-node-deeplink{display:none!important}.tg-flow-edge-label{position:absolute;transform:translate(-50%,-50%);pointer-events:none;border:1px solid #e5e7eb;background:#fff;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:800;color:#6b7280;box-shadow:0 4px 12px rgba(15,23,42,.08)}.tg-flow-edge-label.is-yes{border-color:#d9edc8;color:#5f8f30}.tg-flow-edge-label.is-no{border-color:#ffd6d9;color:#dc5a5f}
+
 .tg-flow-node-deeplink{display:block!important;text-align:left!important;user-select:text}.tg-flow-node.is-delay .tg-flow-node-deeplink,.tg-flow-node.is-start .tg-flow-node-deeplink{display:none!important}
 
 </style>
@@ -888,7 +947,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     <div class="tg-flow-topbar">
         <div class="tg-flow-top-left">
             <button type="button" class="tg-flow-menu-btn" id="tg-flow-menu-btn" aria-label="Открыть меню">☰</button>
-            <div class="tg-flow-title"><?php echo $h($scenario['title'] ?? 'Сценарий'); ?> <span style="font-size:11px;color:#9ca3af;font-weight:650">Flow v3.5.123</span> <span id="tg-flow-boot-status" class="tg-flow-boot-status">PHP: <?php echo count($nodes); ?> блоков / <?php echo count($edges); ?> связей · React: запуск…</span></div>
+            <div class="tg-flow-title"><?php echo $h($scenario['title'] ?? 'Сценарий'); ?> <span style="font-size:11px;color:#9ca3af;font-weight:650">Flow v3.5.131</span> <span id="tg-flow-boot-status" class="tg-flow-boot-status">PHP: <?php echo count($nodes); ?> блоков / <?php echo count($edges); ?> связей · React: запуск…</span></div>
         </div>
         <div class="tg-flow-top-right">
             <div class="tg-flow-gear-wrap">
