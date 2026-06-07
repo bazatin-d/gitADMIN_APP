@@ -4354,17 +4354,24 @@ function asr_tg_scenario_condition_rule_summary(array $rule): string {
 }
 
 function asr_tg_scenario_condition_field_catalog(PDO $pdo): array {
-    $fields = [
+    // В условиях системные поля должны оставаться системными. Если настраиваемое поле
+    // случайно получит код phone/email/username и т.п., оно не должно подменять реальное
+    // поле подписчика в runtime. Иначе интерфейс показывает «Телефон», а проверка может
+    // уйти в кастомное значение с таким же кодом — редкий, но неприятный фокус.
+    $systemFields = [
         'first_name' => ['code' => 'first_name', 'title' => 'Имя', 'field_type' => 'text', 'source' => 'system'],
         'last_name' => ['code' => 'last_name', 'title' => 'Фамилия', 'field_type' => 'text', 'source' => 'system'],
         'username' => ['code' => 'username', 'title' => 'Username', 'field_type' => 'text', 'source' => 'system'],
         'phone' => ['code' => 'phone', 'title' => 'Телефон', 'field_type' => 'text', 'source' => 'system'],
         'email' => ['code' => 'email', 'title' => 'Email', 'field_type' => 'text', 'source' => 'system'],
     ];
+    $fields = $systemFields;
+    $reservedSystemCodes = array_fill_keys(array_keys($systemFields), true);
+
     try {
         foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
             $code = trim((string)($field['code'] ?? ''));
-            if ($code === '') continue;
+            if ($code === '' || isset($reservedSystemCodes[$code])) continue;
             $type = (string)($field['field_type'] ?? 'text');
             if (!in_array($type, ['text','number','date','datetime'], true)) $type = 'text';
             $fields[$code] = ['code' => $code, 'title' => trim((string)($field['title'] ?? $code)) ?: $code, 'field_type' => $type, 'source' => 'custom'];
