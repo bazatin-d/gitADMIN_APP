@@ -35,6 +35,9 @@ if (!$scenario || !$block) {
     return;
 }
 
+$scenarioTimezone = function_exists('asr_tg_scenario_timezone') ? asr_tg_scenario_timezone($pdo, $scenarioId) : (string)($scenario['timezone'] ?? 'Asia/Almaty');
+try { new DateTimeZone($scenarioTimezone); } catch (Throwable $e) { $scenarioTimezone = 'Asia/Almaty'; }
+
 $type = (string)($block['type'] ?? 'message');
 if ($type === 'start') {
     ?>
@@ -74,7 +77,8 @@ if ($type === 'delay') {
     $sendTimeExact = $normalizeTime($settings['send_time_exact'] ?? '00:00');
     $sendTimeFrom = $normalizeTime($settings['send_time_from'] ?? '00:00');
     $sendTimeTo = $normalizeTime($settings['send_time_to'] ?? '00:00');
-    $timezone = trim((string)($settings['timezone'] ?? 'Europe/Moscow')) ?: 'Europe/Moscow';
+    $timezone = trim((string)($settings['timezone'] ?? $scenarioTimezone)) ?: $scenarioTimezone;
+    try { new DateTimeZone($timezone); } catch (Throwable $e) { $timezone = $scenarioTimezone; }
     $timezonePriorityLabels = [
         'Asia/Almaty' => 'Asia/Almaty — Алматы, Астана',
         'Europe/Moscow' => 'Europe/Moscow — Москва',
@@ -295,10 +299,10 @@ if ($type === 'delay') {
       var tzList = tzModal ? tzModal.querySelector('[data-tz-list]') : null;
       var tzEmpty = tzModal ? tzModal.querySelector('[data-tz-empty]') : null;
       var tzInput = box.querySelector('[data-tz-value]');
-      var selectedTz = tzInput && tzInput.value ? tzInput.value : 'Europe/Moscow';
+      var selectedTz = tzInput && tzInput.value ? tzInput.value : <?php echo json_encode($scenarioTimezone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
       function tzOptions(){ return tzModal ? Array.prototype.slice.call(tzModal.querySelectorAll('[data-tz-option]')) : []; }
       function markSelected(value){
-        selectedTz = value || selectedTz || 'Europe/Moscow';
+        selectedTz = value || selectedTz || <?php echo json_encode($scenarioTimezone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
         tzOptions().forEach(function(option){ option.classList.toggle('is-selected', option.getAttribute('value') === selectedTz); });
       }
       function filterTz(){
@@ -340,13 +344,13 @@ if ($type === 'delay') {
         var option = tzModal ? tzModal.querySelector('[data-tz-option].is-selected') : null;
         var value = option ? (option.getAttribute('value') || selectedTz) : selectedTz;
         var title = option ? (option.getAttribute('data-title') || option.textContent || value) : value;
-        tzInput.value = value || 'Europe/Moscow';
+        tzInput.value = value || <?php echo json_encode($scenarioTimezone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
         box.querySelectorAll('[data-tz-current]').forEach(function(el){ el.textContent = title; });
         closeTz();
       }
       box.querySelectorAll('[data-tz-open]').forEach(function(btn){ btn.addEventListener('click', openTz); });
       if (tzModal) {
-        tzOptions().forEach(function(option){ option.addEventListener('click', function(){ markSelected(option.getAttribute('value') || 'Europe/Moscow'); }); });
+        tzOptions().forEach(function(option){ option.addEventListener('click', function(){ markSelected(option.getAttribute('value') || <?php echo json_encode($scenarioTimezone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>); }); });
         if (tzSearch) tzSearch.addEventListener('input', filterTz);
         tzModal.querySelectorAll('[data-tz-close]').forEach(function(btn){ btn.addEventListener('click', closeTz); });
         var applyBtn = tzModal.querySelector('[data-tz-apply]');
@@ -1249,7 +1253,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
   }
   function addCard(type='text', source={}){
     const card=document.createElement('div'); card.className='tg-message-card'; card.dataset.card='1'; card.dataset.type=type; card.dataset.buttons=JSON.stringify(normalizeRows(source.buttons));
-    if(type==='question'){card.dataset.questionAnswers=JSON.stringify(normalizeQuestionAnswers(source.answers)); card.dataset.questionWaitValue=String(source.wait_value||24); card.dataset.questionWaitUnit=String(source.wait_unit||'hours'); card.dataset.questionCheck=source.enable_check?'1':'0'; card.dataset.questionRemind=source.remind_no_answer?'1':'0'; card.dataset.questionRemindText=String(source.remind_text||''); card.dataset.questionRemindValue=String(source.remind_value||5); card.dataset.questionRemindUnit=String(source.remind_unit||'minutes');}
+    if(type==='question'){card.dataset.questionAnswers=JSON.stringify(normalizeQuestionAnswers(source.answers)); card.dataset.questionWaitValue=String(source.wait_value||24); card.dataset.questionWaitUnit=String(source.wait_unit||'hours'); card.dataset.questionCheck=source.enable_check?'1':'0'; card.dataset.questionRemind=source.remind_no_answer?'1':'0'; card.dataset.questionRemindText=String(source.remind_text||''); card.dataset.questionRemindValue=String(source.remind_value||5); card.dataset.questionRemindUnit=String(source.remind_unit||'minutes'); card.dataset.questionNoAnswerTarget=String(parseInt(source.no_answer_target_block_id||0,10)||0);}
     let media=''; const url=mediaUrl(source);
     if(type==='question'){
       media='';
@@ -1349,6 +1353,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
           item.remind_text=card.dataset.questionRemindText||'';
           item.remind_value=Math.max(1,parseInt(card.dataset.questionRemindValue||'5',10)||5);
           item.remind_unit=card.dataset.questionRemindUnit||'minutes';
+          item.no_answer_target_block_id=parseInt(card.dataset.questionNoAnswerTarget||'0',10)||0;
         } else if(type==='gallery'){
           item.gallery_items=getGalleryItems(card); item.caption_enabled=captionEnabled; const gf=card.querySelector('[data-gallery-files]'); if(gf&&gf.files&&gf.files.length){item.has_gallery_upload=true; item.gallery_upload_slot=index;}
         } else if(type!=='text'){

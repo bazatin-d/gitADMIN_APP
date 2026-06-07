@@ -41,11 +41,17 @@ try {
     require_once __DIR__ . '/config.php';
     require_once __DIR__ . '/admin_app/modules/telegram_bots/service.php';
 
-    $now = function_exists('asr_tg_broadcast_now_sql') ? asr_tg_broadcast_now_sql() : date('Y-m-d H:i:s');
+    $now = function_exists('asr_tg_runtime_now_sql') ? asr_tg_runtime_now_sql() : (function_exists('asr_tg_broadcast_now_sql') ? asr_tg_broadcast_now_sql() : date('Y-m-d H:i:s'));
     $dueBefore = function_exists('asr_tg_broadcast_due_scheduled_count') ? (int)asr_tg_broadcast_due_scheduled_count($pdo) : 0;
+    $delayPendingBefore = function_exists('asr_tg_runtime_pending_delays_count') ? (int)asr_tg_runtime_pending_delays_count($pdo) : 0;
+    $delayDueBefore = function_exists('asr_tg_runtime_due_delays_count') ? (int)asr_tg_runtime_due_delays_count($pdo) : 0;
+    $questionPendingBefore = function_exists('asr_tg_runtime_pending_questions_count') ? (int)asr_tg_runtime_pending_questions_count($pdo) : 0;
+    $questionDueBefore = function_exists('asr_tg_runtime_due_questions_count') ? (int)asr_tg_runtime_due_questions_count($pdo) : 0;
+    $queueBefore = function_exists('asr_tg_queue_diag_broadcast_snapshot') ? asr_tg_queue_diag_broadcast_snapshot($pdo, $broadcastId, 10) : [];
+    $queueBeforeLine = function_exists('asr_tg_queue_diag_format_compact') ? asr_tg_queue_diag_format_compact($queueBefore, 'queue_before') : 'queue_before_available=0';
 
     if ($dry) {
-        $out = 'dry_ok now=' . $now . ' due_before=' . $dueBefore . ' limit=' . $limit . ' broadcast_id=' . $broadcastId;
+        $out = 'dry_ok now=' . $now . ' due_before=' . $dueBefore . ' delay_pending_before=' . $delayPendingBefore . ' delay_due_before=' . $delayDueBefore . ' question_pending_before=' . $questionPendingBefore . ' question_due_before=' . $questionDueBefore . ' ' . $queueBeforeLine . ' limit=' . $limit . ' broadcast_id=' . $broadcastId;
         asr_tg_cron_log_line($out);
         echo $out . "\n";
         exit;
@@ -54,17 +60,32 @@ try {
     $activated = function_exists('asr_tg_broadcast_activate_due_scheduled') ? (int)asr_tg_broadcast_activate_due_scheduled($pdo, 200) : 0;
     $result = asr_tg_process_broadcast_queue($pdo, $limit, $broadcastId);
     $delayResult = function_exists('asr_tg_runtime_process_due_delays') ? asr_tg_runtime_process_due_delays($pdo, $limit) : ['processed' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
+    $questionResult = function_exists('asr_tg_runtime_process_due_questions') ? asr_tg_runtime_process_due_questions($pdo, $limit) : ['processed' => 0, 'reminded' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
+    $queueAfter = function_exists('asr_tg_queue_diag_broadcast_snapshot') ? asr_tg_queue_diag_broadcast_snapshot($pdo, $broadcastId, 10) : [];
+    $queueAfterLine = function_exists('asr_tg_queue_diag_format_compact') ? asr_tg_queue_diag_format_compact($queueAfter, 'queue_after') : 'queue_after_available=0';
 
     $out = 'ok now=' . $now
         . ' due_before=' . $dueBefore
+        . ' delay_pending_before=' . $delayPendingBefore
+        . ' delay_due_before=' . $delayDueBefore
+        . ' question_pending_before=' . $questionPendingBefore
+        . ' question_due_before=' . $questionDueBefore
         . ' activated=' . $activated
         . ' processed=' . (int)($result['processed'] ?? 0)
         . ' sent=' . (int)($result['sent'] ?? 0)
         . ' failed=' . (int)($result['failed'] ?? 0)
+        . ' stale_processing_reset=' . (int)($result['stale_processing_reset'] ?? 0)
         . ' delay_processed=' . (int)($delayResult['processed'] ?? 0)
         . ' delay_started=' . (int)($delayResult['started'] ?? 0)
         . ' delay_failed=' . (int)($delayResult['failed'] ?? 0)
         . ' delay_skipped=' . (int)($delayResult['skipped'] ?? 0)
+        . ' question_processed=' . (int)($questionResult['processed'] ?? 0)
+        . ' question_reminded=' . (int)($questionResult['reminded'] ?? 0)
+        . ' question_started=' . (int)($questionResult['started'] ?? 0)
+        . ' question_failed=' . (int)($questionResult['failed'] ?? 0)
+        . ' question_skipped=' . (int)($questionResult['skipped'] ?? 0)
+        . ' ' . $queueBeforeLine
+        . ' ' . $queueAfterLine
         . ' limit=' . $limit
         . ' broadcast_id=' . $broadcastId;
     asr_tg_cron_log_line($out);

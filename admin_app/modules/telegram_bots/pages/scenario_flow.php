@@ -51,7 +51,7 @@ $weekdaysTitle = static function(array $days): string {
     if (count($days) === 7) return 'Пн, Вт, Ср, Чт, Пт, Сб, Вс';
     return implode(', ', array_map(static fn($d) => $labels[$d] ?? $d, $days));
 };
-$getDelaySettings = static function(array $block) use ($delayUnitTitle, $normalizeTime, $normalizeWeekdays, $weekdaysTitle): array {
+$getDelaySettings = static function(array $block, ?string $defaultTimezone = null) use ($delayUnitTitle, $normalizeTime, $normalizeWeekdays, $weekdaysTitle): array {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
     $mode = (string)($settings['delay_mode'] ?? $settings['mode'] ?? 'after');
@@ -64,7 +64,10 @@ $getDelaySettings = static function(array $block) use ($delayUnitTitle, $normali
     $exactTime = $normalizeTime($settings['send_time_exact'] ?? '00:00');
     $intervalFrom = $normalizeTime($settings['send_time_from'] ?? '00:00');
     $intervalTo = $normalizeTime($settings['send_time_to'] ?? '00:00');
-    $timezone = trim((string)($settings['timezone'] ?? 'Europe/Moscow')) ?: 'Europe/Moscow';
+    $fallbackTimezone = trim((string)($defaultTimezone ?: 'Asia/Almaty')) ?: 'Asia/Almaty';
+    try { new DateTimeZone($fallbackTimezone); } catch (Throwable $e) { $fallbackTimezone = 'Asia/Almaty'; }
+    $timezone = trim((string)($settings['timezone'] ?? $fallbackTimezone)) ?: $fallbackTimezone;
+    try { new DateTimeZone($timezone); } catch (Throwable $e) { $timezone = $fallbackTimezone; }
     $weekdays = $normalizeWeekdays($settings['weekdays'] ?? []);
 
     $modeLabel = ['after' => 'Отправить через', 'tomorrow' => 'Отправить завтра', 'at' => 'Отправить в'][$mode];
@@ -232,6 +235,9 @@ if (!$scenario): ?>
     </section>
 <?php return; endif;
 
+$scenarioTimezone = function_exists('asr_tg_scenario_timezone') ? asr_tg_scenario_timezone($pdo, $scenarioId) : (string)($scenario['timezone'] ?? 'Asia/Almaty');
+try { new DateTimeZone($scenarioTimezone); } catch (Throwable $e) { $scenarioTimezone = 'Asia/Almaty'; }
+
 if (function_exists('asr_tg_scenario_ensure_start_block')) {
     try { asr_tg_scenario_ensure_start_block($pdo, $scenarioId); } catch (Throwable $e) {}
 }
@@ -283,7 +289,7 @@ foreach ($blocks as $index => $block) {
     $type = (string)($block['type'] ?? 'message');
     $isStart = $type === 'start';
     $isDelay = $type === 'delay';
-    $delaySettings = $isDelay ? $getDelaySettings($block) : [];
+    $delaySettings = $isDelay ? $getDelaySettings($block, $scenarioTimezone) : [];
     $cards = $isDelay ? [] : $getBlockCards($block);
     $flowCards = $isDelay ? [] : $normalizeFlowCards($cards);
     $firstCard = $flowCards[0] ?? [];
@@ -376,6 +382,33 @@ $currentChannelType = $currentChannelType === 'vk' ? 'vk' : 'telegram';
 $currentScenarioBotUsername = is_array($currentScenarioBot) ? trim((string)($currentScenarioBot['bot_username'] ?? '')) : '';
 $currentScenarioBotUsername = ltrim($currentScenarioBotUsername, '@');
 $currentScenarioBotUrl = ($currentChannelType === 'telegram' && $currentScenarioBotUsername !== '') ? ('https://t.me/' . rawurlencode($currentScenarioBotUsername)) : '';
+$scenarioTimezoneLabels = [
+    'Asia/Almaty' => 'Asia/Almaty — Алматы, Астана',
+    'Europe/Moscow' => 'Europe/Moscow — Москва',
+    'Asia/Yekaterinburg' => 'Asia/Yekaterinburg — Екатеринбург',
+    'Asia/Tashkent' => 'Asia/Tashkent — Ташкент',
+    'Asia/Dubai' => 'Asia/Dubai — Дубай',
+    'Europe/Istanbul' => 'Europe/Istanbul — Стамбул',
+    'UTC' => 'UTC — всемирное время',
+];
+$scenarioTimezoneIds = [];
+try {
+    $scenarioTimezoneIds = timezone_identifiers_list(DateTimeZone::ALL);
+} catch (Throwable $e) {
+    $scenarioTimezoneIds = timezone_identifiers_list();
+}
+if (!in_array('UTC', $scenarioTimezoneIds, true)) $scenarioTimezoneIds[] = 'UTC';
+if (!in_array($scenarioTimezone, $scenarioTimezoneIds, true)) $scenarioTimezoneIds[] = $scenarioTimezone;
+$scenarioTimezoneChoices = [];
+foreach ($scenarioTimezoneLabels as $tzCode => $tzLabel) {
+    if (in_array($tzCode, $scenarioTimezoneIds, true)) $scenarioTimezoneChoices[$tzCode] = $tzLabel;
+}
+sort($scenarioTimezoneIds, SORT_NATURAL | SORT_FLAG_CASE);
+foreach ($scenarioTimezoneIds as $tzCode) {
+    $tzCode = trim((string)$tzCode);
+    if ($tzCode === '' || isset($scenarioTimezoneChoices[$tzCode])) continue;
+    $scenarioTimezoneChoices[$tzCode] = $tzCode;
+}
 $scenarioCommandRows = [];
 if ($currentScenarioBotId > 0 && function_exists('asr_tg_bot_commands_all')) {
     try { $scenarioCommandRows = asr_tg_bot_commands_all($pdo, $currentScenarioBotId); } catch (Throwable $e) { $scenarioCommandRows = []; }
@@ -893,7 +926,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
         <div class="tg-flow-modal-head">
             <div>
                 <div class="tg-flow-modal-title">Настройки сценария</div>
-                <div class="tg-flow-modal-note">Название, описание, статус и канал сценария.</div>
+                <div class="tg-flow-modal-note">Название, описание, статус, канал и часовой пояс сценария.</div>
             </div>
             <button type="button" class="tg-flow-modal-close" data-flow-close-modal>×</button>
         </div>
@@ -909,6 +942,11 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
                         <option value="<?php echo $h($statusKey); ?>" <?php echo (string)($scenario['status'] ?? 'draft') === $statusKey ? 'selected' : ''; ?>><?php echo $h($statusLabel); ?></option>
                     <?php endforeach; ?>
                 </select></label>
+                <label class="tg-flow-field"><span>Часовой пояс по умолчанию</span><select name="timezone">
+                    <?php foreach ($scenarioTimezoneChoices as $tzCode => $tzLabel): ?>
+                        <option value="<?php echo $h($tzCode); ?>" <?php echo $scenarioTimezone === $tzCode ? 'selected' : ''; ?>><?php echo $h($tzLabel); ?></option>
+                    <?php endforeach; ?>
+                </select><small>Используется в новых блоках «Задержка» и как запасной пояс для runtime.</small></label>
                 <label class="tg-flow-field"><span>Канал сценария</span><select name="scenario_bot_id">
                     <option value="0">Без канала</option>
                     <?php foreach ($botsLight as $bot): $botId = (int)($bot['id'] ?? 0); $channelType = function_exists('asr_tg_channel_label') ? asr_tg_channel_label((string)($bot['channel_type'] ?? 'telegram')) : 'Telegram'; $label = (string)($bot['title'] ?? ('Канал #' . $botId)); $meta = $channelType . (!empty($bot['bot_username']) ? ' · @' . (string)$bot['bot_username'] : ''); ?>

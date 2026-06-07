@@ -2,10 +2,22 @@
 defined('ASR_ADMIN') || exit;
 
 function asr_tg_table_exists(PDO $pdo, string $table): bool {
+    $safeTable = str_replace('`', '``', $table);
+
     try {
         $stmt = $pdo->prepare('SHOW TABLES LIKE ?');
         $stmt->execute([$table]);
-        return (bool)$stmt->fetchColumn();
+        if ($stmt->fetchColumn()) {
+            return true;
+        }
+    } catch (Throwable $e) {
+        // На некоторых хостингах SHOW TABLES может быть ограничен правами,
+        // хотя SELECT по таблице работает. Ниже есть безопасная проверка через SELECT.
+    }
+
+    try {
+        $stmt = $pdo->query("SELECT 1 FROM `{$safeTable}` LIMIT 0");
+        return $stmt !== false;
     } catch (Throwable $e) {
         return false;
     }
@@ -13,10 +25,23 @@ function asr_tg_table_exists(PDO $pdo, string $table): bool {
 
 
 function asr_tg_column_exists(PDO $pdo, string $table, string $column): bool {
+    $safeTable = str_replace('`', '``', $table);
+    $safeColumn = str_replace('`', '``', $column);
+
     try {
-        $stmt = $pdo->prepare("SHOW COLUMNS FROM `" . str_replace('`', '``', $table) . "` LIKE ?");
+        $stmt = $pdo->prepare("SHOW COLUMNS FROM `{$safeTable}` LIKE ?");
         $stmt->execute([$column]);
-        return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+        if ($stmt->fetch(PDO::FETCH_ASSOC)) {
+            return true;
+        }
+    } catch (Throwable $e) {
+        // См. комментарий в asr_tg_table_exists: SHOW может быть недоступен,
+        // поэтому дублируем проверку через SELECT LIMIT 0.
+    }
+
+    try {
+        $stmt = $pdo->query("SELECT `{$safeColumn}` FROM `{$safeTable}` LIMIT 0");
+        return $stmt !== false;
     } catch (Throwable $e) {
         return false;
     }
@@ -382,6 +407,7 @@ function asr_tg_repository_ensure_schema(PDO $pdo): void {
         `last_error` TEXT NULL,
         `telegram_message_id` BIGINT NULL DEFAULT NULL,
         `scheduled_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `next_attempt_at` DATETIME NULL DEFAULT NULL,
         `processing_at` DATETIME NULL DEFAULT NULL,
         `sent_at` DATETIME NULL DEFAULT NULL,
         `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -389,9 +415,13 @@ function asr_tg_repository_ensure_schema(PDO $pdo): void {
         PRIMARY KEY (`id`),
         UNIQUE KEY `uniq_broadcast_subscriber` (`broadcast_id`, `subscriber_id`),
         KEY `idx_status_scheduled` (`status`, `scheduled_at`),
+        KEY `idx_status_next_attempt` (`status`, `next_attempt_at`),
         KEY `idx_broadcast_status` (`broadcast_id`, `status`),
         KEY `idx_bot_status` (`bot_id`, `status`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    asr_tg_add_column_if_missing($pdo, 'oca_telegram_bot_broadcast_recipients', 'next_attempt_at', 'DATETIME NULL DEFAULT NULL AFTER `scheduled_at`');
+    asr_tg_add_index_if_missing($pdo, 'oca_telegram_bot_broadcast_recipients', 'idx_status_next_attempt', '(`status`, `next_attempt_at`)');
 }
 
 function asr_tg_log(PDO $pdo, ?int $botId, string $level, string $eventType, string $message = '', array $context = []): void {
@@ -2775,7 +2805,8 @@ function asr_tg_broadcast_reset_stale_processing(PDO $pdo, int $broadcastId = 0,
         $where .= ' AND broadcast_id = ?';
         $params[] = $broadcastId;
     }
-    $stmt = $pdo->prepare("UPDATE oca_telegram_bot_broadcast_recipients SET status = 'pending', updated_at = NOW() WHERE {$where}");
+    $nextAttemptSql = asr_tg_column_exists($pdo, 'oca_telegram_bot_broadcast_recipients', 'next_attempt_at') ? ', next_attempt_at = NOW()' : '';
+    $stmt = $pdo->prepare("UPDATE oca_telegram_bot_broadcast_recipients SET status = 'retry', processing_at = NULL{$nextAttemptSql}, updated_at = NOW() WHERE {$where}");
     $stmt->execute($params);
     return (int)$stmt->rowCount();
 }
@@ -2786,24 +2817,26 @@ function asr_tg_broadcast_recalc(PDO $pdo, int $broadcastId): array {
         SUM(status = 'sent') AS sent,
         SUM(status = 'failed') AS failed,
         SUM(status = 'pending') AS pending,
-        SUM(status = 'processing') AS processing
+        SUM(status = 'processing') AS processing,
+        SUM(status = 'retry') AS retry
         FROM oca_telegram_bot_broadcast_recipients WHERE broadcast_id = ?");
     $stmt->execute([$broadcastId]);
-    $stats = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['total'=>0,'sent'=>0,'failed'=>0,'pending'=>0,'processing'=>0];
+    $stats = $stmt->fetch(PDO::FETCH_ASSOC) ?: ['total'=>0,'sent'=>0,'failed'=>0,'pending'=>0,'processing'=>0,'retry'=>0];
     $total = (int)($stats['total'] ?? 0);
     $sent = (int)($stats['sent'] ?? 0);
     $failed = (int)($stats['failed'] ?? 0);
     $pending = (int)($stats['pending'] ?? 0);
     $processing = (int)($stats['processing'] ?? 0);
+    $retry = (int)($stats['retry'] ?? 0);
     $currentStatus = '';
     $currentStmt = $pdo->prepare('SELECT status FROM oca_telegram_bot_broadcasts WHERE id = ? LIMIT 1');
     $currentStmt->execute([$broadcastId]);
     $currentStatus = (string)($currentStmt->fetchColumn() ?: '');
     if ($currentStatus === 'cancelled') {
-        return ['total'=>$total,'sent'=>$sent,'failed'=>$failed,'pending'=>$pending,'processing'=>$processing,'status'=>'cancelled'];
+        return ['total'=>$total,'sent'=>$sent,'failed'=>$failed,'pending'=>$pending,'processing'=>$processing,'retry'=>$retry,'status'=>'cancelled'];
     }
 
-    $status = ($pending + $processing) > 0 ? 'processing' : ($failed > 0 ? 'finished_with_errors' : 'finished');
+    $status = ($pending + $processing + $retry) > 0 ? 'processing' : ($failed > 0 ? 'finished_with_errors' : 'finished');
     if ($total === 0) {
         // Нулевая рассылка по отдельному каналу в мультиканальной группе - не ошибка отправки.
         // Сохраняем status=skipped, чтобы отчёт не красил всю группу красным.
@@ -2825,9 +2858,9 @@ function asr_tg_broadcast_recalc(PDO $pdo, int $broadcastId): array {
         'sent_count' => $sent,
         'failed_count' => $failed,
         'last_error' => $lastError,
-        'finished_at' => ($pending + $processing) > 0 ? null : date('Y-m-d H:i:s'),
+        'finished_at' => ($pending + $processing + $retry) > 0 ? null : date('Y-m-d H:i:s'),
     ]);
-    return ['total'=>$total,'sent'=>$sent,'failed'=>$failed,'pending'=>$pending,'processing'=>$processing,'status'=>$status];
+    return ['total'=>$total,'sent'=>$sent,'failed'=>$failed,'pending'=>$pending,'processing'=>$processing,'retry'=>$retry,'status'=>$status];
 }
 
 function asr_tg_broadcast_app_timezone(): DateTimeZone {
@@ -2869,22 +2902,31 @@ function asr_tg_broadcast_due_scheduled_count(PDO $pdo): int {
 
 function asr_tg_broadcast_recipients_next(PDO $pdo, int $limit = 30, int $broadcastId = 0): array {
     $limit = max(1, min(200, $limit));
-    $where = "r.status = 'pending' AND r.scheduled_at <= ? AND br.status IN ('queued','processing')";
-    $params = [asr_tg_broadcast_now_sql()];
+    $now = asr_tg_broadcast_now_sql();
+    $hasNextAttempt = asr_tg_column_exists($pdo, 'oca_telegram_bot_broadcast_recipients', 'next_attempt_at');
+    if ($hasNextAttempt) {
+        $where = "((r.status = 'pending' AND r.scheduled_at <= ?) OR (r.status = 'retry' AND COALESCE(r.next_attempt_at, r.scheduled_at) <= ?)) AND br.status IN ('queued','processing')";
+        $params = [$now, $now];
+        $orderExpr = 'COALESCE(r.next_attempt_at, r.scheduled_at)';
+    } else {
+        $where = "r.status = 'pending' AND r.scheduled_at <= ? AND br.status IN ('queued','processing')";
+        $params = [$now];
+        $orderExpr = 'r.scheduled_at';
+    }
     if ($broadcastId > 0) { $where .= ' AND r.broadcast_id = ?'; $params[] = $broadcastId; }
     $stmt = $pdo->prepare("SELECT r.*, br.message_text, br.parse_mode, br.media_type, br.media_url, br.media_file_path, br.media_file_name, br.payload_json, br.disable_web_page_preview, br.bot_id, r.id AS recipient_id, br.title AS broadcast_title, b.bot_token_encrypted
         FROM oca_telegram_bot_broadcast_recipients r
         JOIN oca_telegram_bot_broadcasts br ON br.id = r.broadcast_id
         JOIN oca_telegram_bots b ON b.id = r.bot_id
         WHERE {$where}
-        ORDER BY r.scheduled_at ASC, r.id ASC
+        ORDER BY {$orderExpr} ASC, r.id ASC
         LIMIT {$limit}");
     $stmt->execute($params);
     return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 }
 
 function asr_tg_broadcast_recipient_update(PDO $pdo, int $recipientId, array $data): void {
-    $allowed = ['status','attempts','last_error','telegram_message_id','processing_at','sent_at','scheduled_at'];
+    $allowed = ['status','attempts','last_error','telegram_message_id','processing_at','sent_at','scheduled_at','next_attempt_at'];
     $sets = [];
     $values = [];
     foreach ($allowed as $key) {
@@ -3339,6 +3381,7 @@ function asr_tg_repository_ensure_scenario_schema(PDO $pdo): void {
         `title` VARCHAR(190) NOT NULL,
         `description` TEXT NULL,
         `status` VARCHAR(30) NOT NULL DEFAULT 'draft',
+        `timezone` VARCHAR(64) NOT NULL DEFAULT 'Asia/Almaty',
         `start_block_id` BIGINT UNSIGNED NULL DEFAULT NULL,
         `created_by` INT UNSIGNED NULL DEFAULT NULL,
         `updated_by` INT UNSIGNED NULL DEFAULT NULL,
@@ -3349,6 +3392,14 @@ function asr_tg_repository_ensure_scenario_schema(PDO $pdo): void {
         KEY `idx_tg_scenarios_status` (`status`),
         KEY `idx_tg_scenarios_archived` (`archived_at`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+    if (!asr_tg_column_exists($pdo, 'oca_telegram_bot_scenarios', 'timezone')) {
+        try {
+            $pdo->exec("ALTER TABLE `oca_telegram_bot_scenarios` ADD COLUMN `timezone` VARCHAR(64) NOT NULL DEFAULT 'Asia/Almaty' AFTER `status`");
+        } catch (Throwable $e) {
+            // Если права БД не позволяют ALTER, остальные части сценариев должны продолжить работать.
+        }
+    }
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS `oca_telegram_bot_scenario_bots` (
         `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -3590,12 +3641,44 @@ function asr_tg_scenario_normalize_all_single_bot(PDO $pdo): void {
     }
 }
 
+
+function asr_tg_scenario_timezone_normalize(string $timezone, string $fallback = 'Asia/Almaty'): string {
+    $timezone = trim($timezone);
+    if ($timezone === '') $timezone = $fallback;
+    try {
+        new DateTimeZone($timezone);
+        return $timezone;
+    } catch (Throwable $e) {
+        try {
+            new DateTimeZone($fallback);
+            return $fallback;
+        } catch (Throwable $ignored) {
+            return 'Asia/Almaty';
+        }
+    }
+}
+
+function asr_tg_scenario_timezone(PDO $pdo, int $scenarioId = 0): string {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $fallback = defined('ASR_APP_TIMEZONE') ? (string)ASR_APP_TIMEZONE : 'Asia/Almaty';
+    $fallback = asr_tg_scenario_timezone_normalize($fallback, 'Asia/Almaty');
+    if ($scenarioId <= 0 || !asr_tg_column_exists($pdo, 'oca_telegram_bot_scenarios', 'timezone')) return $fallback;
+    try {
+        $stmt = $pdo->prepare('SELECT timezone FROM oca_telegram_bot_scenarios WHERE id = ? LIMIT 1');
+        $stmt->execute([$scenarioId]);
+        return asr_tg_scenario_timezone_normalize((string)($stmt->fetchColumn() ?: ''), $fallback);
+    } catch (Throwable $e) {
+        return $fallback;
+    }
+}
+
 function asr_tg_scenario_save(PDO $pdo, array $data): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $scenarioId = max(0, (int)($data['id'] ?? 0));
     $title = trim((string)($data['title'] ?? ''));
     $description = trim((string)($data['description'] ?? ''));
     $status = (string)($data['status'] ?? 'draft');
+    $timezone = asr_tg_scenario_timezone_normalize((string)($data['timezone'] ?? ''), defined('ASR_APP_TIMEZONE') ? (string)ASR_APP_TIMEZONE : 'Asia/Almaty');
     if (!isset(asr_tg_scenario_status_labels()[$status])) $status = 'draft';
     if ($title === '') throw new InvalidArgumentException('Укажите название сценария.');
 
@@ -3609,12 +3692,23 @@ function asr_tg_scenario_save(PDO $pdo, array $data): int {
     }
 
     $userId = function_exists('asr_current_user_id') ? (int)asr_current_user_id() : (int)($_SESSION['user_id'] ?? 0);
+    $hasTimezoneColumn = asr_tg_column_exists($pdo, 'oca_telegram_bot_scenarios', 'timezone');
     if ($scenarioId > 0) {
-        $stmt = $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET title = ?, description = ?, status = ?, updated_by = ?, archived_at = CASE WHEN ? = \'archived\' THEN COALESCE(archived_at, NOW()) ELSE NULL END, updated_at = NOW() WHERE id = ?');
-        $stmt->execute([$title, $description !== '' ? $description : null, $status, $userId ?: null, $status, $scenarioId]);
+        if ($hasTimezoneColumn) {
+            $stmt = $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET title = ?, description = ?, status = ?, timezone = ?, updated_by = ?, archived_at = CASE WHEN ? = \'archived\' THEN COALESCE(archived_at, NOW()) ELSE NULL END, updated_at = NOW() WHERE id = ?');
+            $stmt->execute([$title, $description !== '' ? $description : null, $status, $timezone, $userId ?: null, $status, $scenarioId]);
+        } else {
+            $stmt = $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET title = ?, description = ?, status = ?, updated_by = ?, archived_at = CASE WHEN ? = \'archived\' THEN COALESCE(archived_at, NOW()) ELSE NULL END, updated_at = NOW() WHERE id = ?');
+            $stmt->execute([$title, $description !== '' ? $description : null, $status, $userId ?: null, $status, $scenarioId]);
+        }
     } else {
-        $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenarios (title, description, status, created_by, updated_by, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, CASE WHEN ? = \'archived\' THEN NOW() ELSE NULL END, NOW(), NOW())');
-        $stmt->execute([$title, $description !== '' ? $description : null, $status, $userId ?: null, $userId ?: null, $status]);
+        if ($hasTimezoneColumn) {
+            $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenarios (title, description, status, timezone, created_by, updated_by, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? = \'archived\' THEN NOW() ELSE NULL END, NOW(), NOW())');
+            $stmt->execute([$title, $description !== '' ? $description : null, $status, $timezone, $userId ?: null, $userId ?: null, $status]);
+        } else {
+            $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenarios (title, description, status, created_by, updated_by, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, CASE WHEN ? = \'archived\' THEN NOW() ELSE NULL END, NOW(), NOW())');
+            $stmt->execute([$title, $description !== '' ? $description : null, $status, $userId ?: null, $userId ?: null, $status]);
+        }
         $scenarioId = (int)$pdo->lastInsertId();
     }
 
@@ -4220,6 +4314,95 @@ function asr_tg_scenario_apply_card_uploads(array $cards, array $files = []): ar
     return $cards;
 }
 
+
+function asr_tg_scenario_normalize_delay_settings(array $data): array {
+    $mode = (string)($data['delay_mode'] ?? $data['mode'] ?? 'after');
+    if (!in_array($mode, ['after', 'tomorrow', 'at'], true)) $mode = 'after';
+
+    $value = max(1, min(999, (int)($data['delay_value'] ?? $data['value'] ?? 1)));
+    $unit = (string)($data['delay_unit'] ?? $data['unit'] ?? 'days');
+    if (!in_array($unit, ['seconds', 'minutes', 'hours', 'days'], true)) $unit = 'days';
+
+    $timeMode = (string)($data['send_time_mode'] ?? 'any');
+    if (!in_array($timeMode, ['any', 'exact', 'interval'], true)) $timeMode = 'any';
+
+    $normalizeTime = static function($value, string $fallback = '00:00'): string {
+        $time = trim((string)$value);
+        if (!preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $time)) return $fallback;
+        [$h, $m] = array_map('intval', explode(':', $time));
+        return sprintf('%02d:%02d', $h, $m);
+    };
+
+    $timezone = trim((string)($data['timezone'] ?? 'Asia/Almaty')) ?: 'Asia/Almaty';
+    try { new DateTimeZone($timezone); } catch (Throwable $e) { $timezone = 'Asia/Almaty'; }
+
+    $allowedWeekdays = ['mon','tue','wed','thu','fri','sat','sun'];
+    $weekdays = $data['weekdays'] ?? $allowedWeekdays;
+    if (!is_array($weekdays)) $weekdays = [];
+    $weekdays = array_values(array_intersect($allowedWeekdays, array_map('strval', $weekdays)));
+    if (!$weekdays) $weekdays = $allowedWeekdays;
+
+    return [
+        'version' => 2,
+        'delay_mode' => $mode,
+        'delay_value' => $value,
+        'delay_unit' => $unit,
+        'send_time_mode' => $timeMode,
+        'send_time_exact' => $normalizeTime($data['send_time_exact'] ?? '00:00'),
+        'send_time_from' => $normalizeTime($data['send_time_from'] ?? '00:00'),
+        'send_time_to' => $normalizeTime($data['send_time_to'] ?? '00:00'),
+        'timezone' => $timezone,
+        'weekdays' => $weekdays,
+        'runtime_plan' => [
+            'enabled' => true,
+            'prepared_for' => 'delay_runner',
+        ],
+    ];
+}
+
+function asr_tg_scenario_delay_block_save(PDO $pdo, array $data): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) {
+        throw new InvalidArgumentException('Сценарий не найден.');
+    }
+    if ($blockId > 0 && !asr_tg_scenario_block_find($pdo, $blockId, $scenarioId)) {
+        throw new InvalidArgumentException('Блок сценария не найден.');
+    }
+
+    $title = trim((string)($data['block_title'] ?? ''));
+    if ($title === '') $title = 'Задержка';
+    if (trim((string)($data['timezone'] ?? '')) === '') {
+        $data['timezone'] = asr_tg_scenario_timezone($pdo, $scenarioId);
+    }
+    $settings = asr_tg_scenario_normalize_delay_settings($data);
+    $settingsJson = json_encode($settings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить данные задержки.');
+
+    if ($blockId > 0) {
+        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_scenario_blocks SET type = 'delay', title = ?, settings_json = ?, updated_at = NOW() WHERE id = ? AND scenario_id = ?");
+        $stmt->execute([$title, $settingsJson, $blockId, $scenarioId]);
+        asr_tg_scenario_sync_block_links($pdo, $scenarioId, $blockId, []);
+        return $blockId;
+    }
+
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type <> 'start'");
+    $stmt->execute([$scenarioId]);
+    $blockCount = (int)($stmt->fetchColumn() ?: 0);
+    $positionX = 430 + (($blockCount % 4) * 330);
+    $positionY = 140 + ((int)floor($blockCount / 4) * 250);
+    $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'delay', ?, ?, ?, ?, ?, NOW(), NOW())");
+    $stmt->execute([$scenarioId, $title, $settingsJson, $positionX, $positionY, $sortOrder]);
+    $blockId = (int)$pdo->lastInsertId();
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
 function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
@@ -4232,6 +4415,9 @@ function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): i
     }
 
     $type = (string)($data['block_type'] ?? 'message');
+    if ($type === 'delay') {
+        return asr_tg_scenario_delay_block_save($pdo, $data);
+    }
     // Стартовый блок создаётся системой отдельно. Через эту форму сохраняются только сообщения.
     if ($type !== 'message') $type = 'message';
     $title = trim((string)($data['block_title'] ?? ''));
@@ -4633,6 +4819,7 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
 
     $x = (int)($post['position_x'] ?? 430);
     $y = (int)($post['position_y'] ?? 140);
+    $scenarioTimezone = asr_tg_scenario_timezone($pdo, $scenarioId);
     $settingsJson = json_encode([
         'version' => 2,
         'delay_mode' => 'after',
@@ -4642,7 +4829,7 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
         'send_time_exact' => '00:00',
         'send_time_from' => '00:00',
         'send_time_to' => '00:00',
-        'timezone' => 'Asia/Almaty',
+        'timezone' => $scenarioTimezone,
         'weekdays' => ['mon','tue','wed','thu','fri','sat','sun'],
         'runtime_plan' => [
             'enabled' => false,

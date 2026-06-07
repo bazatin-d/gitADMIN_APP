@@ -4,6 +4,8 @@ defined('ASR_ADMIN') || exit;
 require_once __DIR__ . '/crypto.php';
 require_once __DIR__ . '/telegram_api.php';
 require_once __DIR__ . '/repository.php';
+require_once __DIR__ . '/queue_diagnostics.php';
+require_once __DIR__ . '/telegram_error_policy.php';
 
 function asr_tg_can(string $permission): bool {
     $key = 'telegram_bots.' . $permission;
@@ -1452,14 +1454,14 @@ function asr_tg_process_broadcast_queue(PDO $pdo, int $limit = 30, int $broadcas
     asr_tg_repository_ensure_schema($pdo);
     $limit = max(1, min(200, $limit));
     asr_tg_broadcast_activate_due_scheduled($pdo, 200);
-    asr_tg_broadcast_reset_stale_processing($pdo, $broadcastId, 10);
+    $staleReset = asr_tg_broadcast_reset_stale_processing($pdo, $broadcastId, 10);
     $items = asr_tg_broadcast_recipients_next($pdo, $limit, $broadcastId);
     $sent = 0; $failed = 0; $processedBroadcasts = [];
     foreach ($items as $item) {
         $recipientId = (int)$item['id'];
         $bid = (int)$item['broadcast_id'];
         $processedBroadcasts[$bid] = true;
-        asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'processing', 'processing_at' => date('Y-m-d H:i:s'), 'attempts' => ((int)$item['attempts']) + 1]);
+        asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'processing', 'processing_at' => date('Y-m-d H:i:s'), 'next_attempt_at' => null, 'attempts' => ((int)$item['attempts']) + 1]);
         $token = asr_tg_decrypt_token((string)$item['bot_token_encrypted']);
         try {
             if ($token === '') throw new RuntimeException('Не удалось расшифровать токен бота.');
@@ -1487,32 +1489,30 @@ function asr_tg_process_broadcast_queue(PDO $pdo, int $limit = 30, int $broadcas
                 asr_tg_message_add($pdo, (int)$item['bot_id'], (int)$item['subscriber_id'], 'out', (string)($card['type'] ?? 'text'), (string)($card['text'] ?? ''), $messageId, $messagePayload);
                 usleep(120000);
             }
-            asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'sent', 'telegram_message_id' => $lastMessageId, 'last_error' => null, 'sent_at' => date('Y-m-d H:i:s')]);
+            asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'sent', 'telegram_message_id' => $lastMessageId, 'last_error' => null, 'processing_at' => null, 'next_attempt_at' => null, 'sent_at' => date('Y-m-d H:i:s')]);
             $sent++;
         } catch (Throwable $e) {
-            $error = $e->getMessage();
-            $retryAfter = 0;
-            if (preg_match('/retry after (\d+)/i', $error, $m)) $retryAfter = (int)$m[1];
+            $policy = asr_tg_classify_telegram_send_error($e);
+            $error = (string)($policy['message'] ?? $e->getMessage());
             $attempts = ((int)$item['attempts']) + 1;
-            $temporary = stripos($error, 'Too Many Requests') !== false || stripos($error, '429') !== false || stripos($error, 'timed out') !== false || stripos($error, 'temporarily') !== false;
-            if ($temporary && $attempts < 5) {
-                $delay = max($retryAfter, min(300, 30 * $attempts));
-                asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'pending', 'last_error' => $error, 'scheduled_at' => date('Y-m-d H:i:s', time() + $delay)]);
+            if (!empty($policy['is_retryable']) && $attempts < 5) {
+                $delay = asr_tg_telegram_retry_delay_seconds($policy, $attempts);
+                asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'retry', 'last_error' => $error, 'next_attempt_at' => date('Y-m-d H:i:s', time() + $delay)]);
             } else {
                 asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'failed', 'last_error' => $error]);
                 $failed++;
-                if (stripos($error, 'bot was blocked') !== false || stripos($error, 'chat not found') !== false || stripos($error, 'user is deactivated') !== false) {
+                if (!empty($policy['mark_subscriber_blocked'])) {
                     asr_tg_subscriber_mark_status($pdo, (int)$item['subscriber_id'], 'blocked');
                 }
             }
-            asr_tg_log($pdo, (int)$item['bot_id'], 'error', 'broadcast_queue_send_failed', $error, ['broadcast_id' => $bid, 'recipient_id' => $recipientId]);
+            asr_tg_log($pdo, (int)$item['bot_id'], 'error', 'broadcast_queue_send_failed', $error, ['broadcast_id' => $bid, 'recipient_id' => $recipientId, 'error_policy' => $policy['kind'] ?? 'unknown']);
         }
         usleep(50000);
     }
     foreach (array_keys($processedBroadcasts) as $bid) {
         asr_tg_broadcast_recalc($pdo, (int)$bid);
     }
-    return ['processed' => count($items), 'sent' => $sent, 'failed' => $failed, 'broadcasts' => array_keys($processedBroadcasts)];
+    return ['processed' => count($items), 'sent' => $sent, 'failed' => $failed, 'stale_processing_reset' => $staleReset, 'broadcasts' => array_keys($processedBroadcasts)];
 }
 
 function asr_tg_cancel_broadcast(PDO $pdo, int $broadcastId): void {
@@ -1523,7 +1523,7 @@ function asr_tg_cancel_broadcast(PDO $pdo, int $broadcastId): void {
     if (in_array($status, ['finished', 'finished_with_errors', 'skipped', 'cancelled'], true)) {
         throw new RuntimeException('Эту рассылку уже нельзя отменить.');
     }
-    $pdo->prepare("UPDATE oca_telegram_bot_broadcast_recipients SET status = 'skipped', updated_at = NOW() WHERE broadcast_id = ? AND status IN ('pending','processing')")->execute([$broadcastId]);
+    $pdo->prepare("UPDATE oca_telegram_bot_broadcast_recipients SET status = 'skipped', updated_at = NOW() WHERE broadcast_id = ? AND status IN ('pending','processing','retry')")->execute([$broadcastId]);
     asr_tg_broadcast_update_result($pdo, $broadcastId, [
         'status' => 'cancelled',
         'cancelled_at' => date('Y-m-d H:i:s'),
@@ -1542,7 +1542,7 @@ function asr_tg_cancel_scheduled_broadcast_group(PDO $pdo, int $broadcastId, arr
     foreach ($ids as $id) {
         $broadcast = asr_tg_broadcast_find($pdo, (int)$id);
         if (!$broadcast || (string)($broadcast['status'] ?? '') !== 'scheduled') continue;
-        $pdo->prepare("UPDATE oca_telegram_bot_broadcast_recipients SET status = 'skipped', updated_at = NOW() WHERE broadcast_id = ? AND status IN ('pending','processing')")->execute([(int)$id]);
+        $pdo->prepare("UPDATE oca_telegram_bot_broadcast_recipients SET status = 'skipped', updated_at = NOW() WHERE broadcast_id = ? AND status IN ('pending','processing','retry')")->execute([(int)$id]);
         asr_tg_broadcast_update_result($pdo, (int)$id, [
             'status' => 'cancelled',
             'cancelled_at' => date('Y-m-d H:i:s'),
@@ -2124,6 +2124,68 @@ function asr_tg_runtime_first_block_after(PDO $pdo, int $scenarioId, int $fromBl
     return (int)($stmt->fetchColumn() ?: 0);
 }
 
+
+function asr_tg_runtime_question_deadline_sql(array $card, ?DateTimeImmutable $now = null): ?string {
+    $hasNoAnswerTarget = max(0, (int)($card['no_answer_target_block_id'] ?? 0)) > 0;
+    $hasCheck = !empty($card['enable_check']);
+    $hasReminder = !empty($card['remind_no_answer']);
+    if (!$hasNoAnswerTarget && !$hasCheck && !$hasReminder) return null;
+
+    $value = max(1, min(999, (int)($card['wait_value'] ?? 24)));
+    $unit = (string)($card['wait_unit'] ?? 'hours');
+    if (!in_array($unit, ['minutes', 'hours', 'days'], true)) $unit = 'hours';
+    $tzName = defined('ASR_APP_TIMEZONE') ? (string)ASR_APP_TIMEZONE : 'Asia/Almaty';
+    try { $tz = new DateTimeZone($tzName); } catch (Throwable $e) { $tz = new DateTimeZone('Asia/Almaty'); }
+    $now = $now ? $now->setTimezone($tz) : new DateTimeImmutable('now', $tz);
+    return $now->modify('+' . $value . ' ' . $unit)->format('Y-m-d H:i:s');
+}
+
+function asr_tg_runtime_question_reminder_next_sql(array $card, ?DateTimeImmutable $now = null): string {
+    $value = max(1, min(999, (int)($card['remind_value'] ?? 5)));
+    $unit = (string)($card['remind_unit'] ?? 'minutes');
+    if (!in_array($unit, ['minutes', 'hours', 'days'], true)) $unit = 'minutes';
+    $tzName = defined('ASR_APP_TIMEZONE') ? (string)ASR_APP_TIMEZONE : 'Asia/Almaty';
+    try { $tz = new DateTimeZone($tzName); } catch (Throwable $e) { $tz = new DateTimeZone('Asia/Almaty'); }
+    $now = $now ? $now->setTimezone($tz) : new DateTimeImmutable('now', $tz);
+    return $now->modify('+' . $value . ' ' . $unit)->format('Y-m-d H:i:s');
+}
+
+function asr_tg_runtime_question_wait_event(PDO $pdo, int $botId, int $subscriberId, int $scenarioId, int $blockId): ?array {
+    try {
+        $stmt = $pdo->prepare("SELECT id, payload_json, created_at FROM oca_telegram_bot_scenario_events WHERE bot_id = ? AND subscriber_id = ? AND scenario_id = ? AND block_id = ? AND event_type = 'runtime_question_waiting' ORDER BY id DESC LIMIT 1");
+        $stmt->execute([$botId, $subscriberId, $scenarioId, $blockId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) return null;
+        $payload = json_decode((string)($row['payload_json'] ?? ''), true);
+        $row['_payload'] = is_array($payload) ? $payload : [];
+        return $row;
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function asr_tg_runtime_question_has_answer_after(PDO $pdo, int $botId, int $subscriberId, int $scenarioId, int $blockId, int $eventId): bool {
+    if ($eventId <= 0) return false;
+    try {
+        $stmt = $pdo->prepare("SELECT 1 FROM oca_telegram_bot_scenario_events WHERE bot_id = ? AND subscriber_id = ? AND scenario_id = ? AND block_id = ? AND id > ? AND event_type IN ('runtime_question_text_received','runtime_question_answer_received','runtime_question_no_answer') LIMIT 1");
+        $stmt->execute([$botId, $subscriberId, $scenarioId, $blockId, $eventId]);
+        return (bool)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function asr_tg_runtime_question_has_reminder_after(PDO $pdo, int $botId, int $subscriberId, int $scenarioId, int $blockId, int $eventId): bool {
+    if ($eventId <= 0) return false;
+    try {
+        $stmt = $pdo->prepare("SELECT 1 FROM oca_telegram_bot_scenario_events WHERE bot_id = ? AND subscriber_id = ? AND scenario_id = ? AND block_id = ? AND id > ? AND event_type = 'runtime_question_reminder_sent' LIMIT 1");
+        $stmt->execute([$botId, $subscriberId, $scenarioId, $blockId, $eventId]);
+        return (bool)$stmt->fetchColumn();
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
 function asr_tg_runtime_resolve_entry_block(PDO $pdo, int $scenarioId, int $blockId = 0): int {
     if ($scenarioId <= 0) return 0;
     asr_tg_repository_ensure_scenario_schema($pdo);
@@ -2588,6 +2650,12 @@ function asr_tg_runtime_try_waiting_question_text(PDO $pdo, array $bot, int $bot
     } else {
         asr_tg_runtime_send_system_text($pdo, $bot, $botId, $chatId, 'Ответ принят.');
     }
+
+    $nextBlockId = asr_tg_runtime_first_block_after($pdo, $scenarioId, $blockId);
+    if ($nextBlockId > 0 && $nextBlockId !== $blockId) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_next_auto', 'После текстового ответа запускаем следующий шаг.', ['card_index' => $cardIndex, 'next_block_id' => $nextBlockId]);
+        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $nextBlockId, 'telegram_question_text', ['from_block_id' => $blockId, 'answer' => mb_substr($answerText, 0, 120, 'UTF-8')]);
+    }
     return true;
 }
 
@@ -2656,6 +2724,12 @@ function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|strin
         }
         if ($scenarioId > 0 && $questionBlockId > 0) {
             asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'active');
+            $nextBlockId = asr_tg_runtime_first_block_after($pdo, $scenarioId, $questionBlockId);
+            if ($nextBlockId > 0 && $nextBlockId !== $questionBlockId) {
+                asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'runtime_question_next_auto', 'После ответа кнопкой запускаем следующий шаг.', ['next_block_id' => $nextBlockId, 'answer' => $answerText, 'callback_data' => $data]);
+                return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $nextBlockId, 'telegram_question_answer_next', ['from_block_id' => $questionBlockId, 'answer' => $answerText, 'callback_data' => $data]);
+            }
         }
         asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Ответ принят.');
         return true;
@@ -2859,6 +2933,35 @@ function asr_tg_runtime_delay_compute_next_run_at(array $settings, ?DateTimeImmu
     return $target->format('Y-m-d H:i:s');
 }
 
+
+function asr_tg_runtime_now_sql(): string {
+    if (function_exists('asr_tg_broadcast_now_sql')) {
+        return asr_tg_broadcast_now_sql();
+    }
+    $tzName = defined('ASR_APP_TIMEZONE') ? (string)ASR_APP_TIMEZONE : 'Asia/Almaty';
+    try {
+        $tz = new DateTimeZone($tzName);
+    } catch (Throwable $e) {
+        $tz = new DateTimeZone('Asia/Almaty');
+    }
+    return (new DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
+}
+
+function asr_tg_runtime_due_delays_count(PDO $pdo): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return 0;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_subscriber_scenarios WHERE status = 'delayed' AND next_run_at IS NOT NULL AND next_run_at <= ?");
+    $stmt->execute([asr_tg_runtime_now_sql()]);
+    return (int)$stmt->fetchColumn();
+}
+
+function asr_tg_runtime_pending_delays_count(PDO $pdo): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return 0;
+    $stmt = $pdo->query("SELECT COUNT(*) FROM oca_telegram_bot_subscriber_scenarios WHERE status = 'delayed' AND next_run_at IS NOT NULL");
+    return (int)$stmt->fetchColumn();
+}
+
 function asr_tg_runtime_execute_delay_block(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block, string $source = 'manual', array $sourcePayload = []): bool {
     $blockId = (int)($block['id'] ?? 0);
     if ($scenarioId <= 0 || $blockId <= 0) return false;
@@ -2870,6 +2973,9 @@ function asr_tg_runtime_execute_delay_block(PDO $pdo, array $bot, int $botId, in
     }
 
     $settings = asr_tg_runtime_delay_settings($block);
+    if (function_exists('asr_tg_scenario_timezone') && trim((string)($settings['timezone'] ?? '')) === '') {
+        $settings['timezone'] = asr_tg_scenario_timezone($pdo, $scenarioId);
+    }
     $nextRunAt = asr_tg_runtime_delay_compute_next_run_at($settings);
     asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $nextBlockId, 'delayed', $nextRunAt, '');
     asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_scheduled', 'Блок «Задержка» поставил следующий шаг в очередь.', [
@@ -2888,15 +2994,20 @@ function asr_tg_runtime_process_due_delays(PDO $pdo, int $limit = 30): array {
     $result = ['processed' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
     if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return $result;
 
+    $nowSql = asr_tg_runtime_now_sql();
+    // Не используем SQL NOW(): у БД и приложения может быть разный часовой пояс.
+    // next_run_at рассчитывается в часовом поясе приложения, поэтому и сравнение делаем тем же временем.
     $sql = "SELECT ss.*, sub.chat_id, sub.status AS subscriber_status, b.bot_token_encrypted, b.status AS bot_status, s.status AS scenario_status
             FROM oca_telegram_bot_subscriber_scenarios ss
             JOIN oca_telegram_bot_subscribers sub ON sub.id = ss.subscriber_id AND sub.bot_id = ss.bot_id
             JOIN oca_telegram_bots b ON b.id = ss.bot_id
             JOIN oca_telegram_bot_scenarios s ON s.id = ss.scenario_id
-            WHERE ss.status = 'delayed' AND ss.next_run_at IS NOT NULL AND ss.next_run_at <= NOW()
+            WHERE ss.status = 'delayed' AND ss.next_run_at IS NOT NULL AND ss.next_run_at <= ?
             ORDER BY ss.next_run_at ASC, ss.id ASC
             LIMIT " . (int)$limit;
-    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    $stmtDue = $pdo->prepare($sql);
+    $stmtDue->execute([$nowSql]);
+    $rows = $stmtDue->fetchAll(PDO::FETCH_ASSOC) ?: [];
     foreach ($rows as $row) {
         $result['processed']++;
         $stateId = (int)($row['id'] ?? 0);
@@ -2919,8 +3030,8 @@ function asr_tg_runtime_process_due_delays(PDO $pdo, int $limit = 30): array {
             continue;
         }
         try {
-            $claim = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'processing', updated_at = NOW() WHERE id = ? AND status = 'delayed' AND next_run_at <= NOW()");
-            $claim->execute([$stateId]);
+            $claim = $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'processing', updated_at = NOW() WHERE id = ? AND status = 'delayed' AND next_run_at <= ?");
+            $claim->execute([$stateId, $nowSql]);
             if ($claim->rowCount() <= 0) { $result['skipped']++; continue; }
 
             $bot = asr_tg_bot_find($pdo, $botId);
@@ -2933,6 +3044,120 @@ function asr_tg_runtime_process_due_delays(PDO $pdo, int $limit = 30): array {
             try {
                 $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'error', last_error = ?, updated_at = NOW() WHERE id = ?")->execute([$e->getMessage(), $stateId]);
                 asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_delay_failed', $e->getMessage(), ['state_id' => $stateId]);
+            } catch (Throwable $ignored) {}
+        }
+    }
+    return $result;
+}
+
+
+function asr_tg_runtime_due_questions_count(PDO $pdo): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return 0;
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_subscriber_scenarios WHERE status = 'waiting' AND next_run_at IS NOT NULL AND next_run_at <= ?");
+    $stmt->execute([asr_tg_runtime_now_sql()]);
+    return (int)$stmt->fetchColumn();
+}
+
+function asr_tg_runtime_pending_questions_count(PDO $pdo): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return 0;
+    $stmt = $pdo->query("SELECT COUNT(*) FROM oca_telegram_bot_subscriber_scenarios WHERE status = 'waiting' AND next_run_at IS NOT NULL");
+    return (int)$stmt->fetchColumn();
+}
+
+function asr_tg_runtime_process_due_questions(PDO $pdo, int $limit = 30): array {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $limit = max(1, min(200, $limit));
+    $result = ['processed' => 0, 'reminded' => 0, 'started' => 0, 'failed' => 0, 'skipped' => 0];
+    if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return $result;
+
+    $nowSql = asr_tg_runtime_now_sql();
+    $sql = "SELECT ss.*, sub.chat_id, sub.status AS subscriber_status, b.bot_token_encrypted, b.status AS bot_status, s.status AS scenario_status
+            FROM oca_telegram_bot_subscriber_scenarios ss
+            JOIN oca_telegram_bot_subscribers sub ON sub.id = ss.subscriber_id AND sub.bot_id = ss.bot_id
+            JOIN oca_telegram_bots b ON b.id = ss.bot_id
+            JOIN oca_telegram_bot_scenarios s ON s.id = ss.scenario_id
+            WHERE ss.status = 'waiting' AND ss.next_run_at IS NOT NULL AND ss.next_run_at <= ?
+            ORDER BY ss.next_run_at ASC, ss.id ASC
+            LIMIT " . $limit;
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([$nowSql]);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+    foreach ($rows as $row) {
+        $result['processed']++;
+        $stateId = (int)($row['id'] ?? 0);
+        $botId = (int)($row['bot_id'] ?? 0);
+        $subscriberId = (int)($row['subscriber_id'] ?? 0);
+        $scenarioId = (int)($row['scenario_id'] ?? 0);
+        $blockId = (int)($row['current_block_id'] ?? 0);
+        $chatId = (string)($row['chat_id'] ?? '');
+        try {
+            if ($stateId <= 0 || $botId <= 0 || $subscriberId <= 0 || $scenarioId <= 0 || $blockId <= 0 || $chatId === '') {
+                $result['skipped']++;
+                continue;
+            }
+            if ((string)($row['subscriber_status'] ?? '') !== 'active' || (string)($row['bot_status'] ?? '') !== 'active' || (string)($row['scenario_status'] ?? '') !== 'active') {
+                $result['skipped']++;
+                continue;
+            }
+            $block = asr_tg_scenario_block_find($pdo, $blockId, $scenarioId);
+            if (!$block || (string)($block['type'] ?? '') !== 'message') {
+                $result['skipped']++;
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'error', last_error = ?, updated_at = NOW() WHERE id = ?")->execute(['Ожидаемый вопрос не найден.', $stateId]);
+                continue;
+            }
+            $waitEvent = asr_tg_runtime_question_wait_event($pdo, $botId, $subscriberId, $scenarioId, $blockId);
+            $waitEventId = (int)($waitEvent['id'] ?? 0);
+            if ($waitEventId > 0 && asr_tg_runtime_question_has_answer_after($pdo, $botId, $subscriberId, $scenarioId, $blockId, $waitEventId)) {
+                $result['skipped']++;
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET next_run_at = NULL, updated_at = NOW() WHERE id = ?")->execute([$stateId]);
+                continue;
+            }
+            $payload = is_array($waitEvent['_payload'] ?? null) ? (array)$waitEvent['_payload'] : [];
+            $cards = asr_tg_runtime_cards_from_block($pdo, $scenarioId, $block);
+            $cardIndex = isset($payload['card_index']) ? max(0, (int)$payload['card_index']) : asr_tg_runtime_first_question_card_index($cards);
+            $card = $cards[$cardIndex] ?? null;
+            if (!is_array($card) || (string)($card['type'] ?? '') !== 'question') {
+                $cardIndex = asr_tg_runtime_first_question_card_index($cards);
+                $card = $cards[$cardIndex] ?? null;
+            }
+            if (!is_array($card) || (string)($card['type'] ?? '') !== 'question') {
+                $result['skipped']++;
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'error', last_error = ?, updated_at = NOW() WHERE id = ?")->execute(['Карточка вопроса не найдена.', $stateId]);
+                continue;
+            }
+
+            $remind = !empty($card['remind_no_answer']);
+            $remindedAlready = $waitEventId > 0 && asr_tg_runtime_question_has_reminder_after($pdo, $botId, $subscriberId, $scenarioId, $blockId, $waitEventId);
+            if ($remind && !$remindedAlready) {
+                $remindText = trim((string)($card['remind_text'] ?? '')) ?: 'Пожалуйста, ответьте на вопрос.';
+                asr_tg_runtime_send_system_text($pdo, $row, $botId, $chatId, $remindText);
+                $nextRunAt = asr_tg_runtime_question_reminder_next_sql($card);
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET next_run_at = ?, updated_at = NOW() WHERE id = ?")->execute([$nextRunAt, $stateId]);
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_reminder_sent', 'Подписчику отправлено напоминание по вопросу.', ['card_index' => $cardIndex, 'next_run_at' => $nextRunAt]);
+                $result['reminded']++;
+                continue;
+            }
+
+            $targetBlockId = max(0, (int)($card['no_answer_target_block_id'] ?? 0));
+            if ($targetBlockId <= 0) {
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_no_answer_no_target', 'Подписчик не ответил, но выход «Подписчик не ответил» не настроен.', ['card_index' => $cardIndex]);
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'active', next_run_at = NULL, updated_at = NOW() WHERE id = ?")->execute([$stateId]);
+                $result['skipped']++;
+                continue;
+            }
+
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_no_answer', 'Истекло ожидание ответа подписчика.', ['card_index' => $cardIndex, 'target_block_id' => $targetBlockId]);
+            $bot = ['bot_token_encrypted' => (string)($row['bot_token_encrypted'] ?? '')];
+            $started = asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'question_no_answer', ['from_block_id' => $blockId, 'card_index' => $cardIndex]);
+            if ($started) $result['started']++; else $result['failed']++;
+        } catch (Throwable $e) {
+            $result['failed']++;
+            try {
+                $pdo->prepare("UPDATE oca_telegram_bot_subscriber_scenarios SET status = 'error', last_error = ?, updated_at = NOW() WHERE id = ?")->execute([$e->getMessage(), $stateId]);
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_due_failed', $e->getMessage(), ['state_id' => $stateId]);
             } catch (Throwable $ignored) {}
         }
     }
@@ -3033,11 +3258,16 @@ function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, 
         ]);
 
         if ($originalType === 'question') {
+            $questionDeadline = asr_tg_runtime_question_deadline_sql($card);
             $GLOBALS['asr_tg_runtime_last_message_waiting_question'] = [
                 'block_id' => $blockId,
                 'card_index' => (int)$index,
                 'save_field_code' => asr_tg_runtime_question_save_field_code($card),
                 'answers_count' => count((array)($card['answers'] ?? [])),
+                'no_answer_target_block_id' => max(0, (int)($card['no_answer_target_block_id'] ?? 0)),
+                'enable_check' => !empty($card['enable_check']),
+                'remind_no_answer' => !empty($card['remind_no_answer']),
+                'next_run_at' => $questionDeadline,
             ];
             asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_question_waiting', 'Вопрос отправлен, ожидаем ответ подписчика.', $GLOBALS['asr_tg_runtime_last_message_waiting_question']);
         }
@@ -3110,7 +3340,8 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
             $waitingQuestion = !empty($GLOBALS['asr_tg_runtime_last_message_waiting_question']) && is_array($GLOBALS['asr_tg_runtime_last_message_waiting_question']);
             $runtimeStatus = $waitingQuestion ? 'waiting' : ($sent ? 'active' : 'error');
             $runtimeError = $sent ? '' : 'В блоке сообщения нет отправленных карточек.';
-            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, $runtimeStatus, null, $runtimeError);
+            $waitingNextRunAt = $waitingQuestion ? ($GLOBALS['asr_tg_runtime_last_message_waiting_question']['next_run_at'] ?? null) : null;
+            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, $runtimeStatus, is_string($waitingNextRunAt) && $waitingNextRunAt !== '' ? $waitingNextRunAt : null, $runtimeError);
             if ($sent && !$waitingQuestion) {
                 $nextBlockId = asr_tg_runtime_first_block_after($pdo, $scenarioId, $blockId);
                 if ($nextBlockId > 0 && $nextBlockId !== $blockId) {
@@ -3133,12 +3364,63 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
     }
 }
 
+function asr_tg_runtime_default_start_scenario_for_bot(PDO $pdo, int $botId): ?array {
+    if ($botId <= 0) return null;
+    try {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_scenarios') || !asr_tg_table_exists($pdo, 'oca_telegram_bot_scenario_bots')) return null;
+        $stmt = $pdo->prepare("SELECT s.id, s.title, s.status, s.start_block_id, sb.is_default
+            FROM oca_telegram_bot_scenarios s
+            JOIN oca_telegram_bot_scenario_bots sb ON sb.scenario_id = s.id
+            WHERE sb.bot_id = ?
+              AND COALESCE(sb.is_enabled, 1) = 1
+              AND s.status = 'active'
+              AND s.archived_at IS NULL
+            ORDER BY COALESCE(sb.is_default, 0) DESC, s.id ASC
+            LIMIT 2");
+        $stmt->execute([$botId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        if (!$rows) return null;
+        if (count($rows) > 1 && (int)($rows[0]['is_default'] ?? 0) !== 1) {
+            try {
+                asr_tg_log($pdo, $botId, 'warning', 'scenario_plain_start_multiple_active', 'Для /start найдено несколько активных сценариев без явного сценария по умолчанию. Запущен первый по порядку.', [
+                    'selected_scenario_id' => (int)($rows[0]['id'] ?? 0),
+                    'active_scenarios_count' => count($rows),
+                ]);
+            } catch (Throwable $ignored) {}
+        }
+        return $rows[0];
+    } catch (Throwable $e) {
+        try { asr_tg_log($pdo, $botId, 'warning', 'scenario_plain_start_lookup_failed', $e->getMessage()); } catch (Throwable $ignored) {}
+        return null;
+    }
+}
+
 function asr_tg_runtime_try_command(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, ?string $text): bool {
     $command = asr_tg_runtime_extract_command($text);
     if ($command === '') return false;
     if ($command === 'start') {
-        try { asr_tg_log($pdo, $botId, 'info', 'scenario_start_command_reserved', 'Команда /start зарезервирована Telegram и не запускается как обычная команда меню.', ['subscriber_id' => $subscriberId]); } catch (Throwable $ignored) {}
-        return true;
+        $startPayload = asr_tg_runtime_extract_start_payload($text);
+        if ($startPayload !== '') {
+            try { asr_tg_log($pdo, $botId, 'info', 'scenario_start_payload_reserved', 'Команда /start с payload обрабатывается только как диплинк сценария.', ['subscriber_id' => $subscriberId, 'payload' => mb_substr($startPayload, 0, 120, 'UTF-8')]); } catch (Throwable $ignored) {}
+            return true;
+        }
+
+        $defaultScenario = asr_tg_runtime_default_start_scenario_for_bot($pdo, $botId);
+        $scenarioId = (int)($defaultScenario['id'] ?? 0);
+        if ($scenarioId <= 0) {
+            try { asr_tg_log($pdo, $botId, 'warning', 'scenario_plain_start_without_active_scenario', 'Получен обычный /start, но у канала нет активного сценария для запуска.', ['subscriber_id' => $subscriberId]); } catch (Throwable $ignored) {}
+            return true;
+        }
+
+        try {
+            asr_tg_log($pdo, $botId, 'info', 'scenario_plain_start_received', 'Получен обычный /start: запускаем активный сценарий канала с начала.', [
+                'subscriber_id' => $subscriberId,
+                'scenario_id' => $scenarioId,
+                'scenario_title' => (string)($defaultScenario['title'] ?? ''),
+            ]);
+        } catch (Throwable $ignored) {}
+        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, 0, 'telegram_start', ['command' => 'start']);
     }
     try {
         asr_tg_log($pdo, $botId, 'info', 'scenario_command_received', 'Получена команда для runtime сценариев.', ['subscriber_id' => $subscriberId, 'command' => $command]);
@@ -3359,6 +3641,7 @@ function asr_tg_scenario_save_from_post(PDO $pdo, array $post): int {
         'title' => (string)($post['title'] ?? ''),
         'description' => (string)($post['description'] ?? ''),
         'status' => (string)($post['status'] ?? 'draft'),
+        'timezone' => (string)($post['timezone'] ?? ''),
         'bot_id' => $botId,
     ]);
 }
