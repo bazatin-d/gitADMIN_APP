@@ -415,7 +415,8 @@ async function postAction(action, payload = {}) {
     tg_scenario_duplicate_block: 'tg_scenario_block_duplicate',
     tg_scenario_block_delete: 'tg_scenario_block_delete',
     tg_scenario_pause: 'tg_scenario_pause',
-    tg_scenario_resume: 'tg_scenario_resume'
+    tg_scenario_resume: 'tg_scenario_resume',
+    tg_scenario_stats_reset: 'tg_scenario_stats_reset'
   };
   const realAction = actionMap[action] || action;
   const fd = new FormData();
@@ -543,6 +544,9 @@ function NodeShell({id, data, isStart}) {
     }
   };
   const cards = Array.isArray(data.cards) ? data.cards : [];
+  const stats = data && data.stats && typeof data.stats === 'object' ? data.stats : {};
+  const sentCount = Number(stats.sent || 0);
+  const clickRate = Number(stats.clickRate || 0);
   const renderButton = (button) => {
     const handleId = button.handleId || ('btn-' + Math.random().toString(16).slice(2));
     const remember = () => tgFlowRememberSourceHandle(id, handleId);
@@ -644,6 +648,16 @@ function NodeShell({id, data, isStart}) {
       )
     ),
     React.createElement('div', {className: 'tg-flow-node-body'},
+      (!isStart && !isDelay) ? React.createElement('div', {className: 'tg-flow-node-stats'},
+        React.createElement('div', {className: 'tg-flow-node-stat'},
+          React.createElement('span', {className: 'tg-flow-node-stat-value'}, String(Number.isFinite(sentCount) ? sentCount : 0)),
+          React.createElement('span', {className: 'tg-flow-node-stat-label'}, 'Отправлено')
+        ),
+        React.createElement('div', {className: 'tg-flow-node-stat'},
+          React.createElement('span', {className: 'tg-flow-node-stat-value'}, String(Number.isFinite(clickRate) ? clickRate : 0) + '%'),
+          React.createElement('span', {className: 'tg-flow-node-stat-label'}, 'Клики')
+        )
+      ) : null,
       isStart
         ? React.createElement('div', {className: 'tg-flow-node-card'}, data.preview || 'По кнопке «Начать»')
         : (isDelay
@@ -831,11 +845,33 @@ function ScenarioFlow() {
         showFlowToast(error && error.message ? error.message : (shouldResume ? 'Не удалось запустить сценарий.' : 'Не удалось остановить сценарий.'), 'error');
       }
     };
+    const resetStatsBtn = document.querySelector('[data-flow-reset-stats]');
+    const resetStatsHandler = async (event) => {
+      if (event) event.preventDefault();
+      const confirmed = await showFlowConfirm({
+        title: 'Сбросить статистику?',
+        text: 'Отправки и клики на блоках этого сценария будут обнулены. Настройки блоков и связи не изменятся.',
+        dangerText: 'Сбросить',
+        cancelText: 'Отмена'
+      });
+      if (!confirmed) return;
+      if (resetStatsBtn) resetStatsBtn.disabled = true;
+      try {
+        await postAction('tg_scenario_stats_reset', {scenario_id: cfg.scenarioId || ''});
+        showFlowToast('Статистика сценария сброшена.', 'success');
+        window.setTimeout(() => window.location.reload(), 450);
+      } catch (error) {
+        if (resetStatsBtn) resetStatsBtn.disabled = false;
+        showFlowToast(error && error.message ? error.message : 'Не удалось сбросить статистику.', 'error');
+      }
+    };
     if (saveBtn) saveBtn.addEventListener('click', saveHandler);
     if (stopBtn) stopBtn.addEventListener('click', stopHandler);
+    if (resetStatsBtn) resetStatsBtn.addEventListener('click', resetStatsHandler);
     return () => {
       if (saveBtn) saveBtn.removeEventListener('click', saveHandler);
       if (stopBtn) stopBtn.removeEventListener('click', stopHandler);
+      if (resetStatsBtn) resetStatsBtn.removeEventListener('click', resetStatsHandler);
       if (window.tgScenarioFlowSaveNow) delete window.tgScenarioFlowSaveNow;
     };
   }, [nodes, flushPositions]);

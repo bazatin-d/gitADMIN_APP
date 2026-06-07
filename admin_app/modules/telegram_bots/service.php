@@ -7,6 +7,7 @@ require_once __DIR__ . '/repository.php';
 require_once __DIR__ . '/queue_diagnostics.php';
 require_once __DIR__ . '/telegram_error_policy.php';
 require_once __DIR__ . '/queue_service.php';
+require_once __DIR__ . '/scenario_stats.php';
 
 function asr_tg_can(string $permission): bool {
     $key = 'telegram_bots.' . $permission;
@@ -2356,7 +2357,7 @@ function asr_tg_runtime_scenario_from_step(PDO $pdo, int $stepId): int {
     }
 }
 
-function asr_tg_runtime_button_rows_for_telegram(array $rows): array {
+function asr_tg_runtime_button_rows_for_telegram(array $rows, int $sourceBlockId = 0): array {
     $out = [];
     foreach ($rows as $row) {
         if (!is_array($row)) $row = [$row];
@@ -2375,9 +2376,9 @@ function asr_tg_runtime_button_rows_for_telegram(array $rows): array {
             } elseif ($targetBlockId > 0) {
                 // Runtime v0.2.1 только выводит кнопки. Сам тихий переход по callback_query
                 // подключим следующим отдельным патчем, чтобы не ломать оживлённый /help.
-                $item['callback_data'] = 'scn_goto_' . $targetBlockId;
+                $item['callback_data'] = $sourceBlockId > 0 ? ('scn_goto_' . $sourceBlockId . '_' . $targetBlockId) : ('scn_goto_' . $targetBlockId);
             } else {
-                $item['callback_data'] = 'scn_noop';
+                $item['callback_data'] = $sourceBlockId > 0 ? ('scn_noop_' . $sourceBlockId) : 'scn_noop';
             }
             $outRow[] = $item;
             if (count($outRow) >= 4) break;
@@ -2428,7 +2429,7 @@ function asr_tg_runtime_question_answer_rows(array $card, int $blockId, int $car
         if ($text === '') continue;
         $targetBlockId = max(0, (int)($answer['target_block_id'] ?? 0));
         $callback = $targetBlockId > 0
-            ? ('scn_goto_' . $targetBlockId)
+            ? ('scn_goto_' . $blockId . '_' . $targetBlockId)
             : ('scn_answer_' . $blockId . '_' . $cardIndex . '_' . $answerIndex);
         $row[] = [
             'text' => mb_substr($text, 0, 64, 'UTF-8'),
@@ -2703,10 +2704,35 @@ function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|strin
     $data = trim($callbackData);
     if ($data === '' || strncmp($data, 'scn_', 4) !== 0) return false;
 
-    if ($data === 'scn_noop') {
+    if ($data === 'scn_noop' || preg_match('/^scn_noop_(\d+)$/', $data, $noopMatch)) {
+        $sourceBlockId = isset($noopMatch[1]) ? (int)$noopMatch[1] : 0;
+        if ($sourceBlockId > 0) {
+            $sourceScenarioId = asr_tg_runtime_target_scenario_for_block($pdo, $sourceBlockId);
+            if ($sourceScenarioId > 0) {
+                asr_tg_scenario_stats_increment_click($pdo, $sourceScenarioId, $sourceBlockId);
+            }
+        }
         asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Действие пока не настроено.');
-        try { asr_tg_log($pdo, $botId, 'info', 'runtime_callback_noop', 'Нажата кнопка сценария без настроенного перехода.', ['subscriber_id' => $subscriberId]); } catch (Throwable $ignored) {}
+        try { asr_tg_log($pdo, $botId, 'info', 'runtime_callback_noop', 'Нажата кнопка сценария без настроенного перехода.', ['subscriber_id' => $subscriberId, 'source_block_id' => $sourceBlockId]); } catch (Throwable $ignored) {}
         return true;
+    }
+
+    if (preg_match('/^scn_goto_(\d+)_(\d+)$/', $data, $m)) {
+        $sourceBlockId = (int)$m[1];
+        $targetBlockId = (int)$m[2];
+        $scenarioId = asr_tg_runtime_target_scenario_for_block($pdo, $targetBlockId);
+        if ($scenarioId <= 0) {
+            asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Шаг не найден.', true);
+            try { asr_tg_log($pdo, $botId, 'warning', 'runtime_callback_target_missing', 'Целевой шаг кнопки не найден.', ['subscriber_id' => $subscriberId, 'callback_data' => $data, 'source_block_id' => $sourceBlockId, 'target_block_id' => $targetBlockId]); } catch (Throwable $ignored) {}
+            return true;
+        }
+        $sourceScenarioId = asr_tg_runtime_target_scenario_for_block($pdo, $sourceBlockId);
+        if ($sourceBlockId > 0 && $sourceScenarioId > 0) {
+            asr_tg_scenario_stats_increment_click($pdo, $sourceScenarioId, $sourceBlockId);
+        }
+        asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $targetBlockId, 'runtime_callback_goto', 'Переход по кнопке сценария.', ['callback_data' => $data, 'source_block_id' => $sourceBlockId]);
+        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'telegram_callback', ['callback_data' => $data, 'from_block_id' => $sourceBlockId]);
     }
 
     if (preg_match('/^scn_goto_(\d+)$/', $data, $m)) {
@@ -2716,6 +2742,12 @@ function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|strin
             asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Шаг не найден.', true);
             try { asr_tg_log($pdo, $botId, 'warning', 'runtime_callback_target_missing', 'Целевой шаг кнопки не найден.', ['subscriber_id' => $subscriberId, 'callback_data' => $data, 'target_block_id' => $targetBlockId]); } catch (Throwable $ignored) {}
             return true;
+        }
+        $sourceContext = asr_tg_runtime_recent_context($pdo, $botId, $subscriberId);
+        $sourceBlockId = (int)($sourceContext['current_block_id'] ?? 0);
+        $sourceScenarioId = (int)($sourceContext['scenario_id'] ?? 0);
+        if ($sourceBlockId > 0 && $sourceScenarioId > 0) {
+            asr_tg_scenario_stats_increment_click($pdo, $sourceScenarioId, $sourceBlockId);
         }
         asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $targetBlockId, 'runtime_callback_goto', 'Переход по кнопке сценария.', ['callback_data' => $data]);
@@ -2746,6 +2778,9 @@ function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|strin
             return true;
         }
         $targetBlockId = max(0, (int)($answer['target_block_id'] ?? 0));
+        if ($scenarioId > 0 && $questionBlockId > 0) {
+            asr_tg_scenario_stats_increment_click($pdo, $scenarioId, $questionBlockId);
+        }
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'runtime_question_answer_received', 'Получен ответ на вопрос.', ['answer' => $answerText, 'saved' => !empty($saveResult['saved']), 'field_type' => (string)($saveResult['field_type'] ?? ''), 'target_block_id' => $targetBlockId, 'callback_data' => $data]);
         if ($targetBlockId > 0) {
             asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
@@ -2797,7 +2832,7 @@ function asr_tg_runtime_prepare_card_for_send(PDO $pdo, array $card, array $subs
         }
         $type = 'text';
     } else {
-        $buttons = asr_tg_runtime_button_rows_for_telegram((array)($card['buttons'] ?? []));
+        $buttons = asr_tg_runtime_button_rows_for_telegram((array)($card['buttons'] ?? []), $blockId);
     }
 
     $runtimeCard = [
@@ -3413,6 +3448,9 @@ function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, 
         }
 
         $sentAny = true;
+    }
+    if ($sentAny) {
+        asr_tg_scenario_stats_increment_sent($pdo, $scenarioId, $blockId);
     }
     return $sentAny;
 }
