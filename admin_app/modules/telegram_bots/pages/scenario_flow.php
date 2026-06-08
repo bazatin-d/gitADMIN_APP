@@ -134,6 +134,35 @@ $getScheduleSettings = static function(array $block, ?string $defaultTimezone = 
     ];
 };
 
+
+$getRandomSettings = static function(array $block): array {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $outputs = isset($settings['outputs']) && is_array($settings['outputs']) ? array_values($settings['outputs']) : [];
+    $normalized = [];
+    foreach ($outputs as $idx => $output) {
+        if (!is_array($output)) continue;
+        $key = trim((string)($output['key'] ?? ''));
+        if ($key === '') $key = 'r' . ((int)$idx + 1);
+        $title = trim((string)($output['title'] ?? '')) ?: ('Выход ' . ((int)$idx + 1));
+        $percent = max(0, min(100, (int)round((float)($output['percent'] ?? 0))));
+        $normalized[] = ['key' => $key, 'title' => $title, 'percent' => $percent, 'handleId' => 'random-' . $key];
+    }
+    if (count($normalized) < 2) {
+        $normalized = [
+            ['key' => 'r1', 'title' => 'Выход 1', 'percent' => 50, 'handleId' => 'random-r1'],
+            ['key' => 'r2', 'title' => 'Выход 2', 'percent' => 50, 'handleId' => 'random-r2'],
+        ];
+    }
+    $sum = array_sum(array_map(static fn($item) => (int)($item['percent'] ?? 0), $normalized));
+    return [
+        'outputs' => $normalized,
+        'total' => $sum,
+        'isInvalid' => count($normalized) < 2 || $sum !== 100,
+        'preview' => 'Всего ' . $sum . '%',
+    ];
+};
+
 $getConditionSettings = static function(array $block): array {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
@@ -274,6 +303,12 @@ $findSourceHandleForLink = static function(array $nodeData, array $link): string
     if ($linkType === 'condition_no') return 'condition-no';
     if ($linkType === 'schedule_on_time') return 'schedule-on-time';
     if ($linkType === 'schedule_expired') return 'schedule-expired';
+    if ($linkType === 'random_choice') {
+        $condition = json_decode((string)($link['condition_json'] ?? ''), true);
+        $key = is_array($condition) ? trim((string)($condition['random_key'] ?? '')) : '';
+        if ($key !== '') return 'random-' . $key;
+        return 'out';
+    }
     $cards = isset($nodeData['cards']) && is_array($nodeData['cards']) ? $nodeData['cards'] : [];
     if ($linkType === 'manual' || $linkType === 'start' || $linkType === 'next') return 'out';
     $to = (int)($link['to_block_id'] ?? 0);
@@ -384,12 +419,14 @@ foreach ($blocks as $index => $block) {
     $isCondition = $type === 'condition';
     $isActions = $type === 'actions';
     $isSchedule = $type === 'schedule';
+    $isRandom = $type === 'random';
     $delaySettings = $isDelay ? $getDelaySettings($block, $scenarioTimezone) : [];
     $conditionSettings = $isCondition ? $getConditionSettings($block) : [];
     $actionSettings = $isActions ? $getActionSettings($block) : [];
     $scheduleSettings = $isSchedule ? $getScheduleSettings($block, $scenarioTimezone) : [];
-    $cards = ($isDelay || $isCondition || $isActions || $isSchedule) ? [] : $getBlockCards($block);
-    $flowCards = ($isDelay || $isCondition || $isActions || $isSchedule) ? [] : $normalizeFlowCards($cards);
+    $randomSettings = $isRandom ? $getRandomSettings($block) : [];
+    $cards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom) ? [] : $getBlockCards($block);
+    $flowCards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom) ? [] : $normalizeFlowCards($cards);
     $firstCard = $flowCards[0] ?? [];
     $hasStoredPosition = is_numeric($block['position_x'] ?? null) && is_numeric($block['position_y'] ?? null);
     $x = $hasStoredPosition ? (int)round((float)$block['position_x']) : 0;
@@ -401,7 +438,7 @@ foreach ($blocks as $index => $block) {
         $x = $isStart ? 120 : 470 + (($index % 4) * 320);
         $y = 140 + ((int)floor($index / 4) * 230);
     }
-    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : ($isActions ? (string)($actionSettings['preview'] ?? 'Не добавлено ни одного действия') : ($isSchedule ? (string)($scheduleSettings['preview'] ?? 'Расписание не настроено') : (string)($firstCard['textPreview'] ?? ''))))); 
+    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : ($isActions ? (string)($actionSettings['preview'] ?? 'Не добавлено ни одного действия') : ($isSchedule ? (string)($scheduleSettings['preview'] ?? 'Расписание не настроено') : ($isRandom ? (string)($randomSettings['preview'] ?? 'Случайный выбор') : (string)($firstCard['textPreview'] ?? '')))))); 
     $deeplink = !$isStart ? ($deeplinksByBlock[$blockId] ?? null) : null;
     $deeplinkCode = is_array($deeplink) ? trim((string)($deeplink['code'] ?? $deeplink['token'] ?? '')) : '';
     $deeplinkUrl = is_array($deeplink) ? trim((string)($deeplink['url'] ?? '')) : '';
@@ -425,13 +462,13 @@ foreach ($blocks as $index => $block) {
     }
     $nodes[] = [
         'id' => (string)$blockId,
-        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : ($isActions ? 'actionsNode' : ($isSchedule ? 'scheduleNode' : 'messageNode')))),
+        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : ($isActions ? 'actionsNode' : ($isSchedule ? 'scheduleNode' : ($isRandom ? 'randomNode' : 'messageNode'))))),
         'position' => ['x' => $x, 'y' => $y],
         'data' => [
             'blockId' => $blockId,
             'blockType' => $type,
-            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : ($isActions ? 'Действия' : ($isSchedule ? 'Расписание' : 'Сообщение'))))),
-            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : ($isActions ? 'Не добавлено ни одного действия' : ($isSchedule ? 'Расписание не настроено' : 'Пустой текст')))),
+            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : ($isActions ? 'Действия' : ($isSchedule ? 'Расписание' : ($isRandom ? 'Случайный выбор' : 'Сообщение')))))),
+            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : ($isActions ? 'Не добавлено ни одного действия' : ($isSchedule ? 'Расписание не настроено' : ($isRandom ? 'Случайный выбор' : 'Пустой текст'))))),
             'delayMode' => (string)($delaySettings['mode'] ?? ''),
             'delayModeLabel' => (string)($delaySettings['modeLabel'] ?? ''),
             'delayValue' => (int)($delaySettings['value'] ?? 0),
@@ -444,6 +481,9 @@ foreach ($blocks as $index => $block) {
             'scheduleMode' => (string)($scheduleSettings['mode'] ?? ''),
             'scheduleSummary' => (string)($scheduleSettings['summary'] ?? ''),
             'scheduleTimezone' => (string)($scheduleSettings['timezone'] ?? ''),
+            'randomInvalid' => !empty($randomSettings['isInvalid']),
+            'randomTotal' => (int)($randomSettings['total'] ?? 0),
+            'randomOutputs' => $randomSettings['outputs'] ?? [],
             'missingNext' => false,
             'conditionInvalid' => !empty($conditionSettings['isInvalid']),
             'conditionMatchLabel' => (string)($conditionSettings['matchLabel'] ?? ''),
@@ -484,6 +524,7 @@ foreach ($links as $link) {
     if ($sourceHandle === 'condition-no') $edgeData = ['label' => 'Нет', 'kind' => 'condition_no'];
     if ($sourceHandle === 'schedule-on-time') $edgeData = ['label' => 'По расписанию', 'kind' => 'schedule_on_time'];
     if ($sourceHandle === 'schedule-expired') $edgeData = ['label' => 'Дата прошла', 'kind' => 'schedule_expired'];
+    if (strpos($sourceHandle, 'random-') === 0) $edgeData = ['label' => trim((string)($link['button_text'] ?? 'Выход')) ?: 'Выход', 'kind' => 'random_choice'];
     $edges[] = [
         'id' => $edgeId,
         'source' => $from,

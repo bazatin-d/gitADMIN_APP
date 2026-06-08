@@ -5182,6 +5182,77 @@ function asr_tg_scenario_delay_block_save(PDO $pdo, array $data): int {
 }
 
 
+
+function asr_tg_scenario_random_normalize_outputs(array $data): array {
+    $rawJson = trim((string)($data['random_outputs_json'] ?? ''));
+    $raw = json_decode($rawJson, true);
+    if (!is_array($raw)) $raw = [];
+    $outputs = [];
+    foreach ($raw as $idx => $item) {
+        if (!is_array($item)) continue;
+        $key = trim((string)($item['key'] ?? ''));
+        if ($key === '' || !preg_match('~^[a-zA-Z0-9_\-]{1,40}$~', $key)) $key = 'r' . ((int)$idx + 1) . '_' . substr(bin2hex(random_bytes(3)), 0, 6);
+        $title = trim((string)($item['title'] ?? ''));
+        if ($title === '') $title = 'Выход ' . (count($outputs) + 1);
+        $percent = (int)round((float)($item['percent'] ?? 0));
+        $percent = max(0, min(100, $percent));
+        $outputs[] = [
+            'key' => $key,
+            'title' => mb_substr($title, 0, 80, 'UTF-8'),
+            'percent' => $percent,
+        ];
+        if (count($outputs) >= 10) break;
+    }
+    if (count($outputs) < 2) {
+        $outputs = [
+            ['key' => 'r1', 'title' => 'Выход 1', 'percent' => 50],
+            ['key' => 'r2', 'title' => 'Выход 2', 'percent' => 50],
+        ];
+    }
+    $sum = array_sum(array_map(static fn($item) => (int)($item['percent'] ?? 0), $outputs));
+    return [array_values($outputs), $sum];
+}
+
+function asr_tg_scenario_random_block_save(PDO $pdo, array $data): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($blockId > 0 && !asr_tg_scenario_block_find($pdo, $blockId, $scenarioId)) throw new InvalidArgumentException('Блок сценария не найден.');
+    $title = trim((string)($data['block_title'] ?? '')) ?: 'Случайный выбор';
+    [$outputs, $sum] = asr_tg_scenario_random_normalize_outputs($data);
+    if (count($outputs) < 2) throw new InvalidArgumentException('В блоке «Случайный выбор» должно быть минимум два выхода.');
+    if ($sum !== 100) throw new InvalidArgumentException('Сумма вероятностей должна быть ровно 100%.');
+    $settings = [
+        'version' => 1,
+        'outputs' => $outputs,
+        'total_percent' => $sum,
+        'random_valid' => true,
+        'runtime_plan' => ['enabled' => false, 'prepared_for' => 'random_runner'],
+    ];
+    $settingsJson = json_encode($settings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить данные случайного выбора.');
+    if ($blockId > 0) {
+        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_scenario_blocks SET type = 'random', title = ?, settings_json = ?, updated_at = NOW() WHERE id = ? AND scenario_id = ?");
+        $stmt->execute([$title, $settingsJson, $blockId, $scenarioId]);
+        return $blockId;
+    }
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type <> 'start'");
+    $stmt->execute([$scenarioId]);
+    $blockCount = (int)($stmt->fetchColumn() ?: 0);
+    $positionX = 430 + (($blockCount % 4) * 330);
+    $positionY = 140 + ((int)floor($blockCount / 4) * 250);
+    $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'random', ?, ?, ?, ?, ?, NOW(), NOW())");
+    $stmt->execute([$scenarioId, $title, $settingsJson, $positionX, $positionY, $sortOrder]);
+    $blockId = (int)$pdo->lastInsertId();
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
 function asr_tg_scenario_normalize_schedule_settings(PDO $pdo, int $scenarioId, array $data): array {
     $mode = (string)($data['schedule_mode'] ?? 'fixed');
     if (!in_array($mode, ['fixed', 'field'], true)) $mode = 'fixed';
@@ -5315,6 +5386,9 @@ function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): i
     if ($type === 'schedule') {
         return asr_tg_scenario_schedule_block_save($pdo, $data);
     }
+    if ($type === 'random') {
+        return asr_tg_scenario_random_block_save($pdo, $data);
+    }
     if ($type === 'condition') {
         return asr_tg_scenario_condition_block_save($pdo, $data);
     }
@@ -5437,6 +5511,41 @@ function asr_tg_scenario_condition_link_save(PDO $pdo, int $scenarioId, int $fro
     }
 }
 
+
+
+function asr_tg_scenario_random_link_save(PDO $pdo, int $scenarioId, int $fromBlockId, int $toBlockId, string $sourceHandle): void {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    if ($scenarioId <= 0 || $fromBlockId <= 0 || $toBlockId <= 0) throw new InvalidArgumentException('Не выбраны блоки для связи.');
+    if ($fromBlockId === $toBlockId) throw new InvalidArgumentException('Блок нельзя соединить с самим собой.');
+    $from = asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId);
+    $to = asr_tg_scenario_block_find($pdo, $toBlockId, $scenarioId);
+    if (!$from || !$to) throw new InvalidArgumentException('Один из блоков не найден.');
+    if ((string)($from['type'] ?? '') !== 'random') throw new InvalidArgumentException('Исходный блок не является случайным выбором.');
+    if ((string)($to['type'] ?? '') === 'start') throw new InvalidArgumentException('Нельзя вести переход в стартовый блок.');
+    if (!preg_match('~^random-([a-zA-Z0-9_\-]{1,40})$~', $sourceHandle, $m)) throw new InvalidArgumentException('Не найден выход случайного выбора.');
+    $key = (string)$m[1];
+    $settings = json_decode((string)($from['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $title = 'Выход';
+    foreach (($settings['outputs'] ?? []) as $output) {
+        if (!is_array($output) || (string)($output['key'] ?? '') !== $key) continue;
+        $title = trim((string)($output['title'] ?? '')) ?: $title;
+        break;
+    }
+    $conditionJson = json_encode(['random_key' => $key], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($conditionJson === false) $conditionJson = '{"random_key":"' . addslashes($key) . '"}';
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("DELETE FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND link_type = 'random_choice' AND JSON_EXTRACT(condition_json, '$.random_key') = ?")->execute([$scenarioId, $fromBlockId, $key]);
+        $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_links (scenario_id, from_block_id, to_block_id, link_type, condition_json, button_text, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
+        $stmt->execute([$scenarioId, $fromBlockId, $toBlockId, 'random_choice', $conditionJson, mb_substr($title, 0, 190, 'UTF-8'), 80]);
+        $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET updated_at = NOW() WHERE id = ?')->execute([$scenarioId]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
 
 function asr_tg_scenario_schedule_link_save(PDO $pdo, int $scenarioId, int $fromBlockId, int $toBlockId, string $sourceHandle): void {
     asr_tg_repository_ensure_scenario_schema($pdo);
@@ -5624,6 +5733,10 @@ function asr_tg_scenario_link_save_from_post(PDO $pdo, array $post): void {
         asr_tg_scenario_schedule_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0), $sourceHandle);
         return;
     }
+    if (preg_match('/^random-[a-zA-Z0-9_\-]{1,40}$/', $sourceHandle)) {
+        asr_tg_scenario_random_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0), $sourceHandle);
+        return;
+    }
     if (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
         asr_tg_scenario_condition_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0), $sourceHandle);
         return;
@@ -5765,6 +5878,8 @@ function asr_tg_scenario_quick_message_create_from_post(PDO $pdo, array $post): 
             asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
             asr_tg_scenario_schedule_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (preg_match('/^random-[a-zA-Z0-9_\-]{1,40}$/', $sourceHandle)) {
+            asr_tg_scenario_random_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
             asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } else {
@@ -5828,6 +5943,8 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
             asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
             asr_tg_scenario_schedule_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (preg_match('/^random-[a-zA-Z0-9_\-]{1,40}$/', $sourceHandle)) {
+            asr_tg_scenario_random_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
             asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } else {
@@ -5921,6 +6038,8 @@ function asr_tg_scenario_quick_condition_create_from_post(PDO $pdo, array $post)
             asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
             asr_tg_scenario_schedule_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (preg_match('/^random-[a-zA-Z0-9_\-]{1,40}$/', $sourceHandle)) {
+            asr_tg_scenario_random_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
             asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } else {
@@ -5942,11 +6061,51 @@ function asr_tg_scenario_link_from_quick_block(PDO $pdo, int $scenarioId, int $f
         asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
     } elseif (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
         asr_tg_scenario_schedule_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+    } elseif (preg_match('/^random-[a-zA-Z0-9_\-]{1,40}$/', $sourceHandle)) {
+        asr_tg_scenario_random_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
     } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
         asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
     } else {
         asr_tg_scenario_link_save($pdo, $scenarioId, $fromBlockId, $blockId);
     }
+}
+
+
+function asr_tg_scenario_quick_random_create_from_post(PDO $pdo, array $post): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($post['scenario_id'] ?? 0));
+    $fromBlockId = max(0, (int)($post['from_block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($fromBlockId > 0 && !asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId)) throw new InvalidArgumentException('Исходный блок не найден.');
+    $x = max(-10000, min(20000, (int)($post['position_x'] ?? 430)));
+    $y = max(-10000, min(20000, (int)($post['position_y'] ?? 140)));
+    $settingsJson = json_encode([
+        'version' => 1,
+        'outputs' => [
+            ['key' => 'r1', 'title' => 'Выход 1', 'percent' => 50],
+            ['key' => 'r2', 'title' => 'Выход 2', 'percent' => 50],
+        ],
+        'total_percent' => 100,
+        'random_valid' => true,
+        'runtime_plan' => ['enabled' => false, 'prepared_for' => 'random_runner'],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить новый блок случайного выбора.');
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'random', 'Случайный выбор', ?, ?, ?, ?, NOW(), NOW())");
+        $stmt->execute([$scenarioId, $settingsJson, $x, $y, $sortOrder]);
+        $blockId = (int)$pdo->lastInsertId();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    asr_tg_scenario_link_from_quick_block($pdo, $scenarioId, $fromBlockId, $blockId, trim((string)($post['source_handle'] ?? 'out')));
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
 }
 
 function asr_tg_scenario_quick_actions_create_from_post(PDO $pdo, array $post): int {

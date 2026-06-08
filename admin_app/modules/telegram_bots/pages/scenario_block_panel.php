@@ -921,6 +921,108 @@ if ($type === 'condition') {
 }
 
 
+
+if ($type === 'random') {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $outputs = isset($settings['outputs']) && is_array($settings['outputs']) ? array_values($settings['outputs']) : [];
+    $normalizedOutputs = [];
+    foreach ($outputs as $idx => $output) {
+        if (!is_array($output)) continue;
+        $key = trim((string)($output['key'] ?? ''));
+        if ($key === '') $key = 'r' . ((int)$idx + 1);
+        $title = trim((string)($output['title'] ?? '')) ?: ('Выход ' . ((int)$idx + 1));
+        $percent = max(0, min(100, (int)round((float)($output['percent'] ?? 0))));
+        $normalizedOutputs[] = ['key' => $key, 'title' => $title, 'percent' => $percent];
+    }
+    if (count($normalizedOutputs) < 2) {
+        $normalizedOutputs = [
+            ['key' => 'r1', 'title' => 'Выход 1', 'percent' => 50],
+            ['key' => 'r2', 'title' => 'Выход 2', 'percent' => 50],
+        ];
+    }
+    $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
+    ?>
+    <section id="tg-flow-panel" class="tg-flow-panel">
+        <form method="POST" id="scenario-message-form" class="tg-flow-panel-form" data-random-form>
+            <div class="tg-flow-panel-head tg-random-panel-head">
+                <div>
+                    <div class="tg-flow-panel-title">Редактировать блок «Случайный выбор»</div>
+                    <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?></div>
+                </div>
+                <div class="tg-flow-panel-actions">
+                    <div class="tg-flow-panel-menu-wrap">
+                        <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
+                        <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
+                            <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
+                        </div>
+                    </div>
+                    <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
+                </div>
+            </div>
+            <div class="tg-flow-panel-body">
+                <div id="scenario-message-alert" class="tg-flow-panel-alert"></div>
+                <input type="hidden" name="action" value="tg_scenario_block_save">
+                <input type="hidden" name="return_page" value="scenario_flow">
+                <input type="hidden" name="scenario_id" value="<?php echo (int)$scenarioId; ?>">
+                <input type="hidden" name="block_id" value="<?php echo (int)$blockId; ?>">
+                <input type="hidden" name="block_type" value="random">
+                <input type="hidden" name="scenario_cards_json" value="[]">
+                <input type="hidden" name="random_outputs_json" data-random-json value="">
+                <?php if ($csrf !== ''): ?><input type="hidden" name="csrf_token" value="<?php echo $h($csrf); ?>"><?php endif; ?>
+                <label class="tg-flow-panel-field">
+                    <span class="tg-flow-panel-label">Название блока</span>
+                    <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Случайный выбор')); ?>" maxlength="190">
+                    <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
+                </label>
+
+                <div class="tg-random-box" data-random-box data-initial='<?php echo $h(json_encode($normalizedOutputs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>'>
+                    <div class="tg-random-hero">
+                        <div class="tg-random-icon">✦</div>
+                        <div>
+                            <h3>Случайный выбор</h3>
+                            <p>Разводит подписчиков по нескольким выходам с заданной вероятностью.</p>
+                        </div>
+                    </div>
+                    <div class="tg-random-total-row">
+                        <div><strong>Всего: <span data-random-total>100</span>%</strong><small data-random-total-note>Сумма должна быть ровно 100%</small></div>
+                        <button type="button" class="tg-random-equalize" data-random-equalize title="Равномерно распределить вероятность между всеми выходами" aria-label="Равномерно распределить вероятность">☷</button>
+                    </div>
+                    <div class="tg-random-list" data-random-list></div>
+                    <div class="tg-random-actions">
+                        <button type="button" class="tg-flow-panel-secondary" data-random-add>+ Добавить выход</button>
+                        <span data-random-counter></span>
+                    </div>
+                </div>
+            </div>
+            <div class="tg-flow-panel-footer"><button type="submit" class="tg-flow-panel-primary">Сохранить и закрыть</button></div>
+        </form>
+    </section>
+    <style data-flow-panel-style="scenario-random-panel-v3.5.183">
+    .tg-random-panel-head{border-bottom-color:#f7e6a8}.tg-random-box{border:1px solid #f7e6a8;background:linear-gradient(180deg,#fff 0%,#fffdf3 100%);border-radius:22px;padding:18px;margin-top:14px;box-shadow:0 14px 34px rgba(140,96,0,.07)}.tg-random-hero{display:flex;gap:13px;align-items:flex-start;margin-bottom:16px}.tg-random-icon{width:42px;height:42px;border-radius:16px;background:#fff7d6;border:1px solid #f7e6a8;display:flex;align-items:center;justify-content:center;color:#b77a00;font-size:22px;font-weight:800;flex:0 0 auto}.tg-random-box h3{margin:1px 0 5px;color:#2f343b;font-size:18px;font-weight:720;line-height:1.25}.tg-random-box p{margin:0;color:#6b7280;font-size:13px;line-height:1.5}.tg-random-total-row{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid #edf0f4;border-radius:17px;padding:13px 14px;margin-bottom:12px}.tg-random-total-row strong{display:block;color:#2f343b;font-size:15px;font-weight:720}.tg-random-total-row small{display:block;margin-top:3px;color:#8b929d;font-size:12px;line-height:1.35}.tg-random-box.is-invalid .tg-random-total-row{border-color:#ff9aa1;background:#fffafa}.tg-random-box.is-invalid [data-random-total],.tg-random-box.is-invalid [data-random-total-note]{color:#dc2626}.tg-random-equalize{width:40px;height:40px;border:1px solid #f7e6a8;background:#fff7d6;color:#9a6500;border-radius:14px;font-size:20px;font-weight:700;cursor:pointer}.tg-random-equalize:hover{background:#fff1b8}.tg-random-list{display:flex;flex-direction:column;gap:12px}.tg-random-row{background:#fff;border:1px solid #edf0f4;border-radius:17px;padding:14px;display:grid;grid-template-columns:44px minmax(0,1fr) 96px 38px;gap:12px;align-items:center}.tg-random-row-num{width:36px;height:36px;border-radius:13px;background:#fff7d6;color:#9a6500;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800}.tg-random-main{display:grid;gap:9px}.tg-random-title{width:100%;border:1px solid #e5e7eb;background:#fff;border-radius:12px;min-height:40px;padding:8px 11px;color:#374151;font-size:14px;outline:none}.tg-random-title:focus{border-color:#e2b93b;box-shadow:0 0 0 3px rgba(226,185,59,.16)}.tg-random-slider{width:100%;accent-color:#e2a322}.tg-random-percent{position:relative}.tg-random-percent input{width:100%;min-height:42px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;padding:8px 30px 8px 10px;color:#374151;font-size:14px;font-weight:650;outline:none}.tg-random-percent span{position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:13px;font-weight:700}.tg-random-remove{width:38px;height:38px;border:0;background:#fff;color:#a8aaa6;border-radius:12px;font-size:20px;cursor:pointer}.tg-random-remove:hover{background:#fff1f1;color:#dc2626}.tg-random-remove:disabled{opacity:.28;cursor:not-allowed}.tg-random-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.tg-random-actions span{font-size:12px;font-weight:600;color:#8b8497}@media(max-width:680px){.tg-random-box{padding:15px}.tg-random-row{grid-template-columns:36px minmax(0,1fr);align-items:start}.tg-random-percent,.tg-random-remove{grid-column:2}.tg-random-remove{width:100%}.tg-random-actions{align-items:stretch;flex-direction:column}.tg-random-actions button{width:100%}}
+    </style>
+    <script data-flow-panel-script>
+    (function(){
+      var box=document.querySelector('[data-random-box]'); if(!box||box.dataset.bound==='1')return; box.dataset.bound='1';
+      var list=box.querySelector('[data-random-list]'); var jsonInput=document.querySelector('[data-random-json]'); var totalEl=box.querySelector('[data-random-total]'); var counter=box.querySelector('[data-random-counter]');
+      var outputs=[]; try{outputs=JSON.parse(box.getAttribute('data-initial')||'[]')||[];}catch(e){outputs=[];}
+      function uid(){return 'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+      function normalize(){ if(outputs.length<2)outputs=[{key:'r1',title:'Выход 1',percent:50},{key:'r2',title:'Выход 2',percent:50}]; outputs=outputs.slice(0,10).map(function(o,i){return {key:String(o.key||uid()),title:String(o.title||('Выход '+(i+1))),percent:Math.max(0,Math.min(100,parseInt(o.percent||0,10)||0))};}); }
+      function total(){return outputs.reduce(function(s,o){return s+(parseInt(o.percent||0,10)||0);},0);}
+      function saveJson(){ if(jsonInput)jsonInput.value=JSON.stringify(outputs); }
+      function draw(){ normalize(); list.innerHTML=''; outputs.forEach(function(o,i){var row=document.createElement('div');row.className='tg-random-row';row.innerHTML='<div class="tg-random-row-num">'+(i+1)+'</div><div class="tg-random-main"><input class="tg-random-title" type="text" maxlength="80"><input class="tg-random-slider" type="range" min="0" max="100" step="1"></div><label class="tg-random-percent"><input type="number" min="0" max="100" step="1"><span>%</span></label><button type="button" class="tg-random-remove" title="Удалить выход">🗑</button>';var title=row.querySelector('.tg-random-title');var slider=row.querySelector('.tg-random-slider');var num=row.querySelector('.tg-random-percent input');var del=row.querySelector('.tg-random-remove');title.value=o.title;slider.value=o.percent;num.value=o.percent;title.addEventListener('input',function(){outputs[i].title=title.value||('Выход '+(i+1));saveJson();});function setPercent(v){v=Math.max(0,Math.min(100,parseInt(v||0,10)||0));outputs[i].percent=v;slider.value=v;num.value=v;refreshMeta();saveJson();}slider.addEventListener('input',function(){setPercent(slider.value);});num.addEventListener('input',function(){setPercent(num.value);});del.disabled=outputs.length<=2;del.addEventListener('click',function(){if(outputs.length<=2)return;outputs.splice(i,1);draw();});list.appendChild(row);});refreshMeta();saveJson(); }
+      function refreshMeta(){var sum=total(); if(totalEl)totalEl.textContent=String(sum); box.classList.toggle('is-invalid',sum!==100||outputs.length<2); if(counter)counter.textContent=outputs.length+' выхода';}
+      var add=box.querySelector('[data-random-add]'); if(add)add.addEventListener('click',function(){if(outputs.length>=10)return;outputs.push({key:uid(),title:'Выход '+(outputs.length+1),percent:0});draw();});
+      var eq=box.querySelector('[data-random-equalize]'); if(eq)eq.addEventListener('click',function(){var n=Math.max(2,outputs.length);var base=Math.floor(100/n);var rest=100-base*n;outputs.forEach(function(o,i){o.percent=base+(i<rest?1:0);});draw();});
+      var form=box.closest('form'); if(form)form.tgFlowPrepareSave=function(){saveJson();var sum=total();var alertBox=form.querySelector('#scenario-message-alert');if(outputs.length<2||sum!==100){var msg=outputs.length<2?'Добавьте минимум два выхода.':'Сумма вероятностей должна быть ровно 100%.';if(alertBox){alertBox.textContent=msg;alertBox.classList.add('is-open');}return {ok:false,message:msg};}return {ok:true};};
+      draw();
+    })();
+    </script>
+    <?php
+    return;
+}
+
 if ($type === 'schedule') {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
@@ -1126,7 +1228,7 @@ if ($type === 'schedule') {
                     </div>
                 </div>
             </div>
-            <div class="tg-flow-panel-footer"><button type="button" class="tg-flow-panel-secondary tg-flow-drawer-close">Отмена</button><button type="submit" class="tg-flow-panel-primary">Сохранить и закрыть</button></div>
+            <div class="tg-flow-panel-footer"><button type="submit" class="tg-flow-panel-primary">Сохранить и закрыть</button></div>
         </form>
     </section>
     <style data-flow-panel-style="scenario-schedule-panel-v3.5.180">

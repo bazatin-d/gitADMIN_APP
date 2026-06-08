@@ -577,6 +577,7 @@ function NodeShell({id, data, isStart}) {
   const isCondition = blockType === 'condition';
   const isActions = blockType === 'actions';
   const isSchedule = blockType === 'schedule';
+  const isRandom = blockType === 'random';
   const edit = (event) => {
     if (event) {
       event.preventDefault();
@@ -708,7 +709,7 @@ function NodeShell({id, data, isStart}) {
       showFlowToast(deeplinkText, 'success');
     }
   };
-  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isActions ? ' is-actions' : '') + (isSchedule ? ' is-schedule' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isActions && data.actionsInvalid ? ' is-actions-invalid' : '') + (isSchedule && data.scheduleInvalid ? ' is-schedule-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
+  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isActions ? ' is-actions' : '') + (isSchedule ? ' is-schedule' : '') + (isRandom ? ' is-random' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isActions && data.actionsInvalid ? ' is-actions-invalid' : '') + (isSchedule && data.scheduleInvalid ? ' is-schedule-invalid' : '') + (isRandom && data.randomInvalid ? ' is-random-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
     !isStart && React.createElement(Handle, {id: 'in', type: 'target', position: Position.Left, className: 'tg-flow-in-handle', isConnectable: true}),
     React.createElement('div', {className: 'tg-flow-node-head'},
       React.createElement('div', {className: 'tg-flow-node-title-wrap'},
@@ -723,7 +724,7 @@ function NodeShell({id, data, isStart}) {
       )
     ),
     React.createElement('div', {className: 'tg-flow-node-body'},
-      (!isStart && !isDelay && !isCondition && !isActions && !isSchedule) ? React.createElement('div', {className: 'tg-flow-node-stats'},
+      (!isStart && !isDelay && !isCondition && !isActions && !isSchedule && !isRandom) ? React.createElement('div', {className: 'tg-flow-node-stats'},
         React.createElement('div', {className: 'tg-flow-node-stat'},
           React.createElement('span', {className: 'tg-flow-node-stat-value'}, String(Number.isFinite(sentCount) ? sentCount : 0)),
           React.createElement('span', {className: 'tg-flow-node-stat-label'}, 'Отправлено')
@@ -773,7 +774,24 @@ function NodeShell({id, data, isStart}) {
               React.createElement('div', {className: 'tg-flow-schedule-branch is-expired'}, React.createElement('span', null, 'Дата прошла'), React.createElement(Handle, {id: 'schedule-expired', type: 'source', position: Position.Right, className: 'tg-flow-schedule-handle is-expired', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'schedule-expired'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'schedule-expired'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'schedule-expired')}))
             )
           )
-          : (isActions
+          : (isRandom
+            ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-random-preview'},
+              React.createElement('div', {className: 'tg-flow-random-preview-head'},
+                React.createElement('span', null, data.randomInvalid ? 'Проверьте проценты' : 'Случайный выбор'),
+                React.createElement('span', {className: 'tg-flow-random-total'}, String(data.randomTotal || 0) + '%')
+              ),
+              React.createElement('div', {className: 'tg-flow-random-branches'},
+                (Array.isArray(data.randomOutputs) ? data.randomOutputs : []).map((output, index) => {
+                  const handleId = String(output.handleId || ('random-r' + (index + 1)));
+                  return React.createElement('div', {className: 'tg-flow-random-branch', key: handleId},
+                    React.createElement('span', null, String(output.title || ('Выход ' + (index + 1)))),
+                    React.createElement('b', null, String(output.percent || 0) + '%'),
+                    React.createElement(Handle, {id: handleId, type: 'source', position: Position.Right, className: 'tg-flow-random-handle', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, handleId), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, handleId), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, handleId)})
+                  );
+                })
+              )
+            )
+            : (isActions
             ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-actions-preview'},
               React.createElement('div', {className: 'tg-flow-actions-preview-head'},
                 React.createElement('span', null, data.actionsInvalid ? 'Нужно настроить действия' : 'Действия'),
@@ -788,8 +806,8 @@ function NodeShell({id, data, isStart}) {
             )
             : (cards.length
               ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
-              : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение')))))),
-      (!isCondition && !isSchedule) ? React.createElement('div', {className: 'tg-flow-next-row'},
+              : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение'))))))),
+      (!isCondition && !isSchedule && !isRandom) ? React.createElement('div', {className: 'tg-flow-next-row'},
         React.createElement('span', {className: 'tg-flow-node-muted'}, isStart ? 'Начало сценария' : 'Следующий шаг'),
         React.createElement(Handle, {id: 'out', type: 'source', position: Position.Right, className: 'tg-flow-main-out-handle', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'out')})
       ) : null
@@ -806,8 +824,9 @@ function DelayNode(props) { return React.createElement(NodeShell, {...props, isS
 function ConditionNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function ActionsNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function ScheduleNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
+function RandomNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 
-function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay, onCreateCondition, onCreateSchedule}) {
+function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay, onCreateCondition, onCreateSchedule, onCreateRandom}) {
   if (!menu) return null;
   const item = (type, glyph, name, disabled, onClick) => React.createElement('button', {
     type: 'button',
@@ -833,7 +852,7 @@ function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay
     item('delay', '◴', 'Задержка', false, onCreateDelay),
     item('condition', '⇄', 'Условие', false, onCreateCondition),
     item('schedule', '□', 'Расписание', false, onCreateSchedule),
-    item('random', '✦', 'Случайный выбор', true),
+    item('random', '✦', 'Случайный выбор', false, onCreateRandom),
     item('formula', 'ƒ', 'Формула', true)
   );
 }
@@ -869,7 +888,7 @@ function ScenarioSmoothEdge(props) {
 }
 
 function ScenarioFlow() {
-  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, actionsNode: ActionsNode, delayNode: DelayNode, conditionNode: ConditionNode, scheduleNode: ScheduleNode}), []);
+  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, actionsNode: ActionsNode, delayNode: DelayNode, conditionNode: ConditionNode, scheduleNode: ScheduleNode, randomNode: RandomNode}), []);
   const edgeTypes = useMemo(() => ({scenarioSmooth: ScenarioSmoothEdge}), []);
   const blockLimit = Number(cfg.blockLimit || 550);
   const initialNodes = Array.isArray(cfg.nodes) ? cfg.nodes : [];
@@ -1128,7 +1147,7 @@ function ScenarioFlow() {
 
   const isSourceHandleAllowed = useCallback((handleId) => {
     const value = String(handleId || '');
-    return value === 'out' || value === 'condition-yes' || value === 'condition-no' || value === 'schedule-on-time' || value === 'schedule-expired' || value.indexOf('btn-') === 0 || /^q-a\d+-\d+$/.test(value) || /^q-noanswer-c\d+$/.test(value);
+    return value === 'out' || value === 'condition-yes' || value === 'condition-no' || value === 'schedule-on-time' || value === 'schedule-expired' || /^random-[a-zA-Z0-9_\-]{1,40}$/.test(value) || value.indexOf('btn-') === 0 || /^q-a\d+-\d+$/.test(value) || /^q-noanswer-c\d+$/.test(value);
   }, []);
 
   const onConnectStart = useCallback((event, params) => {
@@ -1264,7 +1283,7 @@ function ScenarioFlow() {
       setMenu(null);
       return;
     }
-    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : (kind === 'schedule' ? 'tg_scenario_quick_schedule_create' : (kind === 'actions' ? 'tg_scenario_quick_actions_create' : 'tg_scenario_quick_message_create')));
+    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : (kind === 'schedule' ? 'tg_scenario_quick_schedule_create' : (kind === 'random' ? 'tg_scenario_quick_random_create' : (kind === 'actions' ? 'tg_scenario_quick_actions_create' : 'tg_scenario_quick_message_create'))));
     setMenu(null);
     try {
       await postAction(action, {
@@ -1285,6 +1304,7 @@ function ScenarioFlow() {
   const createDelayFromMenu = useCallback(() => createBlockFromMenu('delay'), [createBlockFromMenu]);
   const createConditionFromMenu = useCallback(() => createBlockFromMenu('condition'), [createBlockFromMenu]);
   const createScheduleFromMenu = useCallback(() => createBlockFromMenu('schedule'), [createBlockFromMenu]);
+  const createRandomFromMenu = useCallback(() => createBlockFromMenu('random'), [createBlockFromMenu]);
 
   const isValidConnection = useCallback((connection) => {
     if (!connection || !connection.source || !connection.target) return false;
@@ -1366,7 +1386,7 @@ function ScenarioFlow() {
       React.createElement(Controls, {showInteractive: false})
     ),
     React.createElement('div', {className: 'tg-flow-block-counter'}, nodes.length + '/' + blockLimit + ' блоков использовано'),
-    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateActions: createActionsFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu, onCreateSchedule: createScheduleFromMenu})
+    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateActions: createActionsFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu, onCreateSchedule: createScheduleFromMenu, onCreateRandom: createRandomFromMenu})
   );
 }
 
@@ -1401,3 +1421,6 @@ try {
 
 
 (function(){try{var st=document.createElement('style');st.textContent='.tg-flow-node.is-schedule .tg-flow-node-head{background:#fff1f5;color:#7f1d3a;border-bottom:1px solid #fbcfe8}.tg-flow-node.is-schedule.is-schedule-invalid{box-shadow:0 0 0 1px rgba(239,68,68,.42),0 14px 34px rgba(15,23,42,.08)}.tg-flow-schedule-preview{background:#fff7fa;border-color:#fce7f3}.tg-flow-schedule-preview-head{font-size:12px;font-weight:800;color:#6b7280;margin-bottom:8px}.tg-flow-schedule-preview-main{font-size:13px;font-weight:740;color:#374151;line-height:1.35;margin-bottom:12px;word-break:break-word}.tg-flow-schedule-branches{display:grid;gap:8px}.tg-flow-schedule-branch{position:relative;min-height:34px;border-radius:12px;background:#fff;border:1px solid #edf0f2;padding:8px 34px 8px 10px;color:#6b7280;font-size:12px;font-weight:730}.tg-flow-schedule-branch.is-on{color:#6f4fa2}.tg-flow-schedule-branch.is-expired{color:#9a5a1f}.tg-flow-schedule-handle{right:-15px!important;width:14px!important;height:14px!important;border:2px solid #fff!important;box-shadow:0 0 0 1px rgba(148,163,184,.8)!important;background:#fff!important}.tg-flow-schedule-handle.is-on{top:50%!important}.tg-flow-schedule-handle.is-expired{top:50%!important}';document.head.appendChild(st);}catch(e){}})();
+
+
+(function(){try{var st=document.createElement('style');st.textContent='.tg-flow-add-icon--random{background:#fff7d6!important;color:#b77a00!important}.tg-flow-node.is-random{border-color:#f9e7a7;min-width:300px}.tg-flow-node.is-random .tg-flow-node-head{background:#fff6cf!important;border-bottom-color:#f9e7a7!important}.tg-flow-node.is-random .tg-flow-node-title{color:#8a5b00!important}.tg-flow-node.is-random.is-random-invalid{border-color:#ff6b73!important;box-shadow:0 0 0 1px #ff6b73,0 14px 28px rgba(255,107,115,.14)!important}.tg-flow-random-preview{background:#fffdf4;border-color:#f9e7a7}.tg-flow-random-preview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;font-weight:750;color:#6b7280;line-height:1.3;margin-bottom:8px}.tg-flow-random-total{display:inline-flex;align-items:center;justify-content:center;min-width:36px;height:22px;border-radius:999px;background:#fff6cf;color:#8a5b00;font-size:11px;font-weight:800}.tg-flow-random-branches{display:grid;gap:8px}.tg-flow-random-branch{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;min-height:34px;border-radius:12px;background:#fff;border:1px solid #edf0f2;padding:8px 34px 8px 10px;color:#4b5563;font-size:12px;font-weight:730}.tg-flow-random-branch span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tg-flow-random-branch b{font-size:11px;color:#b77a00}.tg-flow-random-handle{right:-15px!important;width:14px!important;height:14px!important;border:2px solid #fff!important;box-shadow:0 0 0 1px rgba(183,122,0,.65)!important;background:#fff!important;top:50%!important}';document.head.appendChild(st);}catch(e){}})();
