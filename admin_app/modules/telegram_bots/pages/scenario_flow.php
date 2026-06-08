@@ -163,6 +163,31 @@ $getRandomSettings = static function(array $block): array {
     ];
 };
 
+
+$getFormulaSettings = static function(array $block): array {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $code = (string)($settings['formula_code'] ?? '');
+    $lines = $code === '' ? [] : preg_split('/\R/u', $code);
+    $meaningful = [];
+    foreach (($lines ?: []) as $line) {
+        $t = trim((string)$line);
+        if ($t === '' || str_starts_with($t, '#')) continue;
+        $meaningful[] = mb_strlen($t, 'UTF-8') > 80 ? mb_substr($t, 0, 80, 'UTF-8') . '…' : $t;
+        if (count($meaningful) >= 4) break;
+    }
+    $lineCount = is_array($lines) ? count($lines) : 0;
+    return [
+        'code' => $code,
+        'lineCount' => $lineCount,
+        'charCount' => mb_strlen($code, 'UTF-8'),
+        'summaries' => $meaningful,
+        'extraCount' => max(0, $lineCount - count($meaningful)),
+        'isInvalid' => empty($settings['formula_valid']) || trim($code) === '',
+        'preview' => $meaningful ? implode('; ', $meaningful) : 'Формула не настроена',
+    ];
+};
+
 $getConditionSettings = static function(array $block): array {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
@@ -420,13 +445,15 @@ foreach ($blocks as $index => $block) {
     $isActions = $type === 'actions';
     $isSchedule = $type === 'schedule';
     $isRandom = $type === 'random';
+    $isFormula = $type === 'formula';
     $delaySettings = $isDelay ? $getDelaySettings($block, $scenarioTimezone) : [];
     $conditionSettings = $isCondition ? $getConditionSettings($block) : [];
     $actionSettings = $isActions ? $getActionSettings($block) : [];
     $scheduleSettings = $isSchedule ? $getScheduleSettings($block, $scenarioTimezone) : [];
     $randomSettings = $isRandom ? $getRandomSettings($block) : [];
-    $cards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom) ? [] : $getBlockCards($block);
-    $flowCards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom) ? [] : $normalizeFlowCards($cards);
+    $formulaSettings = $isFormula ? $getFormulaSettings($block) : [];
+    $cards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom || $isFormula) ? [] : $getBlockCards($block);
+    $flowCards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom || $isFormula) ? [] : $normalizeFlowCards($cards);
     $firstCard = $flowCards[0] ?? [];
     $hasStoredPosition = is_numeric($block['position_x'] ?? null) && is_numeric($block['position_y'] ?? null);
     $x = $hasStoredPosition ? (int)round((float)$block['position_x']) : 0;
@@ -438,7 +465,7 @@ foreach ($blocks as $index => $block) {
         $x = $isStart ? 120 : 470 + (($index % 4) * 320);
         $y = 140 + ((int)floor($index / 4) * 230);
     }
-    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : ($isActions ? (string)($actionSettings['preview'] ?? 'Не добавлено ни одного действия') : ($isSchedule ? (string)($scheduleSettings['preview'] ?? 'Расписание не настроено') : ($isRandom ? (string)($randomSettings['preview'] ?? 'Случайный выбор') : (string)($firstCard['textPreview'] ?? '')))))); 
+    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : ($isActions ? (string)($actionSettings['preview'] ?? 'Не добавлено ни одного действия') : ($isSchedule ? (string)($scheduleSettings['preview'] ?? 'Расписание не настроено') : ($isRandom ? (string)($randomSettings['preview'] ?? 'Случайный выбор') : ($isFormula ? (string)($formulaSettings['preview'] ?? 'Формула не настроена') : (string)($firstCard['textPreview'] ?? ''))))))); 
     $deeplink = !$isStart ? ($deeplinksByBlock[$blockId] ?? null) : null;
     $deeplinkCode = is_array($deeplink) ? trim((string)($deeplink['code'] ?? $deeplink['token'] ?? '')) : '';
     $deeplinkUrl = is_array($deeplink) ? trim((string)($deeplink['url'] ?? '')) : '';
@@ -462,13 +489,13 @@ foreach ($blocks as $index => $block) {
     }
     $nodes[] = [
         'id' => (string)$blockId,
-        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : ($isActions ? 'actionsNode' : ($isSchedule ? 'scheduleNode' : ($isRandom ? 'randomNode' : 'messageNode'))))),
+        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : ($isActions ? 'actionsNode' : ($isSchedule ? 'scheduleNode' : ($isRandom ? 'randomNode' : ($isFormula ? 'formulaNode' : 'messageNode')))))),
         'position' => ['x' => $x, 'y' => $y],
         'data' => [
             'blockId' => $blockId,
             'blockType' => $type,
-            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : ($isActions ? 'Действия' : ($isSchedule ? 'Расписание' : ($isRandom ? 'Случайный выбор' : 'Сообщение')))))),
-            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : ($isActions ? 'Не добавлено ни одного действия' : ($isSchedule ? 'Расписание не настроено' : ($isRandom ? 'Случайный выбор' : 'Пустой текст'))))),
+            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : ($isActions ? 'Действия' : ($isSchedule ? 'Расписание' : ($isRandom ? 'Случайный выбор' : ($isFormula ? 'Формула' : 'Сообщение'))))))),
+            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : ($isActions ? 'Не добавлено ни одного действия' : ($isSchedule ? 'Расписание не настроено' : ($isRandom ? 'Случайный выбор' : ($isFormula ? 'Формула не настроена' : 'Пустой текст')))))),
             'delayMode' => (string)($delaySettings['mode'] ?? ''),
             'delayModeLabel' => (string)($delaySettings['modeLabel'] ?? ''),
             'delayValue' => (int)($delaySettings['value'] ?? 0),
@@ -485,6 +512,11 @@ foreach ($blocks as $index => $block) {
             'randomTotal' => (int)($randomSettings['total'] ?? 0),
             'randomOutputs' => $randomSettings['outputs'] ?? [],
             'missingNext' => false,
+            'formulaInvalid' => !empty($formulaSettings['isInvalid']),
+            'formulaLineCount' => (int)($formulaSettings['lineCount'] ?? 0),
+            'formulaCharCount' => (int)($formulaSettings['charCount'] ?? 0),
+            'formulaExtraCount' => (int)($formulaSettings['extraCount'] ?? 0),
+            'formulaSummaries' => $formulaSettings['summaries'] ?? [],
             'conditionInvalid' => !empty($conditionSettings['isInvalid']),
             'conditionMatchLabel' => (string)($conditionSettings['matchLabel'] ?? ''),
             'conditionMatchTitle' => (string)($conditionSettings['matchTitle'] ?? ''),
@@ -498,7 +530,7 @@ foreach ($blocks as $index => $block) {
             'cards' => $flowCards,
             'cardsCount' => count($flowCards),
             'stats' => $scenarioStats[$blockId] ?? ['sent' => 0, 'clicks' => 0, 'clickRate' => 0],
-            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.131',
+            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.180',
             'deleteAllowed' => !$isStart,
             'deeplinkCode' => $deeplinkCode,
             'deeplinkUrl' => $deeplinkUrl,
@@ -608,7 +640,7 @@ $flowData = [
     'nodes' => $nodes,
     'edges' => $edges,
     'returnUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
-        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.131',
+        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.180',
     'flowUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
     'blockLimit' => 550,
     'listUrl' => 'admin.php?tab=telegram_bots&page=scenarios',
@@ -1042,6 +1074,9 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 
 
 /* v3.5.127: restore visible deeplink under message blocks */
+
+
+.tg-flow-node.is-formula{border-color:#cdebdc;min-width:300px}.tg-flow-node.is-formula .tg-flow-node-head{background:#eefdf6;border-bottom-color:#cdebdc}.tg-flow-node.is-formula .tg-flow-node-title{color:#176c49}.tg-flow-node.is-formula.is-formula-invalid{border-color:#ff6b73;box-shadow:0 0 0 1px #ff6b73,0 14px 28px rgba(255,107,115,.14)}.tg-flow-formula-preview{background:#fff;color:#374151;border:0;display:flex;flex-direction:column;gap:8px;min-height:96px;padding:10px}.tg-flow-formula-preview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#176c49;font-size:12px;font-weight:700}.tg-flow-formula-count{background:#eefdf6;color:#176c49;border-radius:999px;padding:3px 8px;font-size:11px}.tg-flow-formula-list{display:flex;flex-direction:column;gap:5px}.tg-flow-formula-row{border:1px solid #edf0f2;background:#fbfbfc;border-radius:9px;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:11px;font-weight:500;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tg-flow-formula-empty{border:1px dashed #cdebdc;background:#f7fffb;border-radius:10px;padding:9px;color:#6b7280;font-size:12px;font-weight:600}.tg-flow-formula-more{font-size:11px;color:#8b929e;font-weight:600;text-align:right}
 
 .tg-flow-add-icon--condition{background:#edf8df!important;color:#5f8f30!important;}
 .tg-flow-node.is-condition{border-color:#d9edc8;min-width:300px}

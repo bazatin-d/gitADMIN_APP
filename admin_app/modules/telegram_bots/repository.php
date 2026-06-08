@@ -5368,6 +5368,66 @@ function asr_tg_scenario_schedule_block_save(PDO $pdo, array $data): int {
     return $blockId;
 }
 
+
+function asr_tg_scenario_formula_normalize_code(array $data): array {
+    $code = str_replace(["
+", ""], "
+", (string)($data['formula_code'] ?? $data['code'] ?? ''));
+    $code = trim($code);
+    $lines = $code === '' ? [] : explode("
+", $code);
+    if (count($lines) > 50) throw new InvalidArgumentException('В формуле можно использовать до 50 строк.');
+    if (mb_strlen($code, 'UTF-8') > 5000) throw new InvalidArgumentException('Формула слишком длинная: максимум 5000 символов.');
+    foreach ($lines as $idx => $line) {
+        if (mb_strlen((string)$line, 'UTF-8') > 1000) throw new InvalidArgumentException('Строка ' . ((int)$idx + 1) . ' слишком длинная.');
+    }
+    $meaningful = 0;
+    foreach ($lines as $line) {
+        $t = trim((string)$line);
+        if ($t !== '' && strpos($t, '#') !== 0) $meaningful++;
+    }
+    return [
+        'version' => 1,
+        'formula_code' => $code,
+        'formula_valid' => $code !== '' && $meaningful > 0,
+        'line_count' => count($lines),
+        'char_count' => mb_strlen($code, 'UTF-8'),
+        'runtime_plan' => ['enabled' => true, 'prepared_for' => 'formula_runner'],
+    ];
+}
+
+function asr_tg_scenario_formula_block_save(PDO $pdo, array $data): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($blockId > 0 && !asr_tg_scenario_block_find($pdo, $blockId, $scenarioId)) throw new InvalidArgumentException('Блок сценария не найден.');
+    $title = trim((string)($data['block_title'] ?? '')) ?: 'Формула';
+    $settings = asr_tg_scenario_formula_normalize_code($data);
+    if (empty($settings['formula_valid'])) throw new InvalidArgumentException('Заполните формулу.');
+    $settingsJson = json_encode($settings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить данные формулы.');
+    if ($blockId > 0) {
+        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_scenario_blocks SET type = 'formula', title = ?, settings_json = ?, updated_at = NOW() WHERE id = ? AND scenario_id = ?");
+        $stmt->execute([$title, $settingsJson, $blockId, $scenarioId]);
+        return $blockId;
+    }
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type <> 'start'");
+    $stmt->execute([$scenarioId]);
+    $blockCount = (int)($stmt->fetchColumn() ?: 0);
+    $positionX = 430 + (($blockCount % 4) * 330);
+    $positionY = 140 + ((int)floor($blockCount / 4) * 250);
+    $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'formula', ?, ?, ?, ?, ?, NOW(), NOW())");
+    $stmt->execute([$scenarioId, $title, $settingsJson, $positionX, $positionY, $sortOrder]);
+    $blockId = (int)$pdo->lastInsertId();
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
 function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
@@ -5388,6 +5448,9 @@ function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): i
     }
     if ($type === 'random') {
         return asr_tg_scenario_random_block_save($pdo, $data);
+    }
+    if ($type === 'formula') {
+        return asr_tg_scenario_formula_block_save($pdo, $data);
     }
     if ($type === 'condition') {
         return asr_tg_scenario_condition_block_save($pdo, $data);
@@ -6096,6 +6159,42 @@ function asr_tg_scenario_quick_random_create_from_post(PDO $pdo, array $post): i
     $pdo->beginTransaction();
     try {
         $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'random', 'Случайный выбор', ?, ?, ?, ?, NOW(), NOW())");
+        $stmt->execute([$scenarioId, $settingsJson, $x, $y, $sortOrder]);
+        $blockId = (int)$pdo->lastInsertId();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    asr_tg_scenario_link_from_quick_block($pdo, $scenarioId, $fromBlockId, $blockId, trim((string)($post['source_handle'] ?? 'out')));
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
+
+function asr_tg_scenario_quick_formula_create_from_post(PDO $pdo, array $post): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($post['scenario_id'] ?? 0));
+    $fromBlockId = max(0, (int)($post['from_block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($fromBlockId > 0 && !asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId)) throw new InvalidArgumentException('Исходный блок не найден.');
+    $x = max(-10000, min(20000, (int)($post['position_x'] ?? 430)));
+    $y = max(-10000, min(20000, (int)($post['position_y'] ?? 140)));
+    $settingsJson = json_encode([
+        'version' => 1,
+        'formula_code' => '',
+        'formula_valid' => false,
+        'line_count' => 0,
+        'char_count' => 0,
+        'runtime_plan' => ['enabled' => false, 'prepared_for' => 'formula_runner'],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить новый блок формулы.');
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'formula', 'Формула', ?, ?, ?, ?, NOW(), NOW())");
         $stmt->execute([$scenarioId, $settingsJson, $x, $y, $sortOrder]);
         $blockId = (int)$pdo->lastInsertId();
         $pdo->commit();

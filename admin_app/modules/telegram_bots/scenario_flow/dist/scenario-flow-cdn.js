@@ -578,6 +578,7 @@ function NodeShell({id, data, isStart}) {
   const isActions = blockType === 'actions';
   const isSchedule = blockType === 'schedule';
   const isRandom = blockType === 'random';
+  const isFormula = blockType === 'formula';
   const edit = (event) => {
     if (event) {
       event.preventDefault();
@@ -709,11 +710,11 @@ function NodeShell({id, data, isStart}) {
       showFlowToast(deeplinkText, 'success');
     }
   };
-  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isActions ? ' is-actions' : '') + (isSchedule ? ' is-schedule' : '') + (isRandom ? ' is-random' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isActions && data.actionsInvalid ? ' is-actions-invalid' : '') + (isSchedule && data.scheduleInvalid ? ' is-schedule-invalid' : '') + (isRandom && data.randomInvalid ? ' is-random-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
+  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isActions ? ' is-actions' : '') + (isSchedule ? ' is-schedule' : '') + (isRandom ? ' is-random' : '') + (isFormula ? ' is-formula' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isActions && data.actionsInvalid ? ' is-actions-invalid' : '') + (isSchedule && data.scheduleInvalid ? ' is-schedule-invalid' : '') + (isRandom && data.randomInvalid ? ' is-random-invalid' : '') + (isFormula && data.formulaInvalid ? ' is-formula-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
     !isStart && React.createElement(Handle, {id: 'in', type: 'target', position: Position.Left, className: 'tg-flow-in-handle', isConnectable: true}),
     React.createElement('div', {className: 'tg-flow-node-head'},
       React.createElement('div', {className: 'tg-flow-node-title-wrap'},
-        React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : (isActions ? 'Действия' : (isSchedule ? 'Расписание' : 'Сообщение')))),
+        React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : (isActions ? 'Действия' : (isSchedule ? 'Расписание' : (isRandom ? 'Случайный выбор' : (isFormula ? 'Формула' : 'Сообщение')))))),
         !isStart ? React.createElement('div', {className: 'tg-flow-node-id'}, 'Блок #' + String(data.blockId || id || '').replace(/^node-/, '')) : null
       ),
       React.createElement('div', {className: 'tg-flow-node-actions', onMouseDown: (event) => event.stopPropagation(), onClick: (event) => event.stopPropagation()},
@@ -724,7 +725,7 @@ function NodeShell({id, data, isStart}) {
       )
     ),
     React.createElement('div', {className: 'tg-flow-node-body'},
-      (!isStart && !isDelay && !isCondition && !isActions && !isSchedule && !isRandom) ? React.createElement('div', {className: 'tg-flow-node-stats'},
+      (!isStart && !isDelay && !isCondition && !isActions && !isSchedule && !isRandom && !isFormula) ? React.createElement('div', {className: 'tg-flow-node-stats'},
         React.createElement('div', {className: 'tg-flow-node-stat'},
           React.createElement('span', {className: 'tg-flow-node-stat-value'}, String(Number.isFinite(sentCount) ? sentCount : 0)),
           React.createElement('span', {className: 'tg-flow-node-stat-label'}, 'Отправлено')
@@ -791,6 +792,19 @@ function NodeShell({id, data, isStart}) {
                 })
               )
             )
+            : (isFormula
+            ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-formula-preview'},
+              React.createElement('div', {className: 'tg-flow-formula-preview-head'},
+                React.createElement('span', null, data.formulaInvalid ? 'Нужно настроить формулу' : 'Формула'),
+                !data.formulaInvalid ? React.createElement('span', {className: 'tg-flow-formula-count'}, String(data.formulaLineCount || 0) + ' строк') : null
+              ),
+              (Array.isArray(data.formulaSummaries) && data.formulaSummaries.length)
+                ? React.createElement('div', {className: 'tg-flow-formula-list'},
+                  data.formulaSummaries.map((item, index) => React.createElement('div', {className: 'tg-flow-formula-row', key: index}, item)),
+                  Number(data.formulaExtraCount || 0) > 0 ? React.createElement('div', {className: 'tg-flow-formula-more'}, '+ ещё ' + Number(data.formulaExtraCount || 0)) : null
+                )
+                : React.createElement('div', {className: 'tg-flow-formula-empty'}, 'Добавьте вычисления')
+            )
             : (isActions
             ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-actions-preview'},
               React.createElement('div', {className: 'tg-flow-actions-preview-head'},
@@ -806,7 +820,7 @@ function NodeShell({id, data, isStart}) {
             )
             : (cards.length
               ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
-              : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение'))))))),
+              : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение')))))))),
       (!isCondition && !isSchedule && !isRandom) ? React.createElement('div', {className: 'tg-flow-next-row'},
         React.createElement('span', {className: 'tg-flow-node-muted'}, isStart ? 'Начало сценария' : 'Следующий шаг'),
         React.createElement(Handle, {id: 'out', type: 'source', position: Position.Right, className: 'tg-flow-main-out-handle', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'out')})
@@ -825,8 +839,9 @@ function ConditionNode(props) { return React.createElement(NodeShell, {...props,
 function ActionsNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function ScheduleNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function RandomNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
+function FormulaNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 
-function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay, onCreateCondition, onCreateSchedule, onCreateRandom}) {
+function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay, onCreateCondition, onCreateSchedule, onCreateRandom, onCreateFormula}) {
   if (!menu) return null;
   const item = (type, glyph, name, disabled, onClick) => React.createElement('button', {
     type: 'button',
@@ -853,7 +868,7 @@ function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay
     item('condition', '⇄', 'Условие', false, onCreateCondition),
     item('schedule', '□', 'Расписание', false, onCreateSchedule),
     item('random', '✦', 'Случайный выбор', false, onCreateRandom),
-    item('formula', 'ƒ', 'Формула', true)
+    item('formula', 'ƒ', 'Формула', false, onCreateFormula)
   );
 }
 
@@ -888,7 +903,7 @@ function ScenarioSmoothEdge(props) {
 }
 
 function ScenarioFlow() {
-  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, actionsNode: ActionsNode, delayNode: DelayNode, conditionNode: ConditionNode, scheduleNode: ScheduleNode, randomNode: RandomNode}), []);
+  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, actionsNode: ActionsNode, delayNode: DelayNode, conditionNode: ConditionNode, scheduleNode: ScheduleNode, randomNode: RandomNode, formulaNode: FormulaNode}), []);
   const edgeTypes = useMemo(() => ({scenarioSmooth: ScenarioSmoothEdge}), []);
   const blockLimit = Number(cfg.blockLimit || 550);
   const initialNodes = Array.isArray(cfg.nodes) ? cfg.nodes : [];
@@ -1283,7 +1298,7 @@ function ScenarioFlow() {
       setMenu(null);
       return;
     }
-    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : (kind === 'schedule' ? 'tg_scenario_quick_schedule_create' : (kind === 'random' ? 'tg_scenario_quick_random_create' : (kind === 'actions' ? 'tg_scenario_quick_actions_create' : 'tg_scenario_quick_message_create'))));
+    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : (kind === 'schedule' ? 'tg_scenario_quick_schedule_create' : (kind === 'random' ? 'tg_scenario_quick_random_create' : (kind === 'formula' ? 'tg_scenario_quick_formula_create' : (kind === 'actions' ? 'tg_scenario_quick_actions_create' : 'tg_scenario_quick_message_create')))));
     setMenu(null);
     try {
       await postAction(action, {
@@ -1305,6 +1320,7 @@ function ScenarioFlow() {
   const createConditionFromMenu = useCallback(() => createBlockFromMenu('condition'), [createBlockFromMenu]);
   const createScheduleFromMenu = useCallback(() => createBlockFromMenu('schedule'), [createBlockFromMenu]);
   const createRandomFromMenu = useCallback(() => createBlockFromMenu('random'), [createBlockFromMenu]);
+  const createFormulaFromMenu = useCallback(() => createBlockFromMenu('formula'), [createBlockFromMenu]);
 
   const isValidConnection = useCallback((connection) => {
     if (!connection || !connection.source || !connection.target) return false;
@@ -1386,7 +1402,7 @@ function ScenarioFlow() {
       React.createElement(Controls, {showInteractive: false})
     ),
     React.createElement('div', {className: 'tg-flow-block-counter'}, nodes.length + '/' + blockLimit + ' блоков использовано'),
-    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateActions: createActionsFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu, onCreateSchedule: createScheduleFromMenu, onCreateRandom: createRandomFromMenu})
+    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateActions: createActionsFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu, onCreateSchedule: createScheduleFromMenu, onCreateRandom: createRandomFromMenu, onCreateFormula: createFormulaFromMenu})
   );
 }
 

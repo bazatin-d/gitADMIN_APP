@@ -59,6 +59,155 @@ if ($type === 'start') {
 }
 
 
+
+if ($type === 'formula') {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $code = (string)($settings['formula_code'] ?? '');
+    $lineCount = $code === '' ? 0 : count(preg_split('/\R/u', $code));
+    $charCount = mb_strlen($code, 'UTF-8');
+    $fields = [];
+    try {
+        $fields[] = ['title' => 'Имя', 'token' => 'client.first_name', 'type' => 'text'];
+        $fields[] = ['title' => 'Фамилия', 'token' => 'client.last_name', 'type' => 'text'];
+        $fields[] = ['title' => 'Телефон', 'token' => 'client.phone', 'type' => 'text'];
+        $fields[] = ['title' => 'Email', 'token' => 'client.email', 'type' => 'text'];
+        $fields[] = ['title' => 'Username', 'token' => 'client.username', 'type' => 'только чтение'];
+        if (function_exists('asr_tg_custom_fields_all')) {
+            foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
+                $codeField = trim((string)($field['code'] ?? ''));
+                if ($codeField === '') continue;
+                $fields[] = [
+                    'title' => trim((string)($field['title'] ?? $codeField)),
+                    'token' => 'client.' . $codeField,
+                    'type' => (string)($field['field_type'] ?? 'text'),
+                ];
+            }
+        }
+    } catch (Throwable $e) {}
+    $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
+    ?>
+    <section id="tg-flow-panel" class="tg-flow-panel tg-formula-panel">
+        <form method="POST" id="scenario-message-form" class="tg-flow-panel-form" data-formula-form>
+            <div class="tg-flow-panel-head tg-formula-panel-head">
+                <div>
+                    <div class="tg-flow-panel-title">Редактировать формулу</div>
+                    <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?> · выполняется сверху вниз, строка за строкой</div>
+                </div>
+                <div class="tg-flow-panel-actions">
+                    <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
+                </div>
+            </div>
+            <div class="tg-flow-panel-body">
+                <input type="hidden" name="action" value="tg_scenario_block_save">
+                <input type="hidden" name="return_page" value="scenario_flow">
+                <input type="hidden" name="scenario_id" value="<?php echo (int)$scenarioId; ?>">
+                <input type="hidden" name="block_id" value="<?php echo (int)$blockId; ?>">
+                <input type="hidden" name="block_type" value="formula">
+                <?php if ($csrf !== ''): ?><input type="hidden" name="csrf_token" value="<?php echo $h($csrf); ?>"><?php endif; ?>
+
+                <label class="tg-flow-panel-field">
+                    <span class="tg-flow-panel-label">Название блока</span>
+                    <input type="text" name="block_title" class="tg-flow-panel-input" value="<?php echo $h((string)($block['title'] ?? 'Формула')); ?>" maxlength="120">
+                </label>
+
+                <div class="tg-formula-box">
+                    <div class="tg-formula-topline">
+                        <div>
+                            <div class="tg-formula-title">Формула</div>
+                            <div class="tg-formula-note">Пример: <code>client.score = int(client.score) + 1</code></div>
+                        </div>
+                        <button type="button" class="tg-formula-help-toggle" data-formula-help-toggle>Подсказки</button>
+                    </div>
+                    <textarea name="formula_code" class="tg-formula-editor" data-formula-editor spellcheck="false" placeholder="client.total = float(client.price) * float(client.qty)
+client.status = &quot;Оплачен&quot;
+bonus = 10
+client.score = int(client.score) + bonus"><?php echo $h($code); ?></textarea>
+                    <div class="tg-formula-status" data-formula-status>
+                        <span data-formula-lines><?php echo (int)$lineCount; ?></span> / 50 строк · <span data-formula-chars><?php echo (int)$charCount; ?></span> / 5000 символов
+                    </div>
+                    <div class="tg-formula-error" data-formula-error></div>
+                </div>
+
+                <div class="tg-formula-help" data-formula-help hidden>
+                    <div class="tg-formula-help-grid">
+                        <div class="tg-formula-help-card">
+                            <div class="tg-formula-help-title">Что можно писать</div>
+                            <ul>
+                                <li><code>client.field = значение</code> — записать в поле подписчика</li>
+                                <li><code>local_name = 10</code> — временная переменная внутри формулы</li>
+                                <li><code>+ - * / %</code>, скобки, строки в кавычках</li>
+                                <li><code>int()</code>, <code>float()</code>, <code>str()</code>, <code>round()</code>, <code>trim()</code>, <code>lower()</code>, <code>upper()</code>, <code>concat()</code></li>
+                            </ul>
+                        </div>
+                        <div class="tg-formula-help-card">
+                            <div class="tg-formula-help-title">Доступные поля</div>
+                            <div class="tg-formula-field-list">
+                                <?php foreach ($fields as $field): ?>
+                                    <button type="button" data-formula-insert="<?php echo $h((string)$field['token']); ?>">
+                                        <b><?php echo $h((string)$field['title']); ?></b>
+                                        <span><?php echo $h((string)$field['token']); ?> · <?php echo $h((string)$field['type']); ?></span>
+                                    </button>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tg-formula-warning">Технические поля вроде <code>username</code>, <code>telegram_user_id</code>, <code>chat_id</code> можно читать, но нельзя перезаписывать. Внешние запросы и API здесь не запускаем — для этого уже есть действие «Внешний запрос».</div>
+                </div>
+            </div>
+            <div class="tg-flow-panel-footer tg-flow-clean-footer">
+                <button type="submit" class="tg-flow-panel-primary">Сохранить и закрыть</button>
+            </div>
+        </form>
+    </section>
+    <style data-flow-panel-style="scenario-formula-panel-v3.5.180">
+    .tg-formula-panel-head{border-bottom-color:#d8f3e5}.tg-formula-box{border:1px solid #d8f3e5;background:linear-gradient(180deg,#fff 0%,#f7fffb 100%);border-radius:20px;padding:18px;margin-top:12px;box-shadow:0 12px 30px rgba(15,23,42,.05)}.tg-formula-topline{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.tg-formula-title{font-size:18px;font-weight:650;color:#265b43}.tg-formula-note{margin-top:4px;font-size:12px;color:#6b7280}.tg-formula-note code,.tg-formula-help code{background:#eefdf6;border-radius:7px;padding:1px 5px;color:#176c49}.tg-formula-help-toggle{height:36px;border:1px solid #cdebdc;background:#fff;border-radius:12px;color:#267352;font-size:13px;font-weight:600;cursor:pointer;padding:0 12px}.tg-formula-help-toggle:hover{background:#eefdf6}.tg-formula-editor{width:100%;min-height:280px;border:1px solid #cdebdc;background:#fff;border-radius:16px;padding:14px 16px;color:#1f2937;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:14px;line-height:1.55;resize:vertical;outline:none}.tg-formula-editor:focus{border-color:#6bc79c;box-shadow:0 0 0 3px rgba(107,199,156,.16)}.tg-formula-status{display:flex;justify-content:flex-end;margin-top:8px;color:#8b929e;font-size:12px;font-weight:600}.tg-formula-error{display:none;margin-top:9px;color:#dc2626;font-size:12px;font-weight:600;line-height:1.4}.tg-formula-error.is-open{display:block}.tg-formula-help{margin-top:14px}.tg-formula-help-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.tg-formula-help-card{border:1px solid #e5e7eb;background:#fff;border-radius:18px;padding:16px}.tg-formula-help-title{font-size:15px;font-weight:650;color:#374151;margin-bottom:10px}.tg-formula-help-card ul{margin:0;padding-left:18px;color:#4b5563;font-size:13px;line-height:1.55}.tg-formula-field-list{display:flex;flex-direction:column;gap:7px;max-height:260px;overflow:auto}.tg-formula-field-list button{border:1px solid #edf0f2;background:#fbfbfc;border-radius:12px;padding:9px 10px;text-align:left;cursor:pointer}.tg-formula-field-list button:hover{background:#eefdf6;border-color:#cdebdc}.tg-formula-field-list b{display:block;color:#374151;font-size:13px;font-weight:650}.tg-formula-field-list span{display:block;margin-top:2px;color:#8b929e;font-size:12px}.tg-formula-warning{margin-top:12px;border:1px solid #efe6d2;background:#fffaf0;border-radius:14px;padding:11px 13px;color:#75613a;font-size:12px;line-height:1.45}@media(max-width:760px){.tg-formula-help-grid{grid-template-columns:1fr}.tg-formula-editor{min-height:240px}}
+    </style>
+    <script>
+    (function(){
+      var form = document.querySelector('[data-formula-form]');
+      if (!form) return;
+      var editor = form.querySelector('[data-formula-editor]');
+      var linesEl = form.querySelector('[data-formula-lines]');
+      var charsEl = form.querySelector('[data-formula-chars]');
+      var errorEl = form.querySelector('[data-formula-error]');
+      function update(){
+        var value = editor ? editor.value : '';
+        var lines = value === '' ? 0 : value.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').length;
+        var chars = Array.from(value).length;
+        if (linesEl) linesEl.textContent = String(lines);
+        if (charsEl) charsEl.textContent = String(chars);
+        var errors = [];
+        if (lines > 50) errors.push('Слишком много строк: максимум 50.');
+        if (chars > 5000) errors.push('Слишком много символов: максимум 5000.');
+        if (errorEl) { errorEl.textContent = errors.join(' '); errorEl.classList.toggle('is-open', errors.length > 0); }
+      }
+      if (editor) editor.addEventListener('input', update);
+      form.addEventListener('submit', function(e){
+        update();
+        if (errorEl && errorEl.classList.contains('is-open')) { e.preventDefault(); return false; }
+      });
+      var helpBtn = form.querySelector('[data-formula-help-toggle]');
+      var help = form.querySelector('[data-formula-help]');
+      if (helpBtn && help) helpBtn.addEventListener('click', function(){ help.hidden = !help.hidden; });
+      form.addEventListener('click', function(e){
+        var btn = e.target.closest ? e.target.closest('[data-formula-insert]') : null;
+        if (!btn || !editor) return;
+        var token = btn.getAttribute('data-formula-insert') || '';
+        var start = editor.selectionStart || 0;
+        var end = editor.selectionEnd || 0;
+        editor.value = editor.value.slice(0, start) + token + editor.value.slice(end);
+        editor.focus();
+        editor.selectionStart = editor.selectionEnd = start + token.length;
+        update();
+      });
+      update();
+    })();
+    </script>
+    <?php
+    return;
+}
+
 if ($type === 'actions') {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
