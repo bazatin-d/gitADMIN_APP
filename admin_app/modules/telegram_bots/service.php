@@ -68,6 +68,16 @@ function asr_tg_normalize_welcome_text(string $text): string {
     return $text;
 }
 
+function asr_tg_public_vk_callback_url(): string {
+    $path = '/vk_bot_webhook.php';
+    if (function_exists('asr_config_app_url')) {
+        return asr_config_app_url($path);
+    }
+    $scheme = defined('APP_SCHEME') ? APP_SCHEME : 'https';
+    $domain = defined('APP_DOMAIN') ? APP_DOMAIN : ($_SERVER['HTTP_HOST'] ?? 'localhost');
+    return rtrim($scheme . '://' . $domain, '/') . $path;
+}
+
 function asr_tg_public_webhook_url(int $botId, string $secret): string {
     $path = '/telegram_bot_webhook.php?bot_id=' . $botId . '&secret=' . rawurlencode($secret);
     if (function_exists('asr_config_app_url')) {
@@ -519,6 +529,7 @@ function asr_tg_create_bot_from_post(PDO $pdo, array $post): int {
             'vk_secret_key' => $vkSecretKey ?: null,
             'vk_api_token_encrypted' => $vkTokenEncrypted,
             'bot_token_encrypted' => '',
+            'webhook_url' => asr_tg_public_vk_callback_url(),
             'webhook_secret' => $secret,
             'webhook_secret_token' => $secretToken,
             'status' => 'inactive',
@@ -589,6 +600,9 @@ function asr_tg_update_bot_from_post(PDO $pdo, array $post): int {
         if ($vkToken !== '') {
             if (!asr_tg_has_crypto_key()) throw new RuntimeException('Не настроен ключ шифрования ACCESS_VAULT_KEY.');
             $update['vk_api_token_encrypted'] = asr_tg_encrypt_token($vkToken);
+        }
+        if (empty($bot['webhook_url'])) {
+            $update['webhook_url'] = asr_tg_public_vk_callback_url();
         }
         asr_tg_bot_update($pdo, $botId, $update);
         asr_tg_log($pdo, $botId, 'info', 'vk_channel_updated', 'Первичные настройки ВК-канала обновлены.');
