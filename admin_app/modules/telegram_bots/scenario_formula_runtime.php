@@ -15,6 +15,18 @@ function asr_tg_runtime_formula_settings(array $block): array {
     ];
 }
 
+function asr_tg_runtime_formula_line_preview(string $line): string {
+    $line = trim(preg_replace('/\s+/u', ' ', $line) ?? $line);
+    return mb_strlen($line, 'UTF-8') > 160 ? mb_substr($line, 0, 160, 'UTF-8') . '…' : $line;
+}
+
+function asr_tg_runtime_formula_fail(PDO $pdo, int $botId, int $subscriberId, int $scenarioId, int $blockId, int $lineNo, string $error, array $payload = []): bool {
+    $fullError = $lineNo > 0 ? ('Строка ' . $lineNo . ': ' . $error) : $error;
+    asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_formula_line_failed', $fullError, $payload + ['line' => $lineNo]);
+    asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $fullError);
+    return true;
+}
+
 function asr_tg_runtime_formula_strip_comment(string $line): string {
     $out = '';
     $len = strlen($line);
@@ -268,7 +280,11 @@ class AsrTgFormulaParser {
             'lower' => mb_strtolower((string)($args[0] ?? ''), 'UTF-8'),
             'upper' => mb_strtoupper((string)($args[0] ?? ''), 'UTF-8'),
             'concat' => implode('', array_map('strval', $args)),
-            default => throw new RuntimeException('Функция «' . $name . '» не поддерживается.'),
+            'len' => mb_strlen((string)($args[0] ?? ''), 'UTF-8'),
+            'replace' => str_replace((string)($args[1] ?? ''), (string)($args[2] ?? ''), (string)($args[0] ?? '')),
+            'today' => date('Y-m-d'),
+            'now' => date('Y-m-d H:i:s'),
+            default => throw new RuntimeException('Функция «' . $name . '» не поддерживается. Проверьте название функции в подсказках блока.'),
         };
     }
 }
@@ -302,25 +318,19 @@ function asr_tg_runtime_execute_formula_block(PDO $pdo, array $bot, int $botId, 
         $lineText = asr_tg_runtime_formula_strip_comment((string)$line);
         if ($lineText === '') continue;
         if (!str_contains($lineText, '=')) {
-            $error = 'В строке ' . ((int)$lineNo + 1) . ' нет присваивания через =.';
-            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_formula_line_failed', $error, ['line' => (int)$lineNo + 1, 'source' => $source] + $sourcePayload);
-            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $error);
-            return true;
+            return asr_tg_runtime_formula_fail($pdo, $botId, $subscriberId, $scenarioId, $blockId, (int)$lineNo + 1, 'нет присваивания через =.', ['line_text' => asr_tg_runtime_formula_line_preview($lineText), 'executed_lines' => $executed, 'source' => $source] + $sourcePayload);
         }
         [$left, $expr] = array_map('trim', explode('=', $lineText, 2));
+        if ($expr === '') {
+            return asr_tg_runtime_formula_fail($pdo, $botId, $subscriberId, $scenarioId, $blockId, (int)$lineNo + 1, 'справа от = пусто. Укажите значение или выражение.', ['line_text' => asr_tg_runtime_formula_line_preview($lineText), 'executed_lines' => $executed, 'source' => $source] + $sourcePayload);
+        }
         $target = asr_tg_runtime_formula_target_parse($left);
         if (empty($target['ok'])) {
-            $error = 'Строка ' . ((int)$lineNo + 1) . ': ' . (string)($target['error'] ?? 'ошибка цели.');
-            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_formula_line_failed', $error, ['line' => (int)$lineNo + 1, 'source' => $source] + $sourcePayload);
-            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $error);
-            return true;
+            return asr_tg_runtime_formula_fail($pdo, $botId, $subscriberId, $scenarioId, $blockId, (int)$lineNo + 1, (string)($target['error'] ?? 'ошибка цели.'), ['line_text' => asr_tg_runtime_formula_line_preview($lineText), 'executed_lines' => $executed, 'source' => $source] + $sourcePayload);
         }
         try { $value = asr_tg_runtime_formula_eval_expr($expr, $locals, $client); }
         catch (Throwable $e) {
-            $error = 'Строка ' . ((int)$lineNo + 1) . ': ' . $e->getMessage();
-            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_formula_line_failed', $error, ['line' => (int)$lineNo + 1, 'expression' => $expr, 'source' => $source] + $sourcePayload);
-            asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $error);
-            return true;
+            return asr_tg_runtime_formula_fail($pdo, $botId, $subscriberId, $scenarioId, $blockId, (int)$lineNo + 1, $e->getMessage(), ['line_text' => asr_tg_runtime_formula_line_preview($lineText), 'expression' => $expr, 'executed_lines' => $executed, 'source' => $source] + $sourcePayload);
         }
         if (($target['scope'] ?? '') === 'local') {
             $locals[(string)$target['name']] = $value;
@@ -328,10 +338,7 @@ function asr_tg_runtime_execute_formula_block(PDO $pdo, array $bot, int $botId, 
         } else {
             $applied = asr_tg_runtime_formula_apply_client($pdo, $botId, $subscriberId, (string)$target['name'], $value, $maps);
             if (empty($applied['ok'])) {
-                $error = 'Строка ' . ((int)$lineNo + 1) . ': ' . (string)($applied['error'] ?? 'не удалось записать поле.');
-                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_formula_line_failed', $error, ['line' => (int)$lineNo + 1, 'target' => (string)$target['name'], 'source' => $source] + $sourcePayload);
-                asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $error);
-                return true;
+                return asr_tg_runtime_formula_fail($pdo, $botId, $subscriberId, $scenarioId, $blockId, (int)$lineNo + 1, (string)($applied['error'] ?? 'не удалось записать поле.'), ['line_text' => asr_tg_runtime_formula_line_preview($lineText), 'target' => (string)$target['name'], 'executed_lines' => $executed, 'source' => $source] + $sourcePayload);
             }
             $client[(string)$target['name']] = $value;
             $results[] = ['line' => (int)$lineNo + 1, 'target' => (string)($applied['target'] ?? $target['name']), 'value' => (string)($applied['value'] ?? ''), 'scope' => 'client'];

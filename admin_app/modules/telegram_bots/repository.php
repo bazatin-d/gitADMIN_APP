@@ -5369,9 +5369,84 @@ function asr_tg_scenario_schedule_block_save(PDO $pdo, array $data): int {
 }
 
 
+
+function asr_tg_scenario_formula_has_bad_quotes(string $text): bool {
+    $single = 0; $double = 0; $escape = false;
+    $len = strlen($text);
+    for ($i = 0; $i < $len; $i++) {
+        $ch = $text[$i];
+        if ($escape) { $escape = false; continue; }
+        if ($ch === '\\') { $escape = true; continue; }
+        if ($ch === "'") $single++;
+        if ($ch === '"') $double++;
+    }
+    return ($single % 2) !== 0 || ($double % 2) !== 0;
+}
+
+function asr_tg_scenario_formula_has_bad_brackets(string $text): bool {
+    $depth = 0; $quote = ''; $escape = false;
+    $len = strlen($text);
+    for ($i = 0; $i < $len; $i++) {
+        $ch = $text[$i];
+        if ($escape) { $escape = false; continue; }
+        if ($ch === '\\') { $escape = true; continue; }
+        if ($quote !== '') { if ($ch === $quote) $quote = ''; continue; }
+        if ($ch === "'" || $ch === '"') { $quote = $ch; continue; }
+        if ($ch === '(') $depth++;
+        if ($ch === ')') $depth--;
+        if ($depth < 0) return true;
+    }
+    return $depth !== 0;
+}
+
+function asr_tg_scenario_formula_assignment_index(string $line): int {
+    $quote = ''; $escape = false;
+    $len = strlen($line);
+    for ($i = 0; $i < $len; $i++) {
+        $ch = $line[$i];
+        if ($escape) { $escape = false; continue; }
+        if ($ch === '\\') { $escape = true; continue; }
+        if ($quote !== '') { if ($ch === $quote) $quote = ''; continue; }
+        if ($ch === "'" || $ch === '"') { $quote = $ch; continue; }
+        if ($ch === '=') {
+            $prev = $i > 0 ? $line[$i - 1] : '';
+            $next = $i + 1 < $len ? $line[$i + 1] : '';
+            if ($prev === '=' || $prev === '!' || $prev === '<' || $prev === '>' || $next === '=') return -2;
+            return $i;
+        }
+    }
+    return -1;
+}
+
+function asr_tg_scenario_formula_validate_code(string $code, array $lines): void {
+    $readonly = ['username' => true, 'telegram_user_id' => true, 'chat_id' => true, 'subscriber_id' => true, 'bot_id' => true, 'status' => true];
+    $meaningful = 0;
+    foreach ($lines as $idx => $rawLine) {
+        $line = trim((string)$rawLine);
+        if ($line === '' || strpos($line, '#') === 0) continue;
+        $meaningful++;
+        if (asr_tg_scenario_formula_has_bad_quotes($line)) throw new InvalidArgumentException('Строка ' . ((int)$idx + 1) . ': не закрыты кавычки.');
+        if (asr_tg_scenario_formula_has_bad_brackets($line)) throw new InvalidArgumentException('Строка ' . ((int)$idx + 1) . ': проверьте скобки.');
+        $eq = asr_tg_scenario_formula_assignment_index($line);
+        if ($eq === -2) throw new InvalidArgumentException('Строка ' . ((int)$idx + 1) . ': используйте один знак = для присваивания, не сравнение.');
+        if ($eq < 1) throw new InvalidArgumentException('Строка ' . ((int)$idx + 1) . ': добавьте присваивание, например client.score = 10.');
+        $left = trim(substr($line, 0, $eq));
+        if (preg_match('/^client\.([A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*)$/u', $left, $m)) {
+            $name = (string)$m[1];
+            if (isset($readonly[$name])) throw new InvalidArgumentException('Строка ' . ((int)$idx + 1) . ': поле ' . $name . ' можно читать, но нельзя перезаписывать.');
+            continue;
+        }
+        if (preg_match('/^client\[["\'].+?["\']\]$/u', $left)) continue;
+        if (preg_match('/^[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*$/u', $left)) continue;
+        throw new InvalidArgumentException('Строка ' . ((int)$idx + 1) . ': слева должно быть поле client.field или локальная переменная.');
+    }
+    if ($code !== '' && $meaningful <= 0) throw new InvalidArgumentException('Добавьте хотя бы одну рабочую строку формулы.');
+}
+
 function asr_tg_scenario_formula_normalize_code(array $data): array {
     $code = str_replace(["
-", ""], "
+", "
+"], "
 ", (string)($data['formula_code'] ?? $data['code'] ?? ''));
     $code = trim($code);
     $lines = $code === '' ? [] : explode("
@@ -5381,6 +5456,7 @@ function asr_tg_scenario_formula_normalize_code(array $data): array {
     foreach ($lines as $idx => $line) {
         if (mb_strlen((string)$line, 'UTF-8') > 1000) throw new InvalidArgumentException('Строка ' . ((int)$idx + 1) . ' слишком длинная.');
     }
+    asr_tg_scenario_formula_validate_code($code, $lines);
     $meaningful = 0;
     foreach ($lines as $line) {
         $t = trim((string)$line);

@@ -39,12 +39,33 @@ $scenarioTimezone = function_exists('asr_tg_scenario_timezone') ? asr_tg_scenari
 try { new DateTimeZone($scenarioTimezone); } catch (Throwable $e) { $scenarioTimezone = 'Asia/Almaty'; }
 
 $type = (string)($block['type'] ?? 'message');
+$__scenarioHelpFile = dirname(__DIR__) . '/scenario_help/block_help.php';
+if (is_file($__scenarioHelpFile)) {
+    require_once $__scenarioHelpFile;
+    if (function_exists('asr_tg_scenario_block_help_render')) {
+        $__scenarioHelpType = $type;
+        ob_start(static function (string $buffer) use ($__scenarioHelpType): string {
+            $modal = asr_tg_scenario_block_help_render($__scenarioHelpType);
+            // The drawer loader keeps only #tg-flow-panel from the AJAX response.
+            // Therefore the help modal must be inside the panel, not appended after it.
+            $pos = strrpos($buffer, '</section>');
+            if ($pos !== false) {
+                return substr($buffer, 0, $pos) . $modal . substr($buffer, $pos);
+            }
+            return $buffer . $modal;
+        });
+    }
+}
+$__scenarioHelpButton = (function_exists('asr_tg_scenario_block_help_button')) ? asr_tg_scenario_block_help_button($type) : '';
 if ($type === 'start') {
     ?>
     <section id="tg-flow-panel" class="tg-flow-panel">
         <div class="tg-flow-panel-head">
             <div><div class="tg-flow-panel-title">Старт сценария</div><div class="tg-flow-panel-subtitle">Пока запускаем сценарий по кнопке «Начать».</div></div>
-            <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
+            <div class="tg-flow-panel-actions">
+                <?php echo $__scenarioHelpButton; ?>
+                <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
+            </div>
         </div>
         <div class="tg-flow-panel-body">
             <div class="tg-flow-card">
@@ -85,6 +106,23 @@ if ($type === 'formula') {
             }
         }
     } catch (Throwable $e) {}
+    $functionHints = [
+        ['title' => 'int(value)', 'token' => 'int()', 'note' => 'число без дробной части'],
+        ['title' => 'float(value)', 'token' => 'float()', 'note' => 'число с дробной частью'],
+        ['title' => 'round(value, 2)', 'token' => 'round(, 2)', 'note' => 'округлить'],
+        ['title' => 'abs(value)', 'token' => 'abs()', 'note' => 'модуль числа'],
+        ['title' => 'min(a, b)', 'token' => 'min(, )', 'note' => 'меньшее значение'],
+        ['title' => 'max(a, b)', 'token' => 'max(, )', 'note' => 'большее значение'],
+        ['title' => 'str(value)', 'token' => 'str()', 'note' => 'преобразовать в текст'],
+        ['title' => 'trim(text)', 'token' => 'trim()', 'note' => 'убрать пробелы по краям'],
+        ['title' => 'lower(text)', 'token' => 'lower()', 'note' => 'нижний регистр'],
+        ['title' => 'upper(text)', 'token' => 'upper()', 'note' => 'верхний регистр'],
+        ['title' => 'concat(a, b)', 'token' => 'concat(, )', 'note' => 'склеить текст'],
+        ['title' => 'len(text)', 'token' => 'len()', 'note' => 'длина текста'],
+        ['title' => 'replace(text, a, b)', 'token' => 'replace(, , )', 'note' => 'заменить фрагмент'],
+        ['title' => 'today()', 'token' => 'today()', 'note' => 'сегодня: YYYY-MM-DD'],
+        ['title' => 'now()', 'token' => 'now()', 'note' => 'дата и время'],
+    ];
     $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
     ?>
     <section id="tg-flow-panel" class="tg-flow-panel tg-formula-panel">
@@ -95,6 +133,7 @@ if ($type === 'formula') {
                     <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?> · выполняется сверху вниз, строка за строкой</div>
                 </div>
                 <div class="tg-flow-panel-actions">
+                    <?php echo $__scenarioHelpButton; ?>
                     <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
                 </div>
             </div>
@@ -115,16 +154,26 @@ if ($type === 'formula') {
                     <div class="tg-formula-topline">
                         <div>
                             <div class="tg-formula-title">Формула</div>
-                            <div class="tg-formula-note">Пример: <code>client.score = int(client.score) + 1</code></div>
+                            <div class="tg-formula-note">Сначала простые вычисления и запись в поля. Каждая рабочая строка — отдельное присваивание.</div>
                         </div>
                         <button type="button" class="tg-formula-help-toggle" data-formula-help-toggle>Подсказки</button>
                     </div>
-                    <textarea name="formula_code" class="tg-formula-editor" data-formula-editor spellcheck="false" placeholder="client.total = float(client.price) * float(client.qty)
+                    <div class="tg-formula-examples" aria-label="Быстрые примеры">
+                        <button type="button" data-formula-example="client.first_name = &quot;Тест&quot;">Имя = текст</button>
+                        <button type="button" data-formula-example="client.score = int(client.score) + 1">+1 к числу</button>
+                        <button type="button" data-formula-example="client.full_name = concat(client.first_name, &quot; &quot;, client.last_name)">Склеить текст</button>
+                        <button type="button" data-formula-example="bonus = 10&#10;client.total = float(client.price) + bonus">Локальная переменная</button>
+                    </div>
+                    <div class="tg-formula-editor-shell" data-formula-shell>
+                        <div class="tg-formula-gutter" data-formula-gutter>1</div>
+                        <textarea name="formula_code" class="tg-formula-editor" data-formula-editor spellcheck="false" placeholder="client.total = float(client.price) * float(client.qty)
 client.status = &quot;Оплачен&quot;
 bonus = 10
 client.score = int(client.score) + bonus"><?php echo $h($code); ?></textarea>
+                    </div>
                     <div class="tg-formula-status" data-formula-status>
-                        <span data-formula-lines><?php echo (int)$lineCount; ?></span> / 50 строк · <span data-formula-chars><?php echo (int)$charCount; ?></span> / 5000 символов
+                        <span><span data-formula-lines><?php echo (int)$lineCount; ?></span> / 50 строк · <span data-formula-chars><?php echo (int)$charCount; ?></span> / 5000 символов</span>
+                        <span class="tg-formula-check" data-formula-check></span>
                     </div>
                     <div class="tg-formula-error" data-formula-error></div>
                 </div>
@@ -137,8 +186,20 @@ client.score = int(client.score) + bonus"><?php echo $h($code); ?></textarea>
                                 <li><code>client.field = значение</code> — записать в поле подписчика</li>
                                 <li><code>local_name = 10</code> — временная переменная внутри формулы</li>
                                 <li><code>+ - * / %</code>, скобки, строки в кавычках</li>
-                                <li><code>int()</code>, <code>float()</code>, <code>str()</code>, <code>round()</code>, <code>trim()</code>, <code>lower()</code>, <code>upper()</code>, <code>concat()</code></li>
+                                <li><code># комментарий</code> — строка или часть строки для себя, не выполняется</li>
+                                <li>Если строка упала, уже выполненные строки выше остаются записанными.</li>
                             </ul>
+                        </div>
+                        <div class="tg-formula-help-card">
+                            <div class="tg-formula-help-title">Функции</div>
+                            <div class="tg-formula-function-list">
+                                <?php foreach ($functionHints as $fn): ?>
+                                    <button type="button" data-formula-insert="<?php echo $h((string)$fn['token']); ?>">
+                                        <b><?php echo $h((string)$fn['title']); ?></b>
+                                        <span><?php echo $h((string)$fn['note']); ?></span>
+                                    </button>
+                                <?php endforeach; ?>
+                            </div>
                         </div>
                         <div class="tg-formula-help-card">
                             <div class="tg-formula-help-title">Доступные поля</div>
@@ -160,8 +221,8 @@ client.score = int(client.score) + bonus"><?php echo $h($code); ?></textarea>
             </div>
         </form>
     </section>
-    <style data-flow-panel-style="scenario-formula-panel-v3.5.180">
-    .tg-formula-panel-head{border-bottom-color:#d8f3e5}.tg-formula-box{border:1px solid #d8f3e5;background:linear-gradient(180deg,#fff 0%,#f7fffb 100%);border-radius:20px;padding:18px;margin-top:12px;box-shadow:0 12px 30px rgba(15,23,42,.05)}.tg-formula-topline{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.tg-formula-title{font-size:18px;font-weight:650;color:#265b43}.tg-formula-note{margin-top:4px;font-size:12px;color:#6b7280}.tg-formula-note code,.tg-formula-help code{background:#eefdf6;border-radius:7px;padding:1px 5px;color:#176c49}.tg-formula-help-toggle{height:36px;border:1px solid #cdebdc;background:#fff;border-radius:12px;color:#267352;font-size:13px;font-weight:600;cursor:pointer;padding:0 12px}.tg-formula-help-toggle:hover{background:#eefdf6}.tg-formula-editor{width:100%;min-height:280px;border:1px solid #cdebdc;background:#fff;border-radius:16px;padding:14px 16px;color:#1f2937;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:14px;line-height:1.55;resize:vertical;outline:none}.tg-formula-editor:focus{border-color:#6bc79c;box-shadow:0 0 0 3px rgba(107,199,156,.16)}.tg-formula-status{display:flex;justify-content:flex-end;margin-top:8px;color:#8b929e;font-size:12px;font-weight:600}.tg-formula-error{display:none;margin-top:9px;color:#dc2626;font-size:12px;font-weight:600;line-height:1.4}.tg-formula-error.is-open{display:block}.tg-formula-help{margin-top:14px}.tg-formula-help-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.tg-formula-help-card{border:1px solid #e5e7eb;background:#fff;border-radius:18px;padding:16px}.tg-formula-help-title{font-size:15px;font-weight:650;color:#374151;margin-bottom:10px}.tg-formula-help-card ul{margin:0;padding-left:18px;color:#4b5563;font-size:13px;line-height:1.55}.tg-formula-field-list{display:flex;flex-direction:column;gap:7px;max-height:260px;overflow:auto}.tg-formula-field-list button{border:1px solid #edf0f2;background:#fbfbfc;border-radius:12px;padding:9px 10px;text-align:left;cursor:pointer}.tg-formula-field-list button:hover{background:#eefdf6;border-color:#cdebdc}.tg-formula-field-list b{display:block;color:#374151;font-size:13px;font-weight:650}.tg-formula-field-list span{display:block;margin-top:2px;color:#8b929e;font-size:12px}.tg-formula-warning{margin-top:12px;border:1px solid #efe6d2;background:#fffaf0;border-radius:14px;padding:11px 13px;color:#75613a;font-size:12px;line-height:1.45}@media(max-width:760px){.tg-formula-help-grid{grid-template-columns:1fr}.tg-formula-editor{min-height:240px}}
+    <style data-flow-panel-style="scenario-formula-panel-v3.5.182">
+    .tg-formula-panel-head{border-bottom-color:#d8f3e5}.tg-formula-box{border:1px solid #d8f3e5;background:linear-gradient(180deg,#fff 0%,#f7fffb 100%);border-radius:20px;padding:18px;margin-top:12px;box-shadow:0 12px 30px rgba(15,23,42,.05)}.tg-formula-topline{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.tg-formula-title{font-size:18px;font-weight:650;color:#265b43}.tg-formula-note{margin-top:4px;font-size:12px;color:#6b7280;line-height:1.45}.tg-formula-note code,.tg-formula-help code{background:#eefdf6;border-radius:7px;padding:1px 5px;color:#176c49}.tg-formula-help-toggle{height:36px;border:1px solid #cdebdc;background:#fff;border-radius:12px;color:#267352;font-size:13px;font-weight:600;cursor:pointer;padding:0 12px}.tg-formula-help-toggle:hover{background:#eefdf6}.tg-formula-examples{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}.tg-formula-examples button{border:1px solid #d8f3e5;background:#fff;border-radius:999px;padding:7px 10px;color:#267352;font-size:12px;font-weight:600;cursor:pointer}.tg-formula-examples button:hover{background:#eefdf6}.tg-formula-editor-shell{display:grid;grid-template-columns:46px minmax(0,1fr);border:1px solid #cdebdc;background:#fff;border-radius:16px;overflow:hidden}.tg-formula-editor-shell:focus-within{border-color:#6bc79c;box-shadow:0 0 0 3px rgba(107,199,156,.16)}.tg-formula-editor-shell.is-error{border-color:#ff6b73;box-shadow:0 0 0 3px rgba(255,107,115,.12)}.tg-formula-gutter{min-height:280px;background:#f4fbf7;border-right:1px solid #d8f3e5;color:#94a3a0;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:14px;line-height:1.55;padding:14px 8px;text-align:right;white-space:pre;user-select:none;overflow:hidden}.tg-formula-editor{width:100%;min-height:280px;border:0;background:#fff;padding:14px 16px;color:#1f2937;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:14px;line-height:1.55;resize:vertical;outline:none}.tg-formula-status{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;color:#8b929e;font-size:12px;font-weight:600}.tg-formula-check{color:#16a06a}.tg-formula-error{display:none;margin-top:9px;color:#dc2626;font-size:12px;font-weight:600;line-height:1.4}.tg-formula-error.is-open{display:block}.tg-formula-help{margin-top:14px}.tg-formula-help-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}.tg-formula-help-card{border:1px solid #e5e7eb;background:#fff;border-radius:18px;padding:16px}.tg-formula-help-title{font-size:15px;font-weight:650;color:#374151;margin-bottom:10px}.tg-formula-help-card ul{margin:0;padding-left:18px;color:#4b5563;font-size:13px;line-height:1.55}.tg-formula-field-list,.tg-formula-function-list{display:flex;flex-direction:column;gap:7px;max-height:260px;overflow:auto}.tg-formula-field-list button,.tg-formula-function-list button{border:1px solid #edf0f2;background:#fbfbfc;border-radius:12px;padding:9px 10px;text-align:left;cursor:pointer}.tg-formula-field-list button:hover,.tg-formula-function-list button:hover{background:#eefdf6;border-color:#cdebdc}.tg-formula-field-list b,.tg-formula-function-list b{display:block;color:#374151;font-size:13px;font-weight:650}.tg-formula-field-list span,.tg-formula-function-list span{display:block;margin-top:2px;color:#8b929e;font-size:12px}.tg-formula-warning{margin-top:12px;border:1px solid #efe6d2;background:#fffaf0;border-radius:14px;padding:11px 13px;color:#75613a;font-size:12px;line-height:1.45}@media(max-width:980px){.tg-formula-help-grid{grid-template-columns:1fr 1fr}}@media(max-width:760px){.tg-formula-help-grid{grid-template-columns:1fr}.tg-formula-editor,.tg-formula-gutter{min-height:240px}.tg-formula-status{align-items:flex-start;flex-direction:column}}
     </style>
     <script>
     (function(){
@@ -171,18 +232,70 @@ client.score = int(client.score) + bonus"><?php echo $h($code); ?></textarea>
       var linesEl = form.querySelector('[data-formula-lines]');
       var charsEl = form.querySelector('[data-formula-chars]');
       var errorEl = form.querySelector('[data-formula-error]');
+      var checkEl = form.querySelector('[data-formula-check]');
+      var gutterEl = form.querySelector('[data-formula-gutter]');
+      var shellEl = form.querySelector('[data-formula-shell]');
+      function splitLines(value){ return (value || '').replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n'); }
+      function hasBadQuotes(text){
+        var single = 0, dbl = 0, esc = false;
+        for (var i=0;i<text.length;i++) { var c = text[i]; if (esc) { esc = false; continue; } if (c === '\\') { esc = true; continue; } if (c === "'") single++; if (c === '"') dbl++; }
+        return (single % 2) !== 0 || (dbl % 2) !== 0;
+      }
+      function hasBadBrackets(text){
+        var n = 0, q = '', esc = false;
+        for (var i=0;i<text.length;i++) { var c = text[i]; if (esc) { esc = false; continue; } if (c === '\\') { esc = true; continue; } if (q) { if (c === q) q = ''; continue; } if (c === "'" || c === '"') { q = c; continue; } if (c === '(') n++; if (c === ')') n--; if (n < 0) return true; }
+        return n !== 0;
+      }
+      function assignmentIndex(line){
+        var q = '', esc = false;
+        for (var i=0;i<line.length;i++) { var c = line[i]; if (esc) { esc = false; continue; } if (c === '\\') { esc = true; continue; } if (q) { if (c === q) q = ''; continue; } if (c === "'" || c === '"') { q = c; continue; } if (c === '=') { var p = line[i-1] || '', nx = line[i+1] || ''; if (p === '=' || p === '!' || p === '<' || p === '>' || nx === '=') return -2; return i; } }
+        return -1;
+      }
+      function validate(value){
+        var errors = [], lines = splitLines(value), meaningful = 0;
+        var readonly = {username:1,telegram_user_id:1,chat_id:1,subscriber_id:1,bot_id:1,status:1};
+        lines.forEach(function(raw, idx){
+          var line = String(raw || '').trim();
+          if (!line || line.indexOf('#') === 0) return;
+          meaningful++;
+          if (hasBadQuotes(line)) { errors.push('Строка ' + (idx + 1) + ': не закрыты кавычки.'); return; }
+          if (hasBadBrackets(line)) { errors.push('Строка ' + (idx + 1) + ': проверьте скобки.'); return; }
+          var eq = assignmentIndex(line);
+          if (eq === -2) { errors.push('Строка ' + (idx + 1) + ': нужна запись через один знак =, сравнения здесь не используем.'); return; }
+          if (eq < 1) { errors.push('Строка ' + (idx + 1) + ': добавьте присваивание, например client.score = 10.'); return; }
+          var left = line.slice(0, eq).trim();
+          if (/^client\.([A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*)$/.test(left)) {
+            var name = left.replace(/^client\./, '');
+            if (readonly[name]) errors.push('Строка ' + (idx + 1) + ': поле ' + name + ' можно читать, но нельзя перезаписывать.');
+            return;
+          }
+          if (/^client\[["'].+?["']\]$/.test(left)) return;
+          if (/^[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*$/.test(left)) return;
+          errors.push('Строка ' + (idx + 1) + ': слева должно быть поле client.field или локальная переменная.');
+        });
+        if (value.trim() && meaningful <= 0) errors.push('Добавьте хотя бы одну рабочую строку формулы.');
+        return errors;
+      }
       function update(){
         var value = editor ? editor.value : '';
-        var lines = value === '' ? 0 : value.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').length;
+        var linesArr = value === '' ? [] : splitLines(value);
+        var lines = linesArr.length;
         var chars = Array.from(value).length;
         if (linesEl) linesEl.textContent = String(lines);
         if (charsEl) charsEl.textContent = String(chars);
+        if (gutterEl) gutterEl.textContent = Array.from({length: Math.max(lines, 1)}, function(_, i){ return String(i + 1); }).join('\n');
         var errors = [];
         if (lines > 50) errors.push('Слишком много строк: максимум 50.');
         if (chars > 5000) errors.push('Слишком много символов: максимум 5000.');
-        if (errorEl) { errorEl.textContent = errors.join(' '); errorEl.classList.toggle('is-open', errors.length > 0); }
+        errors = errors.concat(validate(value));
+        if (errorEl) { errorEl.textContent = errors.slice(0, 3).join(' '); errorEl.classList.toggle('is-open', errors.length > 0); }
+        if (checkEl) checkEl.textContent = value.trim() && errors.length === 0 ? 'Проверка пройдена' : '';
+        if (shellEl) shellEl.classList.toggle('is-error', errors.length > 0);
       }
-      if (editor) editor.addEventListener('input', update);
+      if (editor) {
+        editor.addEventListener('input', update);
+        editor.addEventListener('scroll', function(){ if (gutterEl) gutterEl.scrollTop = editor.scrollTop; });
+      }
       form.addEventListener('submit', function(e){
         update();
         if (errorEl && errorEl.classList.contains('is-open')) { e.preventDefault(); return false; }
@@ -191,6 +304,17 @@ client.score = int(client.score) + bonus"><?php echo $h($code); ?></textarea>
       var help = form.querySelector('[data-formula-help]');
       if (helpBtn && help) helpBtn.addEventListener('click', function(){ help.hidden = !help.hidden; });
       form.addEventListener('click', function(e){
+        var exampleBtn = e.target.closest ? e.target.closest('[data-formula-example]') : null;
+        if (exampleBtn && editor) {
+          var example = exampleBtn.getAttribute('data-formula-example') || '';
+          var prefix = editor.value.trim() ? '\n' : '';
+          var startEx = editor.selectionStart || editor.value.length;
+          editor.value = editor.value.slice(0, startEx) + prefix + example + editor.value.slice(startEx);
+          editor.focus();
+          editor.selectionStart = editor.selectionEnd = startEx + prefix.length + example.length;
+          update();
+          return;
+        }
         var btn = e.target.closest ? e.target.closest('[data-formula-insert]') : null;
         if (!btn || !editor) return;
         var token = btn.getAttribute('data-formula-insert') || '';
@@ -302,6 +426,7 @@ if ($type === 'actions') {
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
                     </div>
+                    <?php echo $__scenarioHelpButton; ?>
                     <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
                 </div>
             </div>
@@ -736,6 +861,7 @@ if ($type === 'condition') {
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
                     </div>
+                    <?php echo $__scenarioHelpButton; ?>
                     <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
                 </div>
             </div>
@@ -1107,6 +1233,7 @@ if ($type === 'random') {
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
                     </div>
+                    <?php echo $__scenarioHelpButton; ?>
                     <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
                 </div>
             </div>
@@ -1260,6 +1387,7 @@ if ($type === 'schedule') {
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
                     </div>
+                    <?php echo $__scenarioHelpButton; ?>
                     <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
                 </div>
             </div>
@@ -1577,6 +1705,7 @@ if ($type === 'delay') {
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
                     </div>
+                    <?php echo $__scenarioHelpButton; ?>
                     <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
                 </div>
             </div>
@@ -1938,6 +2067,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
                         <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                     </div>
                 </div>
+                <?php echo $__scenarioHelpButton; ?>
                 <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
             </div>
         </div>

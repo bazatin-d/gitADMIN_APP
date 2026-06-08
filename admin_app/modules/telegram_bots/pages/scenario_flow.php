@@ -170,11 +170,21 @@ $getFormulaSettings = static function(array $block): array {
     $code = (string)($settings['formula_code'] ?? '');
     $lines = $code === '' ? [] : preg_split('/\R/u', $code);
     $meaningful = [];
+    $meaningfulTotal = 0;
     foreach (($lines ?: []) as $line) {
         $t = trim((string)$line);
         if ($t === '' || str_starts_with($t, '#')) continue;
-        $meaningful[] = mb_strlen($t, 'UTF-8') > 80 ? mb_substr($t, 0, 80, 'UTF-8') . '…' : $t;
-        if (count($meaningful) >= 4) break;
+        $meaningfulTotal++;
+        if (count($meaningful) < 4) {
+            $summary = $t;
+            $eqPos = mb_strpos($t, '=', 0, 'UTF-8');
+            if ($eqPos !== false) {
+                $target = trim(mb_substr($t, 0, $eqPos, 'UTF-8'));
+                $right = trim(mb_substr($t, $eqPos + 1, null, 'UTF-8'));
+                $summary = $target !== '' ? ($target . ' ← ' . $right) : $t;
+            }
+            $meaningful[] = mb_strlen($summary, 'UTF-8') > 78 ? mb_substr($summary, 0, 78, 'UTF-8') . '…' : $summary;
+        }
     }
     $lineCount = is_array($lines) ? count($lines) : 0;
     return [
@@ -182,7 +192,7 @@ $getFormulaSettings = static function(array $block): array {
         'lineCount' => $lineCount,
         'charCount' => mb_strlen($code, 'UTF-8'),
         'summaries' => $meaningful,
-        'extraCount' => max(0, $lineCount - count($meaningful)),
+        'extraCount' => max(0, $meaningfulTotal - count($meaningful)),
         'isInvalid' => empty($settings['formula_valid']) || trim($code) === '',
         'preview' => $meaningful ? implode('; ', $meaningful) : 'Формула не настроена',
     ];
@@ -530,7 +540,7 @@ foreach ($blocks as $index => $block) {
             'cards' => $flowCards,
             'cardsCount' => count($flowCards),
             'stats' => $scenarioStats[$blockId] ?? ['sent' => 0, 'clicks' => 0, 'clickRate' => 0],
-            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.180',
+            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.181',
             'deleteAllowed' => !$isStart,
             'deeplinkCode' => $deeplinkCode,
             'deeplinkUrl' => $deeplinkUrl,
@@ -640,7 +650,7 @@ $flowData = [
     'nodes' => $nodes,
     'edges' => $edges,
     'returnUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
-        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.180',
+        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.181',
     'flowUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
     'blockLimit' => 550,
     'listUrl' => 'admin.php?tab=telegram_bots&page=scenarios',
