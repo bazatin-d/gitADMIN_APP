@@ -52,27 +52,17 @@ if ($page === 'scenario_block_panel') {
     return;
 }
 
-$allowedPages = ['bots','subscribers','subscriber','messages','broadcasts','flows','scenarios','scenario_flow','yandex_metrika_queue','telegram_group_diagnostics','logs'];
+$allowedPages = ['bots','subscribers','subscriber','messages','broadcasts','flows','scenarios','scenario_flow','logs'];
 if (!in_array($page, $allowedPages, true)) $page = 'bots';
 if ($page === 'logs') $page = 'messages';
 if ($page === 'flows') $page = 'scenarios';
 if ($page === 'subscriber' && !asr_tg_can('view')) $page = 'bots';
 if ($page === 'broadcasts' && !asr_tg_can('broadcast')) $page = 'bots';
-if (in_array($page, ['scenarios','scenario_flow','yandex_metrika_queue','telegram_group_diagnostics'], true) && !asr_tg_can('flows')) $page = 'bots';
+if (in_array($page, ['scenarios','scenario_flow'], true) && !asr_tg_can('flows')) $page = 'bots';
 if ($page === 'logs' && !asr_tg_can('logs')) $page = 'bots';
 
 if ($page === 'subscribers') {
     require __DIR__ . '/subscribers.php';
-    return;
-}
-
-if ($page === 'yandex_metrika_queue') {
-    require __DIR__ . '/yandex_metrika_queue.php';
-    return;
-}
-
-if ($page === 'telegram_group_diagnostics') {
-    require __DIR__ . '/telegram_group_diagnostics.php';
     return;
 }
 
@@ -632,11 +622,6 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                                     <img src="/assets/admin/icons/tb2-gear-gray.svg" alt="" aria-hidden="true">Редактировать
                                 </button>
                             <?php endif; ?>
-                            <?php if ($service === 'telegram' && $canManage): ?>
-                                <button type="button" class="tg-channel-action" data-tg-modal-open="tg-command-modal-<?php echo $botId; ?>">
-                                    <img src="/assets/admin/icons/tb2-flow-gray.svg" alt="" aria-hidden="true">Меню команд
-                                </button>
-                            <?php endif; ?>
                             <?php if ($canManage): ?>
                                 <?php if ($isDisabled): ?>
                                     <form method="POST">
@@ -664,91 +649,6 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                     </div>
                 </div>
 
-                <?php if ($canManage && $service === 'telegram'):
-                    $botCommands = asr_tg_bot_commands_all($pdo, $botId);
-                    // /start — системная команда Telegram и транспорт для диплинков.
-                    // В меню команд канала её не показываем.
-                    $botCommands = array_values(array_filter($botCommands, static function($cmd) {
-                        $name = strtolower(ltrim(trim((string)($cmd['command'] ?? '')), '/'));
-                        return $name !== 'start';
-                    }));
-                    if (!$botCommands) {
-                        $botCommands = [
-                            ['command' => 'help', 'description' => 'помощь', 'scenario_id' => null, 'step_id' => null],
-                        ];
-                    }
-                ?>
-                    <div class="tg-channel-modal-backdrop" id="tg-command-modal-<?php echo $botId; ?>" aria-hidden="true">
-                        <div class="tg-channel-modal tg-channel-modal-wide" role="dialog" aria-modal="true" aria-labelledby="tg-command-title-<?php echo $botId; ?>">
-                            <div class="tg-channel-modal-head">
-                                <div>
-                                    <div class="tg-channel-modal-title" id="tg-command-title-<?php echo $botId; ?>">Меню команд Telegram</div>
-                                    <div class="tg-channel-modal-text">Эти команды появятся в кнопке «Меню» у пользователя в Telegram. Сейчас команда сохраняется и отправляется в Telegram, а привязку к конкретному сценарию и шагу подключим на этапе сценариев.</div>
-                                </div>
-                                <button type="button" class="tg-channel-modal-close" data-tg-modal-close><img src="/assets/admin/icons/mo2-close-gray.svg" alt="" aria-hidden="true"></button>
-                            </div>
-                            <form method="POST" class="tg-channel-form tg-command-form">
-                                <input type="hidden" name="action" value="tg_bot_commands_save">
-                                <input type="hidden" name="return_page" value="bots">
-                                <input type="hidden" name="bot_id" value="<?php echo $botId; ?>">
-                                <div class="tg-command-note">Команду пишем без слэша: например, <b>help</b>. В Telegram она будет отображаться как <b>/help</b>. Поля сценария и шага пока заблокированы - это заготовка под следующий этап.</div>
-                                <div class="tg-command-list" data-command-list>
-                                    <?php foreach ($botCommands as $cmd): ?>
-                                        <div class="tg-command-row" data-command-row>
-                                            <label class="tg-command-field tg-command-prefix">
-                                                <span>Название</span>
-                                                <input name="command[]" value="<?php echo $h($cmd['command'] ?? ''); ?>" placeholder="help" maxlength="32">
-                                            </label>
-                                            <label class="tg-command-field">
-                                                <span>Описание</span>
-                                                <input name="description[]" value="<?php echo $h($cmd['description'] ?? ''); ?>" placeholder="помощь" maxlength="256">
-                                            </label>
-                                            <label class="tg-command-field">
-                                                <span>Сценарий</span>
-                                                <select disabled><option>Настроим позже</option></select>
-                                                <input type="hidden" name="scenario_id[]" value="<?php echo (int)($cmd['scenario_id'] ?? 0); ?>">
-                                            </label>
-                                            <label class="tg-command-field">
-                                                <span>Запустить с шага</span>
-                                                <select disabled><option>Сначала сценарии</option></select>
-                                                <input type="hidden" name="step_id[]" value="<?php echo (int)($cmd['step_id'] ?? 0); ?>">
-                                            </label>
-                                            <button type="button" class="tg-command-delete" data-command-delete title="Удалить строку">×</button>
-                                        </div>
-                                    <?php endforeach; ?>
-                                </div>
-                                <button type="button" class="tg-command-add-row" data-command-add>+ Добавить команду</button>
-                                <template data-command-template>
-                                    <div class="tg-command-row" data-command-row>
-                                        <label class="tg-command-field tg-command-prefix">
-                                            <span>Название</span>
-                                            <input name="command[]" placeholder="help" maxlength="32">
-                                        </label>
-                                        <label class="tg-command-field">
-                                            <span>Описание</span>
-                                            <input name="description[]" placeholder="описание команды" maxlength="256">
-                                        </label>
-                                        <label class="tg-command-field">
-                                            <span>Сценарий</span>
-                                            <select disabled><option>Настроим позже</option></select>
-                                            <input type="hidden" name="scenario_id[]" value="0">
-                                        </label>
-                                        <label class="tg-command-field">
-                                            <span>Запустить с шага</span>
-                                            <select disabled><option>Сначала сценарии</option></select>
-                                            <input type="hidden" name="step_id[]" value="0">
-                                        </label>
-                                        <button type="button" class="tg-command-delete" data-command-delete title="Удалить строку">×</button>
-                                    </div>
-                                </template>
-                                <div class="tg-channel-modal-actions">
-                                    <button type="button" class="tg-channel-secondary" data-tg-modal-close>Отмена</button>
-                                    <button type="submit" class="tg-channel-primary"><img src="/assets/admin/icons/tb2-save-white.svg" alt="" aria-hidden="true">Сохранить меню</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                <?php endif; ?>
 
                 <?php if ($canManage): ?>
                     <div class="tg-channel-modal-backdrop" id="tg-channel-edit-modal-<?php echo $botId; ?>" aria-hidden="true">
@@ -1152,7 +1052,7 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                     <textarea name="message_text" placeholder="Введите сообщение..." data-chat-text <?php echo $channelType !== 'telegram' ? 'disabled' : ''; ?>></textarea>
                     <input type="file" name="chat_attachment" class="hidden" data-chat-file accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.m4v,.webm,.mp3,.m4a,.ogg,.wav,.pdf,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" <?php echo $channelType !== 'telegram' ? 'disabled' : ''; ?>>
                     <div class="tg-chat-actions"><div class="tg-chat-tool-row"><div class="tg-chat-tools"><button type="button" class="tg-chat-tool tg-chat-tool--icon" data-chat-emoji title="Эмодзи" aria-label="Эмодзи" <?php echo $channelType !== 'telegram' ? 'disabled' : ''; ?>><span class="tg-chat-tool-glyph" aria-hidden="true">☺</span></button><div class="tg-chat-emoji-menu" data-chat-emoji-menu></div></div><div class="tg-chat-tools"><button type="button" class="tg-chat-tool tg-chat-tool--icon" data-chat-macro title="Переменные" aria-label="Переменные" <?php echo $channelType !== 'telegram' ? 'disabled' : ''; ?>><span class="tg-chat-tool-glyph" aria-hidden="true">{}</span></button><div class="tg-chat-macro-menu" data-chat-macro-menu></div></div><button type="button" class="tg-chat-tool tg-chat-tool--icon" data-chat-attach title="Прикрепить файл" aria-label="Прикрепить файл" <?php echo $channelType !== 'telegram' ? 'disabled' : ''; ?>><span class="tg-chat-tool-glyph" aria-hidden="true">📎</span></button><span class="tg-chat-file-name" data-chat-file-name></span></div><button class="tg-chat-send" <?php echo $channelType !== 'telegram' ? 'disabled' : ''; ?>>Отправить</button></div>
-                    <div class="tg-readonly-note"><?php echo $channelType === 'telegram' ? 'Можно отправить текст, эмодзи и один файл до 45 МБ.' : 'Отправку для ВК подключим позже.'; ?></div>
+                    <div class="tg-readonly-note"><?php echo $channelType === 'telegram' ? 'Можно отправить текст, эмодзи и один файл до 45 МБ.' : 'Отправка доступна только для Telegram-каналов.'; ?></div>
                 </form>
             </main>
         </div>
@@ -1308,7 +1208,7 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
     // Открытие диалога больше не снимает индикатор внимания.
     // Красный сигнал держится до исходящего ответа сотрудника или системы.
     $dialogMessages = $dialogSubscriber ? asr_tg_dialog_messages($pdo, (int)$dialogSubscriber['id'], 200, (int)($dialogSubscriber['bot_id'] ?? 0)) : [];
-    $dialogBroadcastDiag = ((int)($_GET['tg_bc_diag'] ?? 0) === 1 && function_exists('asr_tg_dialog_broadcast_context_debug')) ? asr_tg_dialog_broadcast_context_debug($pdo, (int)($dialogSubscriber['id'] ?? $selectedDialogSubscriberId), (int)($dialogSubscriber['bot_id'] ?? $selectedBotId)) : null;
+$dialogBroadcastDiag = null;
     $dialogTagsMap = $dialogSubscriber ? asr_tg_subscriber_tags_map($pdo, (int)$dialogSubscriber['bot_id'], [(int)$dialogSubscriber['id']]) : [];
     $dialogTags = $dialogSubscriber ? ($dialogTagsMap[(int)$dialogSubscriber['id']] ?? []) : [];
     $dialogChannelMemberships = $dialogSubscriber ? asr_tg_subscriber_channel_memberships($pdo, $dialogSubscriber) : [];
@@ -1739,15 +1639,8 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                         <?php endif; endforeach; ?>
                         <?php if (!$dialogMessages): ?><div class="tg-dialog-empty">Истории сообщений пока нет.</div><?php endif; ?>
                     </div>
-                    <?php if (is_array($dialogBroadcastDiag)): ?>
-                        <div class="tg-dialog-broadcast-diag">
-                            <h5>Диагностика контекста рассылок</h5>
-                            <div>Показывается только при параметре <code>tg_bc_diag=1</code>. Скопируйте этот блок после тестовой рассылки и ответа подписчика.</div>
-                            <pre><?php echo $h(json_encode($dialogBroadcastDiag, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)); ?></pre>
-                        </div>
-                    <?php endif; ?>
                     <?php if (strtolower((string)($dialogSubscriber['channel_type'] ?? 'telegram')) === 'vk'): ?>
-                        <div class="tg-dialog-compose"><div class="tg-dialog-empty">Отправка во ВК будет подключена отдельным шагом.</div></div>
+                        <div class="tg-dialog-compose"><div class="tg-dialog-empty">Отправка доступна только для Telegram-каналов.</div></div>
                     <?php else: ?>
                         <form method="POST" class="tg-dialog-compose" enctype="multipart/form-data" data-dialog-compose>
                             <input type="hidden" name="action" value="tg_subscriber_send_message">
@@ -1896,7 +1789,7 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                 </label>
                 <label class="tg-dialog-setting-row">
                     <span><input class="tg-dialog-switch-input" type="checkbox" name="auto_reply_enabled" value="1" <?php echo !empty($dialogSettings['auto_reply_enabled']) ? 'checked' : ''; ?>><span class="tg-dialog-switch"></span></span>
-                    <span><span class="tg-dialog-setting-title">Автоматический ответ</span><span class="tg-dialog-setting-text">Заготовка под автоответ на входящие сообщения. Реальная отправка будет подключена отдельным шагом, чтобы не смешивать настройки и механику сценариев.</span><textarea class="tg-dialog-settings-textarea" name="auto_reply_text" data-dialog-settings-auto-reply-text placeholder="Например: Спасибо за сообщение. Мы ответим в ближайшее время."><?php echo $h((string)($dialogSettings['auto_reply_text'] ?? '')); ?></textarea><input type="file" name="auto_reply_attachment" class="hidden" data-dialog-settings-auto-reply-file accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.m4v,.webm,.mp3,.m4a,.ogg,.wav,.pdf,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"><div class="tg-dialog-settings-tools"><span class="tg-dialog-settings-emoji-wrap"><button type="button" class="tg-dialog-settings-tool" data-dialog-settings-emoji title="Эмодзи" aria-label="Эмодзи">☺</button><div class="tg-dialog-settings-emoji-menu" data-dialog-settings-emoji-menu></div></span><button type="button" class="tg-dialog-settings-tool" data-dialog-settings-attach title="Прикрепить файл" aria-label="Прикрепить файл">📎</button><span class="tg-dialog-settings-file-name" data-dialog-settings-file-name></span></div><?php if (!empty($autoReplyAttachment['file_path'])): ?><div class="tg-dialog-settings-attachment"><a href="/<?php echo $h(ltrim((string)$autoReplyAttachment['file_path'], '/')); ?>" target="_blank" rel="noopener"><?php echo $h((string)($autoReplyAttachment['file_name'] ?? 'Файл автоответа')); ?></a><label><input type="checkbox" name="auto_reply_attachment_clear" value="1"> удалить</label></div><?php endif; ?></span>
+                    <span><span class="tg-dialog-setting-title">Автоматический ответ</span><span class="tg-dialog-setting-text">Автоответ отправляется подписчику после входящего сообщения. Используйте его для простого подтверждения получения обращения, а сложную логику лучше настраивать через сценарии.</span><textarea class="tg-dialog-settings-textarea" name="auto_reply_text" data-dialog-settings-auto-reply-text placeholder="Например: Спасибо за сообщение. Мы ответим в ближайшее время."><?php echo $h((string)($dialogSettings['auto_reply_text'] ?? '')); ?></textarea><input type="file" name="auto_reply_attachment" class="hidden" data-dialog-settings-auto-reply-file accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.m4v,.webm,.mp3,.m4a,.ogg,.wav,.pdf,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"><div class="tg-dialog-settings-tools"><span class="tg-dialog-settings-emoji-wrap"><button type="button" class="tg-dialog-settings-tool" data-dialog-settings-emoji title="Эмодзи" aria-label="Эмодзи">☺</button><div class="tg-dialog-settings-emoji-menu" data-dialog-settings-emoji-menu></div></span><button type="button" class="tg-dialog-settings-tool" data-dialog-settings-attach title="Прикрепить файл" aria-label="Прикрепить файл">📎</button><span class="tg-dialog-settings-file-name" data-dialog-settings-file-name></span></div><?php if (!empty($autoReplyAttachment['file_path'])): ?><div class="tg-dialog-settings-attachment"><a href="/<?php echo $h(ltrim((string)$autoReplyAttachment['file_path'], '/')); ?>" target="_blank" rel="noopener"><?php echo $h((string)($autoReplyAttachment['file_name'] ?? 'Файл автоответа')); ?></a><label><input type="checkbox" name="auto_reply_attachment_clear" value="1"> удалить</label></div><?php endif; ?></span>
                 </label>
                 <div class="tg-dialog-settings-sep"></div>
                 <div>
@@ -2200,7 +2093,7 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
             if(status==='closed'||status==='spam') html+=statusForm(subscriber,'new','↺','Вернуть в новые','is-icon is-soft');
             html+='</div>';
             html+='</div></div><div class="tg-dialog-chat-body" data-dialog-chat-feed></div>';
-            if(isVk){html+='<div class="tg-dialog-compose"><div class="tg-dialog-empty">Отправка во ВК будет подключена отдельным шагом.</div></div>';}
+            if(isVk){html+='<div class="tg-dialog-compose"><div class="tg-dialog-empty">Отправка доступна только для Telegram-каналов.</div></div>';}
             else{html+='<form method="POST" class="tg-dialog-compose" enctype="multipart/form-data" data-dialog-compose><input type="hidden" name="action" value="tg_subscriber_send_message"><input type="hidden" name="return_page" value="messages"><input type="hidden" name="dialog_view" value="'+esc(dialogState.view)+'"><input type="hidden" name="bot_id" value="'+esc(subscriber.bot_id)+'"><input type="hidden" name="subscriber_id" value="'+esc(subscriber.id)+'">'+csrfInput()+'<textarea name="message_text" placeholder="Введите сообщение..." data-dialog-chat-text></textarea><input type="file" name="chat_attachment" class="hidden" data-dialog-chat-file accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.mov,.m4v,.webm,.mp3,.m4a,.ogg,.wav,.pdf,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"><div class="tg-chat-actions"><div class="tg-chat-tool-row"><div class="tg-chat-tools"><button type="button" class="tg-chat-tool tg-chat-tool--icon" data-dialog-chat-emoji title="Эмодзи" aria-label="Эмодзи"><span class="tg-chat-tool-glyph" aria-hidden="true">☺</span></button><div class="tg-chat-emoji-menu" data-dialog-chat-emoji-menu></div></div><div class="tg-chat-tools"><button type="button" class="tg-chat-tool tg-chat-tool--icon" data-dialog-chat-macro title="Переменные" aria-label="Переменные"><span class="tg-chat-tool-glyph" aria-hidden="true">{}</span></button><div class="tg-chat-macro-menu" data-dialog-chat-macro-menu></div></div><button type="button" class="tg-chat-tool tg-chat-tool--icon" data-dialog-chat-attach title="Прикрепить файл" aria-label="Прикрепить файл"><span class="tg-chat-tool-glyph" aria-hidden="true">📎</span></button><span class="tg-chat-file-name" data-dialog-chat-file-name></span></div><button class="tg-chat-send" type="submit">Отправить</button></div><div class="tg-readonly-note">Можно отправить текст, эмодзи и один файл до 45 МБ.</div></form>';}
             return html;
         }

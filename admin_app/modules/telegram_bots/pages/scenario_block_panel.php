@@ -1786,7 +1786,6 @@ if ($type === 'delay') {
                         </div>
                         <div class="tg-flow-delay-help">Важно! Этот шаг будет отправлен только в выбранные дни недели.</div>
                     </div>
-                    <div class="tg-flow-delay-runtime-note">Runtime-подсказка: блок требует следующий шаг. Пока это используется для подсветки на холсте, позже — для runner задержек.</div>
                 </div>
                 <div class="tg-delay-tz-modal" data-tz-modal aria-hidden="true">
                     <div class="tg-delay-tz-card" role="dialog" aria-modal="true" aria-label="Часовой пояс задержки">
@@ -2571,12 +2570,10 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     const row = {time: new Date().toISOString(), stage, data: payload};
     window.__tgScenarioQuestionDiag.push(row);
     if (window.__tgScenarioQuestionDiag.length > 30) window.__tgScenarioQuestionDiag.shift();
-    try { console.info('[ScenarioQuestionDiag]', row); } catch(e) {}
     return row;
   }
   function showPanelDiag(message, data){
-    const suffix = data ? '\n\nДиагностика:\n' + JSON.stringify(data, null, 2).slice(0, 1600) : '';
-    panelNotice(String(message || '') + suffix, true);
+    panelNotice(String(message || 'Не удалось сохранить блок.'), true);
   }
   const editorSavedRanges=new WeakMap();
   function isRangeInsideEditor(editor,range){

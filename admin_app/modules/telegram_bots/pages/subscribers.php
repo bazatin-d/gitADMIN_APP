@@ -77,8 +77,8 @@ $safeFilterOpLabels = [
     'before' => 'до',
     'after' => 'после',
     'between' => 'между',
-    'known' => 'известно',
-    'unknown' => 'неизвестно',
+    'known' => 'заполнено',
+    'unknown' => 'не заполнено',
     'tag_has' => 'есть',
     'tag_not_has' => 'нет',
 ];
@@ -424,9 +424,9 @@ try {
     ?>
     <section class="bg-white rounded-3xl border border-red-100 p-8 text-left">
         <h3 class="text-xl font-bold text-red-700">Страница «Подписчики» не смогла загрузиться</h3>
-        <p class="mt-3 text-sm font-semibold text-gray-600">Это уже не похоже на SQL-lock: страница падает с ошибкой PHP/SQL. Ниже диагностическое сообщение.</p>
+        <p class="mt-3 text-sm font-semibold text-gray-600">Не удалось загрузить список подписчиков. Подробности ошибки ниже.</p>
         <pre class="mt-4 whitespace-pre-wrap rounded-2xl bg-red-50 border border-red-100 p-4 text-xs font-semibold text-red-800"><?php echo $h($e->getMessage()); ?></pre>
-        <p class="mt-4 text-sm font-semibold text-gray-500">Пришлите этот текст ошибки, и я сделаю точечный фикс.</p>
+        <p class="mt-4 text-sm font-semibold text-gray-500">Скопируйте текст ошибки и передайте администратору системы.</p>
     </section>
     <?php return;
 }
@@ -450,7 +450,7 @@ $safeFormatDate = static function($value): string {
 .tg-filter-server-error{padding:12px 18px;background:#fff1f2;border-bottom:1px solid #fecdd3;color:#9f1239;font-size:13px;font-weight:600}.tg-filter-builder{padding:14px 18px;border-bottom:1px solid #edf0f2;background:#fbfbfc}.tg-filter-mainline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.tg-filter-builder select,.tg-filter-builder input{height:42px;border:1px solid #e5e7eb;background:#fff;border-radius:14px;padding:0 12px;font-size:13px;font-weight:500;color:#374151;outline:none}.tg-filter-channel{min-width:210px}.tg-filter-logic-wrap{display:none;align-items:center;gap:4px;border-radius:999px;background:#f3f4f6;padding:3px}.tg-filter-logic-wrap.is-visible{display:inline-flex}.tg-filter-logic{height:30px;border:0;border-radius:999px;background:transparent;color:#6b7280;padding:0 10px;font-size:12px;font-weight:600;cursor:pointer}.tg-filter-logic.is-active{background:#fff;color:#e98222;box-shadow:0 1px 4px rgba(15,23,42,.08)}.tg-filter-conditions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.tg-filter-condition{display:inline-flex;align-items:center;gap:7px;min-height:44px;border:1px solid #e5e7eb;background:#fff;border-radius:18px;padding:6px 8px}.tg-filter-condition.is-invalid{background:#fff1f2;border-color:#fecdd3}.tg-filter-condition select,.tg-filter-condition input{height:34px;border-radius:11px;font-size:12px}.tg-filter-condition .tg-filter-value{width:170px}.tg-filter-condition .tg-filter-value2{width:140px}.tg-filter-remove{width:28px;height:28px;border:0;border-radius:999px;background:#f3f4f6;color:#6b7280;cursor:pointer;font-size:16px;line-height:1}.tg-filter-add,.tg-filter-apply,.tg-filter-reset{height:42px;border-radius:14px;padding:0 14px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;text-decoration:none}.tg-filter-add{border:1px solid #fed7aa;background:#fff7ed;color:#c2410c;cursor:pointer}.tg-filter-apply{border:0;background:#e98222;color:#fff;cursor:pointer}.tg-filter-apply:disabled{background:#e5e7eb;color:#9ca3af;cursor:not-allowed}.tg-filter-reset{background:#f3f4f6;color:#6b7280}.tg-filter-help{margin-top:8px;font-size:12px;font-weight:500;color:#9ca3af}@media(max-width:820px){.tg-filter-mainline{align-items:stretch;flex-direction:column}.tg-filter-channel,.tg-filter-builder select,.tg-filter-builder input,.tg-filter-add,.tg-filter-apply,.tg-filter-reset{width:100%;justify-content:center}.tg-filter-conditions{display:grid;width:100%;gap:8px}.tg-filter-condition{display:grid;grid-template-columns:1fr;align-items:stretch;width:100%}.tg-filter-condition .tg-filter-value,.tg-filter-condition .tg-filter-value2{width:100%}.tg-filter-remove{justify-self:end}}
 
 /* v3.4.34: dropdown-style filter chips */
-.tg-filter-conditions{position:relative}.tg-filter-condition{position:relative;display:inline-flex;align-items:center;gap:6px;min-height:42px;border:0;background:transparent;border-radius:0;padding:0}.tg-filter-condition.is-invalid .tg-filter-chip{background:#fff1f2;border-color:#fecdd3;color:#be123c}.tg-filter-chip{height:42px;border:1px solid #e5e7eb;background:#fff;border-radius:999px;padding:0 8px 0 14px;display:inline-flex;align-items:center;gap:8px;color:#374151;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.03);max-width:360px}.tg-filter-chip:hover{border-color:#fed7aa;background:#fffaf5}.tg-filter-chip-text{display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:285px}.tg-filter-chip:after{content:'▾';font-size:11px;color:#9ca3af}.tg-filter-remove{width:24px;height:24px;border:0;border-radius:999px;background:#f3f4f6;color:#6b7280;cursor:pointer;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center}.tg-filter-remove:hover{background:#fee2e2;color:#b91c1c}.tg-filter-popover{display:none;position:absolute;z-index:50;top:48px;left:0;width:360px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 18px 48px rgba(15,23,42,.16);padding:14px}.tg-filter-condition.is-open .tg-filter-popover{display:block}.tg-filter-joiner{height:34px;border:0;border-radius:999px;background:#f3f4f6;color:#e98222;padding:0 12px;font-size:12px;font-weight:700;cursor:pointer}.tg-filter-joiner:hover{background:#fff7ed}.tg-filter-joiner.is-or{color:#b45309}.tg-filter-popover-row{display:grid;gap:6px;margin-bottom:10px}.tg-filter-popover-label{font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em}.tg-filter-popover-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}.tg-filter-done{height:34px;border:0;border-radius:12px;background:#e98222;color:#fff;padding:0 12px;font-size:12px;font-weight:700;cursor:pointer}.tg-filter-builder .tg-filter-popover select,.tg-filter-builder .tg-filter-popover input{width:100%;height:38px;border-radius:12px}.tg-filter-value-box{display:grid;gap:8px}.tg-filter-warning{display:none;margin-top:8px;color:#be123c;font-size:12px;font-weight:600}.tg-filter-condition.is-invalid .tg-filter-warning{display:block}.tg-filter-add{border-radius:999px}.tg-filter-logic-wrap{height:42px}@media(max-width:820px){.tg-filter-condition{width:100%;display:block}.tg-filter-chip{width:100%;max-width:none;justify-content:space-between}.tg-filter-chip-text{max-width:calc(100vw - 120px)}.tg-filter-popover{position:static;width:100%;box-shadow:none;margin-top:8px}.tg-filter-condition.is-open .tg-filter-popover{display:block}}
+.tg-filter-conditions{position:relative}.tg-filter-condition{position:relative;display:inline-flex;align-items:center;gap:6px;min-height:42px;border:0;background:transparent;border-radius:0;padding:0}.tg-filter-condition.is-invalid{background:transparent!important;border:0!important}.tg-filter-condition.is-invalid .tg-filter-chip{background:#fff1f2;border-color:#fecdd3;color:#be123c;border-radius:999px}.tg-filter-chip{height:42px;border:1px solid #e5e7eb;background:#fff;border-radius:999px;padding:0 8px 0 14px;display:inline-flex;align-items:center;gap:8px;color:#374151;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.03);max-width:360px}.tg-filter-chip:hover{border-color:#fed7aa;background:#fffaf5}.tg-filter-chip-text{display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:285px}.tg-filter-chip:after{content:'▾';font-size:11px;color:#9ca3af}.tg-filter-remove{width:24px;height:24px;border:0;border-radius:999px;background:#f3f4f6;color:#6b7280;cursor:pointer;font-size:15px;line-height:1;display:inline-flex;align-items:center;justify-content:center}.tg-filter-remove:hover{background:#fee2e2;color:#b91c1c}.tg-filter-popover{display:none;position:absolute;z-index:50;top:48px;left:0;width:360px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 18px 48px rgba(15,23,42,.16);padding:14px}.tg-filter-condition.is-open .tg-filter-popover{display:block}.tg-filter-joiner{height:34px;border:0;border-radius:999px;background:#f3f4f6;color:#e98222;padding:0 12px;font-size:12px;font-weight:700;cursor:pointer}.tg-filter-joiner:hover{background:#fff7ed}.tg-filter-joiner.is-or{color:#b45309}.tg-filter-popover-row{display:grid;gap:6px;margin-bottom:10px}.tg-filter-popover-label{font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em}.tg-filter-popover-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:4px}.tg-filter-done{height:34px;border:0;border-radius:12px;background:#e98222;color:#fff;padding:0 12px;font-size:12px;font-weight:700;cursor:pointer}.tg-filter-builder .tg-filter-popover select,.tg-filter-builder .tg-filter-popover input{width:100%;height:38px;border-radius:12px}.tg-filter-value-box{display:grid;gap:8px}.tg-filter-warning{display:none;margin-top:8px;color:#be123c;font-size:12px;font-weight:600}.tg-filter-condition.is-invalid .tg-filter-warning{display:block}.tg-filter-add{border-radius:999px}.tg-filter-logic-wrap{height:42px}@media(max-width:820px){.tg-filter-condition{width:100%;display:block}.tg-filter-chip{width:100%;max-width:none;justify-content:space-between}.tg-filter-chip-text{max-width:calc(100vw - 120px)}.tg-filter-popover{position:static;width:100%;box-shadow:none;margin-top:8px}.tg-filter-condition.is-open .tg-filter-popover{display:block}}
 
 
 
@@ -491,8 +491,6 @@ $safeFormatDate = static function($value): string {
                 <button type="button" class="tg-bulk-actions-btn" data-tg-bulk-toggle disabled>Действия <span data-tg-bulk-count>0</span></button>
                 <div class="tg-bulk-menu" data-tg-bulk-menu>
                     <div class="tg-bulk-menu-title">Выбрано: <span data-tg-bulk-count>0</span></div>
-                    <button type="button" class="tg-bulk-menu-item" disabled>Добавить в сценарий <span>позже</span></button>
-                    <button type="button" class="tg-bulk-menu-item" disabled>Остановить сценарий <span>позже</span></button>
                     <button type="button" class="tg-bulk-menu-item" data-tg-bulk-panel-toggle="add-tag">Установить тег <span>›</span></button>
                     <div class="tg-bulk-panel" data-tg-bulk-panel="add-tag">
                         <label>Выберите тег</label>
@@ -583,7 +581,7 @@ $safeFormatDate = static function($value): string {
 </div>
 <div class="tg-subs-modal" data-tg-fields-modal aria-hidden="true">
     <div class="tg-subs-modal-card">
-        <div class="tg-subs-modal-head"><div><h4>Настраиваемые поля</h4><p>Эти поля станут переменными вида {{custom.code}} и позже будут доступны в фильтрах, сценариях и рассылках.</p></div><button type="button" class="tg-subs-modal-close" data-tg-fields-close>×</button></div>
+        <div class="tg-subs-modal-head"><div><h4>Настраиваемые поля</h4><p>Эти поля используются в карточках подписчиков, фильтрах, сценариях, рассылках и переменных вида {{custom.code}}.</p></div><button type="button" class="tg-subs-modal-close" data-tg-fields-close>×</button></div>
         <form class="tg-subs-field-form" method="POST" action="admin.php?tab=telegram_bots&page=subscribers&fields_modal=1" data-tg-field-form>
             <input type="hidden" name="action" value="tg_custom_field_save"><input type="hidden" name="tab" value="telegram_bots"><input type="hidden" name="page" value="subscribers"><input type="hidden" name="bot_id" value="0"><input type="hidden" name="return_page" value="subscribers"><input type="hidden" name="fields_modal" value="1"><input type="hidden" name="field_id" value="0" data-tg-field-id><?php if (function_exists('csrf_token')): ?><input type="hidden" name="csrf_token" value="<?php echo $h(csrf_token()); ?>"><?php endif; ?>
             <input name="title" placeholder="Название поля, например: Сотрудников" required data-tg-field-title>
@@ -636,7 +634,7 @@ $safeFormatDate = static function($value): string {
             var row=document.createElement('div');row.className='tg-filter-condition';row.dataset.condition='1';
             row.dataset.joiner=(data && data.joiner==='or')?'or':'and';
 
-            var chip=document.createElement('button');chip.type='button';chip.className='tg-filter-chip';
+            var chip=document.createElement('div');chip.className='tg-filter-chip';chip.setAttribute('role','button');chip.setAttribute('tabindex','0');
             var chipText=document.createElement('span');chipText.className='tg-filter-chip-text';
             var remove=document.createElement('button');remove.type='button';remove.className='tg-filter-remove';remove.innerHTML='×';remove.title='Удалить условие';
             chip.appendChild(chipText);chip.appendChild(remove);
@@ -661,7 +659,7 @@ $safeFormatDate = static function($value): string {
             var valueBox=document.createElement('span');valueBox.className='tg-filter-value-box';
             valueWrap.appendChild(valueLabel);valueWrap.appendChild(valueBox);
 
-            var warning=document.createElement('div');warning.className='tg-filter-warning';warning.textContent='Заполните условие корректно.';
+            var warning=document.createElement('div');warning.className='tg-filter-warning';warning.textContent='Заполните условие корректно. Для «заполнено» и «не заполнено» значение указывать не нужно.';
             var actions=document.createElement('div');actions.className='tg-filter-popover-actions';
             var done=document.createElement('button');done.type='button';done.className='tg-filter-done';done.textContent='Готово';
             actions.appendChild(done);
@@ -726,6 +724,7 @@ $safeFormatDate = static function($value): string {
             function close(){row.classList.remove('is-open');}
             function changed(){ updateSummary(); validateAndSerialize(); }
             chip.addEventListener('click',function(e){ if(e.target===remove) return; e.preventDefault(); row.classList.toggle('is-open'); });
+            chip.addEventListener('keydown',function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); row.classList.toggle('is-open'); } });
             pop.addEventListener('click',function(e){e.stopPropagation();});
             fieldSel.addEventListener('change',function(){opSel.dataset.current='';renderOps();renderValue();changed();});
             opSel.addEventListener('change',function(){opSel.dataset.current=opSel.value;renderValue();changed();});
@@ -790,19 +789,60 @@ $safeFormatDate = static function($value): string {
         function validateAndSerialize(){
             var rows=[].slice.call(list.querySelectorAll('[data-condition="1"]'));
             var conditions=[];var hasInvalid=false;
-            rows.forEach(function(row,idx){var c=readCondition(row,idx);var bad=isInvalid(c);row.classList.toggle('is-invalid',bad);if(bad)hasInvalid=true;conditions.push(c);});
+            rows.forEach(function(row,idx){
+                var c=readCondition(row,idx);
+                var bad=isInvalid(c);
+                row.classList.toggle('is-invalid',bad);
+                if(bad)hasInvalid=true;
+                conditions.push(c);
+            });
             if(logicWrap) logicWrap.classList.remove('is-visible');
             logicBtns.forEach(function(btn){btn.classList.toggle('is-active',btn.dataset.tgFilterLogic===filterState.logic);});
             syncInlineLogic(rows);
-            if(applyBtn) applyBtn.disabled=hasInvalid;
+            if(applyBtn){ applyBtn.disabled=false; applyBtn.classList.toggle('has-invalid',hasInvalid); }
             hidden.value=conditions.length?JSON.stringify({logic:filterState.logic,conditions:conditions}):'';
+            return !hasInvalid;
+        }
+        function focusFirstInvalid(){
+            var firstBad=list.querySelector('.tg-filter-condition.is-invalid');
+            if(!firstBad) return false;
+            list.querySelectorAll('.tg-filter-condition.is-open').forEach(function(row){row.classList.remove('is-open');});
+            firstBad.classList.add('is-open');
+            firstBad.scrollIntoView({behavior:'smooth',block:'center'});
+            return true;
+        }
+        function applyFilterNow(){
+            if(!validateAndSerialize()){
+                focusFirstInvalid();
+                return false;
+            }
+            var params=new URLSearchParams();
+            params.set('tab','telegram_bots');
+            params.set('page','subscribers');
+            var channel=form.querySelector('[name="bot_id"]');
+            params.set('bot_id', channel ? String(channel.value || '0') : '0');
+            if(String(hidden.value||'').trim()){
+                params.set('filter', hidden.value);
+            }
+            window.location.href='admin.php?'+params.toString();
+            return true;
         }
         logicBtns.forEach(function(btn){btn.addEventListener('click',function(){filterState.logic=btn.dataset.tgFilterLogic==='or'?'or':'and';validateAndSerialize();});});
         document.addEventListener('click',function(e){if(!e.target.closest('[data-condition="1"]')){list.querySelectorAll('.tg-filter-condition.is-open').forEach(function(row){row.classList.remove('is-open');});}});
         addBtn.addEventListener('click',function(){list.appendChild(createCondition({field:firstField(),op:defaultOp(firstField()),value:'',value2:''}));validateAndSerialize();});
         filterState.conditions.forEach(function(c){list.appendChild(createCondition(c));});
         validateAndSerialize();
-        form.addEventListener('submit',function(e){validateAndSerialize(); if(applyBtn && applyBtn.disabled){e.preventDefault();}});
+        if(applyBtn){
+            applyBtn.addEventListener('click',function(e){
+                e.preventDefault();
+                applyFilterNow();
+            });
+        }
+        form.addEventListener('submit',function(e){
+            e.preventDefault();
+            applyFilterNow();
+            return false;
+        });
     }
     initFilterBuilder();
     function initBulkActions(){

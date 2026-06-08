@@ -1978,140 +1978,6 @@ function asr_tg_runtime_fallback_command_row(PDO $pdo, int $botId, string $comma
 
 
 
-function asr_tg_runtime_diagnostic(PDO $pdo, int $scenarioId, int $botId, string $command = 'help'): array {
-    if (!asr_tg_can('flows')) throw new RuntimeException('Недостаточно прав для диагностики сценариев.');
-    asr_tg_repository_ensure_schema($pdo);
-    asr_tg_repository_ensure_scenario_schema($pdo);
-    $scenarioId = max(0, $scenarioId);
-    $botId = max(0, $botId);
-    $command = asr_tg_normalize_command_name($command !== '' ? $command : 'help');
-
-    $scenario = $scenarioId > 0 ? asr_tg_scenario_find($pdo, $scenarioId) : null;
-    $scenarioBotId = $scenarioId > 0 ? asr_tg_scenario_bot_id($pdo, $scenarioId) : 0;
-    if ($botId <= 0) $botId = $scenarioBotId;
-    $bot = $botId > 0 ? asr_tg_bot_find($pdo, $botId) : null;
-
-    $commandRow = null;
-    if ($botId > 0 && $command !== '') {
-        $commandRow = asr_tg_runtime_command_find($pdo, $botId, $command);
-        if (!$commandRow) {
-            $commandRow = asr_tg_runtime_fallback_command_row($pdo, $botId, $command);
-        }
-    }
-    $snapshot = $botId > 0 ? asr_tg_runtime_command_snapshot($pdo, $botId) : [];
-
-    $scenarioIdFromCommand = (int)($commandRow['scenario_id'] ?? 0);
-    $stepId = (int)($commandRow['step_id'] ?? 0);
-    if ($scenarioIdFromCommand <= 0 && $stepId > 0) {
-        $scenarioIdFromCommand = asr_tg_runtime_scenario_from_step($pdo, $stepId);
-    }
-    $effectiveScenarioId = $scenarioIdFromCommand > 0 ? $scenarioIdFromCommand : $scenarioId;
-    $entryBlockId = $effectiveScenarioId > 0 ? asr_tg_runtime_resolve_entry_block($pdo, $effectiveScenarioId, $stepId) : 0;
-    $entryBlock = $entryBlockId > 0 ? asr_tg_scenario_block_find($pdo, $entryBlockId, $effectiveScenarioId) : null;
-    $cards = $entryBlock ? asr_tg_runtime_cards_from_block($pdo, $effectiveScenarioId, $entryBlock) : [];
-
-    $recentLogs = [];
-    try {
-        $params = [];
-        $where = [];
-        if ($botId > 0) { $where[] = '(bot_id = ? OR bot_id IS NULL)'; $params[] = $botId; }
-        $runtimeEvents = [
-            'webhook_received','scenario_command_received','scenario_command_link_found','runtime_started','runtime_message_sent',
-            'runtime_message_empty','runtime_command_without_scenario','scenario_command_without_scenario','scenario_command_not_linked',
-            'webhook_blocked_subscriber_ignored','scenario_runtime_failed','runtime_failed','runtime_bot_mismatch',
-            'scenario_deeplink_received','scenario_deeplink_not_found','scenario_deeplink_lookup_failed','scenario_start_command_reserved',
-            'bot_reserved_start_command_cleanup_failed',
-            'scenario_command_fast_lookup_failed','scenario_command_php_lookup_failed','scenario_command_scenario_repaired_from_step','scenario_command_autofallback_created','scenario_command_autofallback_skipped','scenario_command_autofallback_persist_failed'
-        ];
-        $where[] = 'event_type IN (' . implode(',', array_fill(0, count($runtimeEvents), '?')) . ')';
-        $params = array_merge($params, $runtimeEvents);
-        $sql = 'SELECT id, bot_id, level, event_type, message, context_json, created_at FROM oca_telegram_bot_logs WHERE ' . implode(' AND ', $where) . ' ORDER BY id DESC LIMIT 40';
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        $recentLogs = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    } catch (Throwable $e) {
-        $recentLogs = [['error' => $e->getMessage()]];
-    }
-
-    $recentScenarioEvents = [];
-    try {
-        if (asr_tg_table_exists($pdo, 'oca_telegram_bot_scenario_events')) {
-            $params = [];
-            $where = [];
-            if ($effectiveScenarioId > 0) { $where[] = 'scenario_id = ?'; $params[] = $effectiveScenarioId; }
-            if ($botId > 0) { $where[] = '(bot_id = ? OR bot_id IS NULL)'; $params[] = $botId; }
-            $sql = 'SELECT id, scenario_id, bot_id, subscriber_id, block_id, event_type, event_text, payload_json, created_at FROM oca_telegram_bot_scenario_events';
-            if ($where) $sql .= ' WHERE ' . implode(' AND ', $where);
-            $sql .= ' ORDER BY id DESC LIMIT 40';
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute($params);
-            $recentScenarioEvents = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        }
-    } catch (Throwable $e) {
-        $recentScenarioEvents = [['error' => $e->getMessage()]];
-    }
-
-    $lastCommandMessages = [];
-    try {
-        if ($botId > 0 && asr_tg_table_exists($pdo, 'oca_telegram_bot_messages')) {
-            $stmt = $pdo->prepare("SELECT m.id, m.bot_id, m.subscriber_id, m.direction, m.message_text, m.created_at, s.status AS subscriber_status, s.chat_id, s.username, s.first_name, s.last_name FROM oca_telegram_bot_messages m LEFT JOIN oca_telegram_bot_subscribers s ON s.id = m.subscriber_id WHERE m.bot_id = ? AND m.message_text LIKE ? ORDER BY m.id DESC LIMIT 20");
-            $stmt->execute([$botId, '/'.$command.'%']);
-            $lastCommandMessages = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
-        }
-    } catch (Throwable $e) {
-        $lastCommandMessages = [['error' => $e->getMessage()]];
-    }
-
-    return [
-        'ok' => true,
-        'runtime_version' => 'v0.1.8-deeplink-start-reserved',
-        'checked_at' => date('Y-m-d H:i:s'),
-        'input' => ['scenario_id' => $scenarioId, 'bot_id' => $botId, 'command' => $command],
-        'scenario' => $scenario ? [
-            'id' => (int)($scenario['id'] ?? 0),
-            'title' => (string)($scenario['title'] ?? ''),
-            'status' => (string)($scenario['status'] ?? ''),
-            'linked_bot_id' => $scenarioBotId,
-        ] : null,
-        'bot' => $bot ? [
-            'id' => (int)($bot['id'] ?? 0),
-            'title' => (string)($bot['title'] ?? ''),
-            'status' => (string)($bot['status'] ?? ''),
-            'channel_type' => asr_tg_channel_type_of($bot),
-            'bot_username' => (string)($bot['bot_username'] ?? ''),
-            'last_webhook_at' => (string)($bot['last_webhook_at'] ?? ''),
-            'last_error' => (string)($bot['last_error'] ?? ''),
-        ] : null,
-        'command_row' => $commandRow,
-        'command_snapshot' => $snapshot,
-        'effective' => [
-            'scenario_id_from_command' => $scenarioIdFromCommand,
-            'effective_scenario_id' => $effectiveScenarioId,
-            'step_id' => $stepId,
-            'entry_block_id' => $entryBlockId,
-        ],
-        'entry_block' => $entryBlock ? [
-            'id' => (int)($entryBlock['id'] ?? 0),
-            'scenario_id' => (int)($entryBlock['scenario_id'] ?? 0),
-            'type' => (string)($entryBlock['type'] ?? ''),
-            'title' => (string)($entryBlock['title'] ?? ''),
-            'has_settings_json' => trim((string)($entryBlock['settings_json'] ?? '')) !== '',
-            'has_message_text' => trim((string)($entryBlock['message_text'] ?? '')) !== '',
-        ] : null,
-        'cards' => array_map(static function($card) {
-            $text = is_array($card) ? (string)($card['text'] ?? '') : '';
-            return [
-                'type' => is_array($card) ? (string)($card['type'] ?? '') : '',
-                'text_preview' => mb_substr(trim(html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8')), 0, 180, 'UTF-8'),
-                'has_text' => trim(strip_tags($text)) !== '',
-            ];
-        }, $cards),
-        'last_command_messages' => $lastCommandMessages,
-        'recent_logs' => $recentLogs,
-        'recent_scenario_events' => $recentScenarioEvents,
-        'next_hint' => 'После отправки /' . $command . ' сравните last_command_messages, recent_logs и recent_scenario_events. Если webhook_received есть, но scenario_command_received нет — команда не распознана или подписчик заблокирован. Если scenario_command_link_found есть, но runtime_message_sent нет — смотрите entry_block/cards и runtime_failed.',
-    ];
-}
 
 function asr_tg_runtime_command_snapshot(PDO $pdo, int $botId): array {
     if ($botId <= 0 || !asr_tg_table_exists($pdo, 'oca_telegram_bot_commands')) return [];
@@ -3731,7 +3597,33 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
         return true;
     }
 
-    // Runtime v0.2.1b: помечаем, что штатный обработчик уже запустил сценарий в этом webhook-запросе.
+    $runtimeStackKey = $botId . ':' . $subscriberId . ':' . $scenarioId;
+    if (!isset($GLOBALS['asr_tg_runtime_block_stack']) || !is_array($GLOBALS['asr_tg_runtime_block_stack'])) {
+        $GLOBALS['asr_tg_runtime_block_stack'] = [];
+    }
+    if (!isset($GLOBALS['asr_tg_runtime_block_stack'][$runtimeStackKey]) || !is_array($GLOBALS['asr_tg_runtime_block_stack'][$runtimeStackKey])) {
+        $GLOBALS['asr_tg_runtime_block_stack'][$runtimeStackKey] = [];
+    }
+    $stack =& $GLOBALS['asr_tg_runtime_block_stack'][$runtimeStackKey];
+    if (count($stack) > 120) {
+        $message = 'Сценарий остановлен: слишком длинная цепочка шагов без ожидания ответа или задержки. Проверьте связи между блоками.';
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $message);
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_guard_too_long', $message, ['source' => $source, 'stack_size' => count($stack)] + $sourcePayload);
+        return true;
+    }
+    $sameBlockHits = 0;
+    foreach ($stack as $visitedBlockId) {
+        if ((int)$visitedBlockId === $blockId) $sameBlockHits++;
+    }
+    if ($sameBlockHits >= 3) {
+        $message = 'Сценарий остановлен: найден повторный проход по одному и тому же блоку. Проверьте зацикленные связи.';
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $message);
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_guard_loop_detected', $message, ['source' => $source, 'stack' => array_slice($stack, -20)] + $sourcePayload);
+        return true;
+    }
+    $stack[] = $blockId;
+
+    // Помечаем, что штатный обработчик уже запустил сценарий в этом webhook-запросе.
     // Это не даёт страховочному wrapper повторно запускать тот же /help с начала сценария.
     $GLOBALS['asr_tg_runtime_started_in_request'] = [
         'bot_id' => $botId,
@@ -3782,8 +3674,8 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
         if ($type === 'actions') {
             return asr_tg_runtime_execute_actions_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
-        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.9 выполняет блоки «Сообщение», «Задержка», «Расписание», «Случайный выбор», «Формула», «Условие» и «Действия».', ['block_type' => $type, 'source' => $source]);
-        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.9 выполняет блоки «Сообщение», «Задержка», «Расписание», «Случайный выбор», «Формула», «Условие» и «Действия».');
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Этот тип блока пока не поддерживается при запуске сценария.', ['block_type' => $type, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Этот тип блока пока не поддерживается при запуске сценария.');
         return true;
     } catch (Throwable $e) {
         asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $e->getMessage());

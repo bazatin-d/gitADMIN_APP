@@ -142,6 +142,113 @@ function showFlowConfirm(options = {}) {
     window.requestAnimationFrame(() => wrap.classList.add('is-open'));
   });
 }
+
+function tgFlowValidationSeverityLabel(severity) {
+  if (severity === 'error') return 'Ошибка';
+  if (severity === 'warning') return 'Предупреждение';
+  return 'Информация';
+}
+function showScenarioCheckModal(report, options = {}) {
+  const old = document.getElementById('tg-flow-check-modal');
+  if (old) old.remove();
+  const data = report && typeof report === 'object' ? report : null;
+  const loading = !!options.loading;
+  const items = data && Array.isArray(data.items) ? data.items : [];
+  const counts = data && data.counts && typeof data.counts === 'object' ? data.counts : {error: 0, warning: 0, info: 0};
+  const ready = data ? !!data.ready : false;
+  const title = loading ? 'Проверяем сценарий' : (ready ? 'Сценарий готов к работе' : 'Проверка сценария');
+  const note = loading
+    ? 'Система смотрит блоки, связи, ветки, пустые настройки и возможные зацикливания.'
+    : (data && data.summary ? String(data.summary) : 'Результат проверки сценария.');
+  const wrap = document.createElement('div');
+  wrap.id = 'tg-flow-check-modal';
+  wrap.className = 'tg-flow-modal-backdrop tg-flow-check-modal is-open';
+  wrap.setAttribute('role', 'presentation');
+  wrap.innerHTML = '<div class="tg-flow-modal" role="dialog" aria-modal="true">'
+    + '<div class="tg-flow-modal-head">'
+    + '<div><div class="tg-flow-modal-title"></div><div class="tg-flow-modal-note"></div></div>'
+    + '<button type="button" class="tg-flow-modal-close" data-flow-check-close aria-label="Закрыть">×</button>'
+    + '</div>'
+    + '<div class="tg-flow-modal-body">'
+    + '<div class="tg-flow-check-summary"></div>'
+    + '<div class="tg-flow-check-content"></div>'
+    + '</div>'
+    + '<div class="tg-flow-modal-actions"><button type="button" class="tg-flow-btn-ghost" data-flow-check-close>Закрыть</button></div>'
+    + '</div>';
+  wrap.querySelector('.tg-flow-modal-title').textContent = title;
+  wrap.querySelector('.tg-flow-modal-note').textContent = note;
+  const summary = wrap.querySelector('.tg-flow-check-summary');
+  summary.className = 'tg-flow-check-summary' + (loading ? '' : (ready ? ' is-ready' : ' is-error'));
+  summary.textContent = loading ? 'Проверка выполняется…' : ('Ошибки: ' + (counts.error || 0) + ' · Предупреждения: ' + (counts.warning || 0) + ' · Информация: ' + (counts.info || 0));
+  const content = wrap.querySelector('.tg-flow-check-content');
+  if (loading) {
+    const div = document.createElement('div');
+    div.className = 'tg-flow-check-loading';
+    div.textContent = 'Секунду. Сейчас найдём всё странное, пока оно не нашло вас.';
+    content.appendChild(div);
+  } else if (!items.length) {
+    const div = document.createElement('div');
+    div.className = 'tg-flow-check-empty';
+    div.textContent = 'Ошибок не найдено. Сценарий выглядит готовым к работе.';
+    content.appendChild(div);
+  } else {
+    const list = document.createElement('div');
+    list.className = 'tg-flow-check-list';
+    items.forEach((item) => {
+      const severity = String(item && item.severity ? item.severity : 'warning');
+      const blockId = Number(item && item.block_id ? item.block_id : 0);
+      const row = document.createElement('div');
+      row.className = 'tg-flow-check-item is-' + (severity === 'error' ? 'error' : (severity === 'info' ? 'info' : 'warning'));
+      const top = document.createElement('div');
+      top.className = 'tg-flow-check-item-top';
+      const titleEl = document.createElement(blockId > 0 ? 'button' : 'div');
+      titleEl.className = 'tg-flow-check-item-title' + (blockId > 0 ? ' is-clickable' : '');
+      titleEl.textContent = String(item.title || 'Пункт проверки');
+      if (blockId > 0) {
+        titleEl.type = 'button';
+        titleEl.setAttribute('data-flow-check-open-block', String(blockId));
+        titleEl.title = 'Открыть этот блок для редактирования';
+      }
+      const badge = document.createElement('div');
+      badge.className = 'tg-flow-check-item-badge';
+      badge.textContent = tgFlowValidationSeverityLabel(severity);
+      top.appendChild(titleEl);
+      top.appendChild(badge);
+      const text = document.createElement('div');
+      text.className = 'tg-flow-check-item-text';
+      text.textContent = String(item.message || '');
+      row.appendChild(top);
+      row.appendChild(text);
+      if (blockId > 0) {
+        const meta = document.createElement('div');
+        meta.className = 'tg-flow-check-item-meta';
+        meta.textContent = (item.block_type_label ? String(item.block_type_label) + ' · ' : '') + (item.block_title ? '«' + String(item.block_title) + '» · ' : '') + 'Блок #' + blockId + ' · нажмите заголовок, чтобы открыть';
+        row.appendChild(meta);
+      }
+      list.appendChild(row);
+    });
+    content.appendChild(list);
+  }
+  const close = () => wrap.remove();
+  wrap.addEventListener('click', (event) => {
+    const openBtn = event.target && event.target.closest ? event.target.closest('[data-flow-check-open-block]') : null;
+    if (openBtn) {
+      event.preventDefault();
+      const blockId = Number(openBtn.getAttribute('data-flow-check-open-block') || 0);
+      if (blockId > 0) {
+        window.dispatchEvent(new CustomEvent('tgScenarioFlowOpenBlockFromCheck', {detail: {blockId}}));
+        close();
+      }
+      return;
+    }
+    if (event.target === wrap || event.target.closest('[data-flow-check-close]')) close();
+  });
+  document.addEventListener('keydown', function esc(event) {
+    if (event.key === 'Escape') { document.removeEventListener('keydown', esc); close(); }
+  });
+  document.body.appendChild(wrap);
+}
+
 function ensureScenarioPanelStyles(doc) {
   if (!doc || document.getElementById('tg-flow-classic-panel-styles')) return;
   const collected = Array.from(doc.querySelectorAll('style'))
@@ -244,12 +351,11 @@ function bindDrawerForm() {
     const row = {time: new Date().toISOString(), stage, data};
     window.__tgScenarioDrawerDiag.push(row);
     if (window.__tgScenarioDrawerDiag.length > 40) window.__tgScenarioDrawerDiag.shift();
-    try { console.info('[ScenarioDrawerDiag]', row); } catch(e) {}
     return row;
   };
   const showDrawerDiag = (message, data = {}) => {
     const alertBox = form.querySelector('#scenario-message-alert') || form.querySelector('.tg-scenario-alert');
-    const text = String(message || '') + '\n\nДиагностика сохранения:\n' + JSON.stringify(data, null, 2).slice(0, 2200);
+    const text = String(message || 'Не удалось сохранить блок.');
     if (alertBox) {
       alertBox.textContent = text;
       alertBox.classList.add('is-open');
@@ -449,7 +555,8 @@ async function postAction(action, payload = {}) {
     tg_scenario_block_delete: 'tg_scenario_block_delete',
     tg_scenario_pause: 'tg_scenario_pause',
     tg_scenario_resume: 'tg_scenario_resume',
-    tg_scenario_stats_reset: 'tg_scenario_stats_reset'
+    tg_scenario_stats_reset: 'tg_scenario_stats_reset',
+    tg_scenario_validate: 'tg_scenario_validate'
   };
   const realAction = actionMap[action] || action;
   const fd = new FormData();
@@ -578,7 +685,6 @@ function NodeShell({id, data, isStart}) {
   const isActions = blockType === 'actions';
   const isSchedule = blockType === 'schedule';
   const isRandom = blockType === 'random';
-  const isFormula = blockType === 'formula';
   const edit = (event) => {
     if (event) {
       event.preventDefault();
@@ -597,7 +703,7 @@ function NodeShell({id, data, isStart}) {
   };
   const testFromStep = (event) => {
     stop(event);
-    showFlowToast('Тестирование с этого шага подключим следующим runner-патчем.');
+    showFlowToast('Тестовый запуск с выбранного блока пока недоступен.', 'error');
   };
   const duplicateBlock = async (event) => {
     stop(event);
@@ -606,7 +712,6 @@ function NodeShell({id, data, isStart}) {
       await postAction('tg_scenario_duplicate_block', {block_id: data.blockId || id});
       await refreshFlowFromServer();
     } catch (e) {
-      console.error('Scenario duplicate block error', e);
       showFlowToast(e && e.message ? e.message : 'Не удалось дублировать блок.', 'error');
     }
   };
@@ -619,7 +724,6 @@ function NodeShell({id, data, isStart}) {
       await postAction('tg_scenario_block_delete', {block_id: data.blockId || id});
       await refreshFlowFromServer();
     } catch (e) {
-      console.error('Scenario delete block error', e);
       showFlowToast(e && e.message ? e.message : 'Не удалось удалить блок.', 'error');
     }
   };
@@ -710,22 +814,21 @@ function NodeShell({id, data, isStart}) {
       showFlowToast(deeplinkText, 'success');
     }
   };
-  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isActions ? ' is-actions' : '') + (isSchedule ? ' is-schedule' : '') + (isRandom ? ' is-random' : '') + (isFormula ? ' is-formula' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isActions && data.actionsInvalid ? ' is-actions-invalid' : '') + (isSchedule && data.scheduleInvalid ? ' is-schedule-invalid' : '') + (isRandom && data.randomInvalid ? ' is-random-invalid' : '') + (isFormula && data.formulaInvalid ? ' is-formula-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
+  return React.createElement('div', {className: 'tg-flow-node' + (isStart ? ' is-start' : '') + (isDelay ? ' is-delay' : '') + (isCondition ? ' is-condition' : '') + (isActions ? ' is-actions' : '') + (isSchedule ? ' is-schedule' : '') + (isRandom ? ' is-random' : '') + (isCondition && data.conditionInvalid ? ' is-condition-invalid' : '') + (isActions && data.actionsInvalid ? ' is-actions-invalid' : '') + (isSchedule && data.scheduleInvalid ? ' is-schedule-invalid' : '') + (isRandom && data.randomInvalid ? ' is-random-invalid' : '') + (isDelay && data.missingNext ? ' is-missing-next' : '')},
     !isStart && React.createElement(Handle, {id: 'in', type: 'target', position: Position.Left, className: 'tg-flow-in-handle', isConnectable: true}),
     React.createElement('div', {className: 'tg-flow-node-head'},
       React.createElement('div', {className: 'tg-flow-node-title-wrap'},
-        React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : (isActions ? 'Действия' : (isSchedule ? 'Расписание' : (isRandom ? 'Случайный выбор' : (isFormula ? 'Формула' : 'Сообщение')))))),
+        React.createElement('div', {className: 'tg-flow-node-title'}, data.title || (isStart ? 'Старт' : (isActions ? 'Действия' : (isSchedule ? 'Расписание' : 'Сообщение')))),
         !isStart ? React.createElement('div', {className: 'tg-flow-node-id'}, 'Блок #' + String(data.blockId || id || '').replace(/^node-/, '')) : null
       ),
       React.createElement('div', {className: 'tg-flow-node-actions', onMouseDown: (event) => event.stopPropagation(), onClick: (event) => event.stopPropagation()},
-        React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: 'Тестировать с этого шага', onClick: testFromStep}, '▶'),
         React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: 'Редактировать', onClick: edit}, isStart ? '⚙' : '✎'),
         !isStart && React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: 'Дублировать', onClick: duplicateBlock}, '⧉'),
         !isStart && React.createElement('button', {type: 'button', className: 'tg-flow-node-action is-danger', title: 'Удалить', onClick: deleteBlock}, '×')
       )
     ),
     React.createElement('div', {className: 'tg-flow-node-body'},
-      (!isStart && !isDelay && !isCondition && !isActions && !isSchedule && !isRandom && !isFormula) ? React.createElement('div', {className: 'tg-flow-node-stats'},
+      (!isStart && !isDelay && !isCondition && !isActions && !isSchedule && !isRandom) ? React.createElement('div', {className: 'tg-flow-node-stats'},
         React.createElement('div', {className: 'tg-flow-node-stat'},
           React.createElement('span', {className: 'tg-flow-node-stat-value'}, String(Number.isFinite(sentCount) ? sentCount : 0)),
           React.createElement('span', {className: 'tg-flow-node-stat-label'}, 'Отправлено')
@@ -792,19 +895,6 @@ function NodeShell({id, data, isStart}) {
                 })
               )
             )
-            : (isFormula
-            ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-formula-preview'},
-              React.createElement('div', {className: 'tg-flow-formula-preview-head'},
-                React.createElement('span', null, data.formulaInvalid ? 'Нужно настроить формулу' : 'Формула'),
-                !data.formulaInvalid ? React.createElement('span', {className: 'tg-flow-formula-count'}, String(data.formulaLineCount || 0) + ' строк') : null
-              ),
-              (Array.isArray(data.formulaSummaries) && data.formulaSummaries.length)
-                ? React.createElement('div', {className: 'tg-flow-formula-list'},
-                  data.formulaSummaries.map((item, index) => React.createElement('div', {className: 'tg-flow-formula-row', key: index}, item)),
-                  Number(data.formulaExtraCount || 0) > 0 ? React.createElement('div', {className: 'tg-flow-formula-more'}, '+ ещё ' + Number(data.formulaExtraCount || 0)) : null
-                )
-                : React.createElement('div', {className: 'tg-flow-formula-empty'}, 'Добавьте вычисления')
-            )
             : (isActions
             ? React.createElement('div', {className: 'tg-flow-node-card tg-flow-actions-preview'},
               React.createElement('div', {className: 'tg-flow-actions-preview-head'},
@@ -820,7 +910,7 @@ function NodeShell({id, data, isStart}) {
             )
             : (cards.length
               ? React.createElement('div', {className: 'tg-flow-message-cards'}, cards.map(renderCard))
-              : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение')))))))),
+              : React.createElement('div', {className: 'tg-flow-node-card is-empty'}, 'Добавить сообщение'))))))),
       (!isCondition && !isSchedule && !isRandom) ? React.createElement('div', {className: 'tg-flow-next-row'},
         React.createElement('span', {className: 'tg-flow-node-muted'}, isStart ? 'Начало сценария' : 'Следующий шаг'),
         React.createElement(Handle, {id: 'out', type: 'source', position: Position.Right, className: 'tg-flow-main-out-handle', isConnectable: true, onMouseDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onPointerDownCapture: () => tgFlowRememberSourceHandle(id, 'out'), onTouchStartCapture: () => tgFlowRememberSourceHandle(id, 'out')})
@@ -839,9 +929,8 @@ function ConditionNode(props) { return React.createElement(NodeShell, {...props,
 function ActionsNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function ScheduleNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 function RandomNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
-function FormulaNode(props) { return React.createElement(NodeShell, {...props, isStart: false}); }
 
-function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay, onCreateCondition, onCreateSchedule, onCreateRandom, onCreateFormula}) {
+function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay, onCreateCondition, onCreateSchedule, onCreateRandom}) {
   if (!menu) return null;
   const item = (type, glyph, name, disabled, onClick) => React.createElement('button', {
     type: 'button',
@@ -868,7 +957,7 @@ function AddMenu({menu, onClose, onCreateMessage, onCreateActions, onCreateDelay
     item('condition', '⇄', 'Условие', false, onCreateCondition),
     item('schedule', '□', 'Расписание', false, onCreateSchedule),
     item('random', '✦', 'Случайный выбор', false, onCreateRandom),
-    item('formula', 'ƒ', 'Формула', false, onCreateFormula)
+    item('formula', 'ƒ', 'Формула', true)
   );
 }
 
@@ -903,7 +992,7 @@ function ScenarioSmoothEdge(props) {
 }
 
 function ScenarioFlow() {
-  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, actionsNode: ActionsNode, delayNode: DelayNode, conditionNode: ConditionNode, scheduleNode: ScheduleNode, randomNode: RandomNode, formulaNode: FormulaNode}), []);
+  const nodeTypes = useMemo(() => ({startNode: StartNode, messageNode: MessageNode, actionsNode: ActionsNode, delayNode: DelayNode, conditionNode: ConditionNode, scheduleNode: ScheduleNode, randomNode: RandomNode}), []);
   const edgeTypes = useMemo(() => ({scenarioSmooth: ScenarioSmoothEdge}), []);
   const blockLimit = Number(cfg.blockLimit || 550);
   const initialNodes = Array.isArray(cfg.nodes) ? cfg.nodes : [];
@@ -1042,6 +1131,7 @@ function ScenarioFlow() {
       }
     };
     const resetStatsBtn = document.querySelector('[data-flow-reset-stats]');
+    const checkScenarioBtn = document.querySelector('[data-flow-check-scenario]');
     const resetStatsHandler = async (event) => {
       if (event) event.preventDefault();
       const confirmed = await showFlowConfirm({
@@ -1061,16 +1151,91 @@ function ScenarioFlow() {
         showFlowToast(error && error.message ? error.message : 'Не удалось сбросить статистику.', 'error');
       }
     };
+
+    const checkScenarioHandler = async (event) => {
+      if (event) event.preventDefault();
+      if (checkScenarioBtn) checkScenarioBtn.disabled = true;
+      showScenarioCheckModal(null, {loading: true});
+      try {
+        await flushPositions(latestNodesRef.current, true);
+        const report = await postAction('tg_scenario_validate', {scenario_id: cfg.scenarioId || ''});
+        showScenarioCheckModal(report.report || report);
+      } catch (error) {
+        showScenarioCheckModal({
+          ready: false,
+          summary: 'Проверка не выполнилась.',
+          counts: {error: 1, warning: 0, info: 0},
+          items: [{severity: 'error', title: 'Проверка не выполнилась', message: error && error.message ? error.message : 'Не удалось проверить сценарий.'}]
+        });
+      } finally {
+        if (checkScenarioBtn) checkScenarioBtn.disabled = false;
+      }
+    };
+    const initialReport = cfg.validationReport && typeof cfg.validationReport === 'object' ? cfg.validationReport : null;
+    const hasInitialErrors = !!(initialReport && initialReport.counts && Number(initialReport.counts.error || 0) > 0);
+    const shouldAutoOpenScenarioCheck = () => {
+      if (!hasInitialErrors) return false;
+      try {
+        const navEntries = window.performance && typeof window.performance.getEntriesByType === 'function' ? window.performance.getEntriesByType('navigation') : [];
+        const navType = navEntries && navEntries[0] && navEntries[0].type ? String(navEntries[0].type) : '';
+        if (navType === 'reload') return false;
+      } catch (e) {}
+      const currentScenarioId = String(cfg.scenarioId || '');
+      const ref = String(document.referrer || '');
+      if (!ref) return false;
+      try {
+        const refUrl = new URL(ref, window.location.href);
+        const sameHost = refUrl.host === window.location.host;
+        const refIsFlow = refUrl.searchParams.get('tab') === 'telegram_bots' && refUrl.searchParams.get('page') === 'scenario_flow';
+        const refScenarioId = String(refUrl.searchParams.get('scenario_id') || '');
+        if (sameHost && refIsFlow && refScenarioId === currentScenarioId) return false;
+        return sameHost;
+      } catch (e) {
+        return false;
+      }
+    };
+    if (shouldAutoOpenScenarioCheck()) window.setTimeout(() => showScenarioCheckModal(initialReport), 650);
+
+    const openBlockFromCheckHandler = (event) => {
+      const blockId = Number(event && event.detail && event.detail.blockId ? event.detail.blockId : 0);
+      if (!blockId) return;
+      const snapshot = Array.isArray(latestNodesRef.current) ? latestNodesRef.current : nodes;
+      const targetNode = snapshot.find((node) => {
+        const data = node && node.data && typeof node.data === 'object' ? node.data : {};
+        return Number(data.blockId || node.id || 0) === blockId;
+      });
+      if (!targetNode) {
+        showFlowToast('Не нашёл блок #' + blockId + ' на холсте. Обновите сценарий и попробуйте ещё раз.', 'error');
+        return;
+      }
+      const pos = targetNode.position || {};
+      try {
+        flow.setCenter(Number(pos.x || 0) + 160, Number(pos.y || 0) + 90, {zoom: 1, duration: 420});
+      } catch (e) {}
+      const data = targetNode.data && typeof targetNode.data === 'object' ? targetNode.data : {};
+      if (data.editUrl && typeof window.tgScenarioFlowOpenDrawer === 'function') {
+        window.setTimeout(() => window.tgScenarioFlowOpenDrawer(data.editUrl, {blockId: data.blockId || blockId, blockType: data.blockType || ''}), 180);
+      } else if (data.editUrl) {
+        window.location.href = data.editUrl;
+      } else {
+        showFlowToast('У блока #' + blockId + ' нет ссылки редактирования.', 'error');
+      }
+    };
+
     if (saveBtn) saveBtn.addEventListener('click', saveHandler);
     if (stopBtn) stopBtn.addEventListener('click', stopHandler);
     if (resetStatsBtn) resetStatsBtn.addEventListener('click', resetStatsHandler);
+    if (checkScenarioBtn) checkScenarioBtn.addEventListener('click', checkScenarioHandler);
+    window.addEventListener('tgScenarioFlowOpenBlockFromCheck', openBlockFromCheckHandler);
     return () => {
       if (saveBtn) saveBtn.removeEventListener('click', saveHandler);
       if (stopBtn) stopBtn.removeEventListener('click', stopHandler);
       if (resetStatsBtn) resetStatsBtn.removeEventListener('click', resetStatsHandler);
+      if (checkScenarioBtn) checkScenarioBtn.removeEventListener('click', checkScenarioHandler);
+      window.removeEventListener('tgScenarioFlowOpenBlockFromCheck', openBlockFromCheckHandler);
       if (window.tgScenarioFlowSaveNow) delete window.tgScenarioFlowSaveNow;
     };
-  }, [nodes, flushPositions]);
+  }, [nodes, flushPositions, flow]);
 
   React.useEffect(() => {
     const flushBeforeLeave = () => {
@@ -1298,7 +1463,7 @@ function ScenarioFlow() {
       setMenu(null);
       return;
     }
-    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : (kind === 'schedule' ? 'tg_scenario_quick_schedule_create' : (kind === 'random' ? 'tg_scenario_quick_random_create' : (kind === 'formula' ? 'tg_scenario_quick_formula_create' : (kind === 'actions' ? 'tg_scenario_quick_actions_create' : 'tg_scenario_quick_message_create')))));
+    const action = kind === 'delay' ? 'tg_scenario_quick_delay_create' : (kind === 'condition' ? 'tg_scenario_quick_condition_create' : (kind === 'schedule' ? 'tg_scenario_quick_schedule_create' : (kind === 'random' ? 'tg_scenario_quick_random_create' : (kind === 'actions' ? 'tg_scenario_quick_actions_create' : 'tg_scenario_quick_message_create'))));
     setMenu(null);
     try {
       await postAction(action, {
@@ -1320,7 +1485,6 @@ function ScenarioFlow() {
   const createConditionFromMenu = useCallback(() => createBlockFromMenu('condition'), [createBlockFromMenu]);
   const createScheduleFromMenu = useCallback(() => createBlockFromMenu('schedule'), [createBlockFromMenu]);
   const createRandomFromMenu = useCallback(() => createBlockFromMenu('random'), [createBlockFromMenu]);
-  const createFormulaFromMenu = useCallback(() => createBlockFromMenu('formula'), [createBlockFromMenu]);
 
   const isValidConnection = useCallback((connection) => {
     if (!connection || !connection.source || !connection.target) return false;
@@ -1386,6 +1550,8 @@ function ScenarioFlow() {
       zoomOnScroll: true,
       zoomOnPinch: true,
       zoomOnDoubleClick: false,
+      minZoom: 0.03,
+      maxZoom: 2.2,
       preventScrolling: true,
       fitView: false,
       defaultViewport: {x: 0, y: 0, zoom: 1},
@@ -1402,7 +1568,7 @@ function ScenarioFlow() {
       React.createElement(Controls, {showInteractive: false})
     ),
     React.createElement('div', {className: 'tg-flow-block-counter'}, nodes.length + '/' + blockLimit + ' блоков использовано'),
-    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateActions: createActionsFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu, onCreateSchedule: createScheduleFromMenu, onCreateRandom: createRandomFromMenu, onCreateFormula: createFormulaFromMenu})
+    React.createElement(AddMenu, {menu, onClose: () => setMenu(null), onCreateMessage: createMessageFromMenu, onCreateActions: createActionsFromMenu, onCreateDelay: createDelayFromMenu, onCreateCondition: createConditionFromMenu, onCreateSchedule: createScheduleFromMenu, onCreateRandom: createRandomFromMenu})
   );
 }
 

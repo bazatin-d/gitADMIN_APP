@@ -3,6 +3,7 @@ defined('ASR_ADMIN') || exit;
 
 asr_tg_repository_ensure_scenario_schema($pdo);
 require_once __DIR__ . '/../scenario_stats.php';
+require_once __DIR__ . '/../scenario_validator.php';
 
 $h = $h ?? static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 $safeJson = static function($value): string {
@@ -160,41 +161,6 @@ $getRandomSettings = static function(array $block): array {
         'total' => $sum,
         'isInvalid' => count($normalized) < 2 || $sum !== 100,
         'preview' => 'Всего ' . $sum . '%',
-    ];
-};
-
-
-$getFormulaSettings = static function(array $block): array {
-    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
-    if (!is_array($settings)) $settings = [];
-    $code = (string)($settings['formula_code'] ?? '');
-    $lines = $code === '' ? [] : preg_split('/\R/u', $code);
-    $meaningful = [];
-    $meaningfulTotal = 0;
-    foreach (($lines ?: []) as $line) {
-        $t = trim((string)$line);
-        if ($t === '' || str_starts_with($t, '#')) continue;
-        $meaningfulTotal++;
-        if (count($meaningful) < 4) {
-            $summary = $t;
-            $eqPos = mb_strpos($t, '=', 0, 'UTF-8');
-            if ($eqPos !== false) {
-                $target = trim(mb_substr($t, 0, $eqPos, 'UTF-8'));
-                $right = trim(mb_substr($t, $eqPos + 1, null, 'UTF-8'));
-                $summary = $target !== '' ? ($target . ' ← ' . $right) : $t;
-            }
-            $meaningful[] = mb_strlen($summary, 'UTF-8') > 78 ? mb_substr($summary, 0, 78, 'UTF-8') . '…' : $summary;
-        }
-    }
-    $lineCount = is_array($lines) ? count($lines) : 0;
-    return [
-        'code' => $code,
-        'lineCount' => $lineCount,
-        'charCount' => mb_strlen($code, 'UTF-8'),
-        'summaries' => $meaningful,
-        'extraCount' => max(0, $meaningfulTotal - count($meaningful)),
-        'isInvalid' => empty($settings['formula_valid']) || trim($code) === '',
-        'preview' => $meaningful ? implode('; ', $meaningful) : 'Формула не настроена',
     ];
 };
 
@@ -455,15 +421,13 @@ foreach ($blocks as $index => $block) {
     $isActions = $type === 'actions';
     $isSchedule = $type === 'schedule';
     $isRandom = $type === 'random';
-    $isFormula = $type === 'formula';
     $delaySettings = $isDelay ? $getDelaySettings($block, $scenarioTimezone) : [];
     $conditionSettings = $isCondition ? $getConditionSettings($block) : [];
     $actionSettings = $isActions ? $getActionSettings($block) : [];
     $scheduleSettings = $isSchedule ? $getScheduleSettings($block, $scenarioTimezone) : [];
     $randomSettings = $isRandom ? $getRandomSettings($block) : [];
-    $formulaSettings = $isFormula ? $getFormulaSettings($block) : [];
-    $cards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom || $isFormula) ? [] : $getBlockCards($block);
-    $flowCards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom || $isFormula) ? [] : $normalizeFlowCards($cards);
+    $cards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom) ? [] : $getBlockCards($block);
+    $flowCards = ($isDelay || $isCondition || $isActions || $isSchedule || $isRandom) ? [] : $normalizeFlowCards($cards);
     $firstCard = $flowCards[0] ?? [];
     $hasStoredPosition = is_numeric($block['position_x'] ?? null) && is_numeric($block['position_y'] ?? null);
     $x = $hasStoredPosition ? (int)round((float)$block['position_x']) : 0;
@@ -475,7 +439,7 @@ foreach ($blocks as $index => $block) {
         $x = $isStart ? 120 : 470 + (($index % 4) * 320);
         $y = 140 + ((int)floor($index / 4) * 230);
     }
-    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : ($isActions ? (string)($actionSettings['preview'] ?? 'Не добавлено ни одного действия') : ($isSchedule ? (string)($scheduleSettings['preview'] ?? 'Расписание не настроено') : ($isRandom ? (string)($randomSettings['preview'] ?? 'Случайный выбор') : ($isFormula ? (string)($formulaSettings['preview'] ?? 'Формула не настроена') : (string)($firstCard['textPreview'] ?? ''))))))); 
+    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : ($isActions ? (string)($actionSettings['preview'] ?? 'Не добавлено ни одного действия') : ($isSchedule ? (string)($scheduleSettings['preview'] ?? 'Расписание не настроено') : ($isRandom ? (string)($randomSettings['preview'] ?? 'Случайный выбор') : (string)($firstCard['textPreview'] ?? '')))))); 
     $deeplink = !$isStart ? ($deeplinksByBlock[$blockId] ?? null) : null;
     $deeplinkCode = is_array($deeplink) ? trim((string)($deeplink['code'] ?? $deeplink['token'] ?? '')) : '';
     $deeplinkUrl = is_array($deeplink) ? trim((string)($deeplink['url'] ?? '')) : '';
@@ -499,13 +463,13 @@ foreach ($blocks as $index => $block) {
     }
     $nodes[] = [
         'id' => (string)$blockId,
-        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : ($isActions ? 'actionsNode' : ($isSchedule ? 'scheduleNode' : ($isRandom ? 'randomNode' : ($isFormula ? 'formulaNode' : 'messageNode')))))),
+        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : ($isActions ? 'actionsNode' : ($isSchedule ? 'scheduleNode' : ($isRandom ? 'randomNode' : 'messageNode'))))),
         'position' => ['x' => $x, 'y' => $y],
         'data' => [
             'blockId' => $blockId,
             'blockType' => $type,
-            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : ($isActions ? 'Действия' : ($isSchedule ? 'Расписание' : ($isRandom ? 'Случайный выбор' : ($isFormula ? 'Формула' : 'Сообщение'))))))),
-            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : ($isActions ? 'Не добавлено ни одного действия' : ($isSchedule ? 'Расписание не настроено' : ($isRandom ? 'Случайный выбор' : ($isFormula ? 'Формула не настроена' : 'Пустой текст')))))),
+            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : ($isActions ? 'Действия' : ($isSchedule ? 'Расписание' : ($isRandom ? 'Случайный выбор' : 'Сообщение')))))),
+            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : ($isActions ? 'Не добавлено ни одного действия' : ($isSchedule ? 'Расписание не настроено' : ($isRandom ? 'Случайный выбор' : 'Пустой текст'))))),
             'delayMode' => (string)($delaySettings['mode'] ?? ''),
             'delayModeLabel' => (string)($delaySettings['modeLabel'] ?? ''),
             'delayValue' => (int)($delaySettings['value'] ?? 0),
@@ -522,11 +486,6 @@ foreach ($blocks as $index => $block) {
             'randomTotal' => (int)($randomSettings['total'] ?? 0),
             'randomOutputs' => $randomSettings['outputs'] ?? [],
             'missingNext' => false,
-            'formulaInvalid' => !empty($formulaSettings['isInvalid']),
-            'formulaLineCount' => (int)($formulaSettings['lineCount'] ?? 0),
-            'formulaCharCount' => (int)($formulaSettings['charCount'] ?? 0),
-            'formulaExtraCount' => (int)($formulaSettings['extraCount'] ?? 0),
-            'formulaSummaries' => $formulaSettings['summaries'] ?? [],
             'conditionInvalid' => !empty($conditionSettings['isInvalid']),
             'conditionMatchLabel' => (string)($conditionSettings['matchLabel'] ?? ''),
             'conditionMatchTitle' => (string)($conditionSettings['matchTitle'] ?? ''),
@@ -540,7 +499,7 @@ foreach ($blocks as $index => $block) {
             'cards' => $flowCards,
             'cardsCount' => count($flowCards),
             'stats' => $scenarioStats[$blockId] ?? ['sent' => 0, 'clicks' => 0, 'clickRate' => 0],
-            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.181',
+            'editUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&block_id=' . $blockId . '&flow_panel_v=3.5.131',
             'deleteAllowed' => !$isStart,
             'deeplinkCode' => $deeplinkCode,
             'deeplinkUrl' => $deeplinkUrl,
@@ -642,6 +601,30 @@ $scenarioEditData = [
     'status' => (string)($scenario['status'] ?? 'draft'),
     'bot_id' => $currentScenarioBotId,
 ];
+
+$scenarioValidationReport = ['ok' => true, 'ready' => true, 'summary' => 'Проверка не запускалась.', 'counts' => ['error' => 0, 'warning' => 0, 'info' => 0], 'items' => []];
+if (function_exists('asr_tg_scenario_validate')) {
+    try {
+        $scenarioValidationReport = asr_tg_scenario_validate($pdo, $scenarioId);
+    } catch (Throwable $e) {
+        $scenarioValidationReport = [
+            'ok' => false,
+            'ready' => false,
+            'summary' => 'Не удалось проверить сценарий.',
+            'counts' => ['error' => 1, 'warning' => 0, 'info' => 0],
+            'items' => [[
+                'severity' => 'error',
+                'title' => 'Ошибка проверки',
+                'message' => $e->getMessage(),
+                'block_id' => 0,
+                'block_title' => '',
+                'block_type' => '',
+                'block_type_label' => '',
+            ]],
+        ];
+    }
+}
+
 $flowData = [
     'scenarioId' => $scenarioId,
     'scenarioTitle' => (string)($scenario['title'] ?? 'Сценарий'),
@@ -650,10 +633,11 @@ $flowData = [
     'nodes' => $nodes,
     'edges' => $edges,
     'returnUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
-        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.181',
+        'panelBaseUrl' => 'admin.php?tab=telegram_bots&page=scenario_block_panel&scenario_id=' . $scenarioId . '&flow_panel_v=3.5.131',
     'flowUrl' => 'admin.php?tab=telegram_bots&page=scenario_flow&scenario_id=' . $scenarioId,
     'blockLimit' => 550,
     'listUrl' => 'admin.php?tab=telegram_bots&page=scenarios',
+    'validationReport' => $scenarioValidationReport,
 ];
 
 $flowScriptPath = __DIR__ . '/../scenario_flow/dist/scenario-flow-cdn.js';
@@ -1072,7 +1056,8 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 .tg-flow-delay-preview-col{min-width:0}.tg-flow-delay-preview-col.is-right{text-align:right}.tg-flow-delay-preview-label{display:block;color:#a3aab5;font-size:10px;font-weight:800;line-height:1.2;margin-bottom:5px}.tg-flow-delay-preview-main{display:block;font-size:12px;font-weight:760;color:#374151;line-height:1.25;white-space:normal}.tg-flow-delay-preview-days{grid-column:1 / -1;text-align:right;font-size:12px;font-weight:650;color:#4b5563;line-height:1.25;margin-top:2px}
 
 /* v3.5.115: scenario gear menu and command/settings modals */
-.tg-flow-gear-wrap{position:relative;display:inline-flex;align-items:center}.tg-flow-gear-btn{width:38px;height:38px;border:1px solid #e5e7eb;background:#fff;border-radius:14px;color:#6b7280;font-size:18px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.tg-flow-gear-btn:hover{background:#fff7ed;border-color:#fed7aa;color:#9a5a1f}.tg-flow-gear-menu{position:absolute;right:0;top:46px;z-index:1030;display:none;width:270px;padding:8px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 18px 45px rgba(15,23,42,.18)}.tg-flow-gear-menu.is-open{display:block}.tg-flow-gear-menu button{width:100%;min-height:44px;border:0;background:#fff;border-radius:13px;padding:10px 12px;display:flex;align-items:center;gap:11px;color:#374151;font-size:14px;font-weight:650;text-align:left;cursor:pointer}.tg-flow-gear-menu button:hover{background:#fff7ed;color:#9a5a1f}.tg-flow-gear-menu button[disabled]{color:#b8c0cc;cursor:not-allowed;background:#fff}.tg-flow-gear-ico{width:24px;color:#8a929e;text-align:center;font-weight:800}.tg-flow-modal-backdrop{position:fixed;inset:0;z-index:6100;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.38);backdrop-filter:blur(2px);padding:18px}.tg-flow-modal-backdrop.is-open{display:flex}.tg-flow-modal{width:min(940px,100%);max-height:min(760px,calc(100vh - 36px));overflow:hidden;background:#fff;border:1px solid #edf0f2;border-radius:24px;box-shadow:0 28px 80px rgba(15,23,42,.24);display:flex;flex-direction:column}.tg-flow-modal-head{padding:22px 28px 18px;border-bottom:1px solid #edf0f2;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.tg-flow-modal-title{font-size:20px;font-weight:750;color:#1f2937;line-height:1.25}.tg-flow-modal-note{margin-top:6px;color:#6b7280;font-size:13px;font-weight:600;line-height:1.45}.tg-flow-modal-close{width:40px;height:40px;border:0;border-radius:14px;background:#f3f4f6;color:#6b7280;font-size:22px;cursor:pointer}.tg-flow-modal-body{padding:22px 28px;overflow:auto;display:grid;gap:16px}.tg-flow-modal-actions{padding:16px 28px;border-top:1px solid #edf0f2;display:flex;justify-content:flex-end;gap:10px;background:#fff}.tg-flow-field span{display:block;margin-bottom:7px;font-size:12px;font-weight:650;color:#8b929e}.tg-flow-field input,.tg-flow-field textarea,.tg-flow-field select{width:100%;border:1px solid #e5e7eb;background:#fff;border-radius:16px;padding:12px 14px;color:#374151;font-size:14px;font-weight:650;outline:none}.tg-flow-field textarea{min-height:92px;resize:vertical;line-height:1.45}.tg-flow-command-list{display:grid;gap:10px}.tg-flow-command-row{display:grid;grid-template-columns:minmax(130px,.7fr) minmax(190px,1fr) minmax(190px,1fr) 44px;gap:10px;align-items:end;border:1px solid #edf0f2;border-radius:18px;background:#fbfbfc;padding:12px}.tg-flow-command-prefix{position:relative}.tg-flow-command-prefix input{padding-left:28px}.tg-flow-command-prefix:before{content:'/';position:absolute;left:13px;bottom:13px;color:#9ca3af;font-weight:800}.tg-flow-command-delete{width:42px;height:42px;border:1px solid #fee2e2;background:#fff;border-radius:14px;color:#ef4444;font-size:20px;font-weight:750;cursor:pointer}.tg-flow-command-add{width:100%;min-height:42px;border:1px dashed #fed7aa;background:#fffaf4;border-radius:16px;color:#c96f2b;font-size:13px;font-weight:750;cursor:pointer}.tg-flow-btn-main{border:0;background:#FFA048;color:#fff;border-radius:15px;padding:0 18px;min-height:42px;font-size:13px;font-weight:750;cursor:pointer}.tg-flow-btn-ghost{border:0;background:#f3f4f6;color:#6b7280;border-radius:15px;padding:0 18px;min-height:42px;font-size:13px;font-weight:750;cursor:pointer}@media(max-width:760px){.tg-flow-top-right{gap:5px}.tg-flow-top-btn{padding:0 9px}.tg-flow-gear-menu{right:auto;left:0;width:250px}.tg-flow-command-row{grid-template-columns:1fr}.tg-flow-command-delete{width:100%}.tg-flow-modal{max-height:calc(100vh - 20px);border-radius:20px}.tg-flow-modal-backdrop{padding:10px}.tg-flow-modal-head,.tg-flow-modal-body,.tg-flow-modal-actions{padding-left:18px;padding-right:18px}}
+.tg-flow-gear-wrap{position:relative;display:inline-flex;align-items:center}.tg-flow-gear-btn{width:38px;height:38px;border:1px solid #e5e7eb;background:#fff;border-radius:14px;color:#6b7280;font-size:18px;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}.tg-flow-gear-btn:hover{background:#fff7ed;border-color:#fed7aa;color:#9a5a1f}.tg-flow-gear-menu{position:absolute;right:0;top:46px;z-index:1030;display:none;width:270px;padding:8px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 18px 45px rgba(15,23,42,.18)}.tg-flow-gear-menu.is-open{display:block}.tg-flow-gear-menu button{width:100%;min-height:44px;border:0;background:#fff;border-radius:13px;padding:10px 12px;display:flex;align-items:center;gap:11px;color:#374151;font-size:14px;font-weight:650;text-align:left;cursor:pointer}.tg-flow-gear-menu button:hover{background:#fff7ed;color:#9a5a1f}.tg-flow-gear-menu button[disabled]{color:#b8c0cc;cursor:not-allowed;background:#fff}.tg-flow-gear-ico{width:24px;color:#8a929e;text-align:center;font-weight:800}.tg-flow-modal-backdrop{position:fixed;inset:0;z-index:6100;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.38);backdrop-filter:blur(2px);padding:18px}.tg-flow-modal-backdrop.is-open{display:flex}.tg-flow-modal{width:min(940px,100%);max-height:min(760px,calc(100vh - 36px));overflow:hidden;background:#fff;border:1px solid #edf0f2;border-radius:24px;box-shadow:0 28px 80px rgba(15,23,42,.24);display:flex;flex-direction:column}.tg-flow-modal-head{padding:22px 28px 18px;border-bottom:1px solid #edf0f2;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.tg-flow-modal-title{font-size:20px;font-weight:750;color:#1f2937;line-height:1.25}.tg-flow-modal-note{margin-top:6px;color:#6b7280;font-size:13px;font-weight:600;line-height:1.45}.tg-flow-modal-close{width:40px;height:40px;border:0;border-radius:14px;background:#f3f4f6;color:#6b7280;font-size:22px;cursor:pointer}.tg-flow-modal-body{padding:22px 28px;overflow:auto;display:grid;gap:16px}.tg-flow-modal-actions{padding:16px 28px;border-top:1px solid #edf0f2;display:flex;justify-content:flex-end;gap:10px;background:#fff}.tg-flow-field span{display:block;margin-bottom:7px;font-size:12px;font-weight:650;color:#8b929e}.tg-flow-field input,.tg-flow-field textarea,.tg-flow-field select{width:100%;border:1px solid #e5e7eb;background:#fff;border-radius:16px;padding:12px 14px;color:#374151;font-size:14px;font-weight:650;outline:none}.tg-flow-field textarea{min-height:92px;resize:vertical;line-height:1.45}.tg-flow-command-list{display:grid;gap:10px}.tg-flow-command-row{display:grid;grid-template-columns:minmax(130px,.7fr) minmax(190px,1fr) minmax(190px,1fr) 44px;gap:10px;align-items:end;border:1px solid #edf0f2;border-radius:18px;background:#fbfbfc;padding:12px}.tg-flow-command-prefix{position:relative}.tg-flow-command-prefix input{padding-left:28px}.tg-flow-command-prefix:before{content:'/';position:absolute;left:13px;bottom:13px;color:#9ca3af;font-weight:800}.tg-flow-command-delete{width:42px;height:42px;border:1px solid #fee2e2;background:#fff;border-radius:14px;color:#ef4444;font-size:20px;font-weight:750;cursor:pointer}.tg-flow-command-add{width:100%;min-height:42px;border:1px dashed #fed7aa;background:#fffaf4;border-radius:16px;color:#c96f2b;font-size:13px;font-weight:750;cursor:pointer}.tg-flow-btn-main{border:0;background:#FFA048;color:#fff;border-radius:15px;padding:0 18px;min-height:42px;font-size:13px;font-weight:750;cursor:pointer}.tg-flow-btn-ghost{border:0;background:#f3f4f6;color:#6b7280;border-radius:15px;padding:0 18px;min-height:42px;font-size:13px;font-weight:750;cursor:pointer}.tg-flow-check-modal .tg-flow-modal{width:min(820px,100%)}.tg-flow-check-summary{border:1px solid #e5e7eb;background:#fbfbfc;border-radius:18px;padding:14px 16px;color:#374151;font-size:14px;font-weight:650;line-height:1.45}.tg-flow-check-summary.is-ready{border-color:#bbf7d0;background:#f0fdf4;color:#166534}.tg-flow-check-summary.is-error{border-color:#fecaca;background:#fef2f2;color:#991b1b}.tg-flow-check-list{display:grid;gap:10px}.tg-flow-check-item{border:1px solid #e5e7eb;background:#fff;border-radius:18px;padding:14px 16px;display:grid;gap:6px}.tg-flow-check-item.is-error{border-color:#fecaca;background:#fffafa}.tg-flow-check-item.is-warning{border-color:#fed7aa;background:#fffaf4}.tg-flow-check-item.is-info{border-color:#dbeafe;background:#f8fbff}.tg-flow-check-item-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.tg-flow-check-item-title{font-size:14px;font-weight:760;color:#1f2937}.tg-flow-check-item-title.is-clickable{border:0;background:transparent;padding:0;text-align:left;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:4px}.tg-flow-check-item-title.is-clickable:hover{color:#c96f2b}.tg-flow-check-item-badge{border-radius:999px;padding:4px 8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;background:#f3f4f6;color:#6b7280;white-space:nowrap}.tg-flow-check-item.is-error .tg-flow-check-item-badge{background:#fee2e2;color:#b91c1c}.tg-flow-check-item.is-warning .tg-flow-check-item-badge{background:#ffedd5;color:#9a3412}.tg-flow-check-item.is-info .tg-flow-check-item-badge{background:#dbeafe;color:#1d4ed8}.tg-flow-check-item-text{color:#4b5563;font-size:13px;font-weight:600;line-height:1.45}.tg-flow-check-item-meta{color:#9ca3af;font-size:11px;font-weight:650}.tg-flow-check-empty{border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:18px;padding:18px;font-size:14px;font-weight:700}.tg-flow-check-loading{color:#6b7280;font-size:14px;font-weight:650;padding:14px 0}
+@media(max-width:760px){.tg-flow-top-right{gap:5px}.tg-flow-top-btn{padding:0 9px}.tg-flow-gear-menu{right:auto;left:0;width:250px}.tg-flow-command-row{grid-template-columns:1fr}.tg-flow-command-delete{width:100%}.tg-flow-modal{max-height:calc(100vh - 20px);border-radius:20px}.tg-flow-modal-backdrop{padding:10px}.tg-flow-modal-head,.tg-flow-modal-body,.tg-flow-modal-actions{padding-left:18px;padding-right:18px}}
 
 
 
@@ -1084,9 +1069,6 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 
 
 /* v3.5.127: restore visible deeplink under message blocks */
-
-
-.tg-flow-node.is-formula{border-color:#cdebdc;min-width:300px}.tg-flow-node.is-formula .tg-flow-node-head{background:#eefdf6;border-bottom-color:#cdebdc}.tg-flow-node.is-formula .tg-flow-node-title{color:#176c49}.tg-flow-node.is-formula.is-formula-invalid{border-color:#ff6b73;box-shadow:0 0 0 1px #ff6b73,0 14px 28px rgba(255,107,115,.14)}.tg-flow-formula-preview{background:#fff;color:#374151;border:0;display:flex;flex-direction:column;gap:8px;min-height:96px;padding:10px}.tg-flow-formula-preview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#176c49;font-size:12px;font-weight:700}.tg-flow-formula-count{background:#eefdf6;color:#176c49;border-radius:999px;padding:3px 8px;font-size:11px}.tg-flow-formula-list{display:flex;flex-direction:column;gap:5px}.tg-flow-formula-row{border:1px solid #edf0f2;background:#fbfbfc;border-radius:9px;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:11px;font-weight:500;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tg-flow-formula-empty{border:1px dashed #cdebdc;background:#f7fffb;border-radius:10px;padding:9px;color:#6b7280;font-size:12px;font-weight:600}.tg-flow-formula-more{font-size:11px;color:#8b929e;font-weight:600;text-align:right}
 
 .tg-flow-add-icon--condition{background:#edf8df!important;color:#5f8f30!important;}
 .tg-flow-node.is-condition{border-color:#d9edc8;min-width:300px}
@@ -1137,6 +1119,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
                         <button type="button" disabled><span class="tg-flow-gear-ico">///</span><span>Telegram меню для канала</span></button>
                     <?php endif; ?>
                     <button type="button" data-flow-reset-stats><span class="tg-flow-gear-ico">↻</span><span>Сбросить статистику</span></button>
+                    <button type="button" data-flow-check-scenario><span class="tg-flow-gear-ico">✓</span><span>Проверить сценарий</span></button>
                     <button type="button" disabled><span class="tg-flow-gear-ico">↔</span><span>Конвертировать бота</span></button>
                 </div>
             </div>
