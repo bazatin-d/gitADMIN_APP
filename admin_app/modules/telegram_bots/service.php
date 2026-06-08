@@ -2882,6 +2882,110 @@ function asr_tg_runtime_card_message_type(array $card): string {
 
 
 
+
+function asr_tg_runtime_random_settings(array $block): array {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $outputsRaw = isset($settings['outputs']) && is_array($settings['outputs']) ? $settings['outputs'] : [];
+    $outputs = [];
+    foreach ($outputsRaw as $idx => $output) {
+        if (!is_array($output)) continue;
+        $key = trim((string)($output['key'] ?? ''));
+        if ($key === '' || !preg_match('~^[a-zA-Z0-9_\-]{1,40}$~', $key)) $key = 'r' . ((int)$idx + 1);
+        $title = trim((string)($output['title'] ?? ''));
+        if ($title === '') $title = 'Выход ' . (count($outputs) + 1);
+        $percent = max(0, min(100, (int)round((float)($output['percent'] ?? 0))));
+        $outputs[] = [
+            'key' => $key,
+            'title' => mb_substr($title, 0, 80, 'UTF-8'),
+            'percent' => $percent,
+        ];
+        if (count($outputs) >= 10) break;
+    }
+    $total = array_sum(array_map(static fn($item) => (int)($item['percent'] ?? 0), $outputs));
+    return [
+        'outputs' => array_values($outputs),
+        'total' => $total,
+        'valid' => count($outputs) >= 2 && $total === 100,
+    ];
+}
+
+function asr_tg_runtime_random_pick_output(array $outputs): ?array {
+    if (count($outputs) < 2) return null;
+    $pool = [];
+    foreach ($outputs as $output) {
+        if (!is_array($output)) continue;
+        $key = trim((string)($output['key'] ?? ''));
+        $percent = max(0, min(100, (int)($output['percent'] ?? 0)));
+        if ($key === '' || $percent <= 0) continue;
+        $pool[] = $output + ['percent' => $percent, 'key' => $key];
+    }
+    if (!$pool) return null;
+    $total = array_sum(array_map(static fn($item) => (int)($item['percent'] ?? 0), $pool));
+    if ($total <= 0) return null;
+    $roll = random_int(1, $total);
+    $cursor = 0;
+    foreach ($pool as $output) {
+        $cursor += (int)($output['percent'] ?? 0);
+        if ($roll <= $cursor) return $output;
+    }
+    return $pool[count($pool) - 1] ?? null;
+}
+
+function asr_tg_runtime_random_target_block_id(PDO $pdo, int $scenarioId, int $blockId, string $key): int {
+    if ($scenarioId <= 0 || $blockId <= 0 || $key === '') return 0;
+    try {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        $stmt = $pdo->prepare("SELECT to_block_id FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND link_type = 'random_choice' AND JSON_EXTRACT(condition_json, '$.random_key') = ? AND to_block_id IS NOT NULL AND to_block_id > 0 ORDER BY sort_order ASC, id ASC LIMIT 1");
+        $stmt->execute([$scenarioId, $blockId, json_encode($key, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)]);
+        $id = (int)($stmt->fetchColumn() ?: 0);
+        if ($id > 0) return $id;
+        // Fallback for older MySQL/MariaDB setups where JSON_EXTRACT returns an unquoted scalar.
+        $stmt = $pdo->prepare("SELECT id, to_block_id, condition_json FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND link_type = 'random_choice' AND to_block_id IS NOT NULL AND to_block_id > 0 ORDER BY sort_order ASC, id ASC LIMIT 20");
+        $stmt->execute([$scenarioId, $blockId]);
+        foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
+            $condition = json_decode((string)($row['condition_json'] ?? ''), true);
+            if (!is_array($condition)) continue;
+            if (trim((string)($condition['random_key'] ?? '')) === $key) return max(0, (int)($row['to_block_id'] ?? 0));
+        }
+    } catch (Throwable $e) {}
+    return 0;
+}
+
+function asr_tg_runtime_execute_random_block(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block, string $source = 'manual', array $sourcePayload = []): bool {
+    $blockId = (int)($block['id'] ?? 0);
+    if ($scenarioId <= 0 || $blockId <= 0) return false;
+    $settings = asr_tg_runtime_random_settings($block);
+    if (empty($settings['valid'])) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_random_invalid', 'Блок «Случайный выбор» настроен некорректно.', ['settings' => $settings, 'source' => $source] + $sourcePayload);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Блок «Случайный выбор» настроен некорректно.');
+        return true;
+    }
+    $picked = asr_tg_runtime_random_pick_output($settings['outputs']);
+    if (!$picked) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_random_empty', 'Блок «Случайный выбор» не смог выбрать выход.', ['settings' => $settings, 'source' => $source] + $sourcePayload);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Блок «Случайный выбор» не смог выбрать выход.');
+        return true;
+    }
+    $key = trim((string)($picked['key'] ?? ''));
+    $targetBlockId = asr_tg_runtime_random_target_block_id($pdo, $scenarioId, $blockId, $key);
+    $payload = [
+        'random_block_id' => $blockId,
+        'selected_key' => $key,
+        'selected_title' => (string)($picked['title'] ?? ''),
+        'selected_percent' => (int)($picked['percent'] ?? 0),
+        'target_block_id' => $targetBlockId,
+        'source' => $source,
+    ] + $sourcePayload;
+    asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_random_selected', 'Блок «Случайный выбор» выбрал выход.', $payload);
+    if ($targetBlockId > 0 && $targetBlockId !== $blockId) {
+        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'random_choice', ['from_block_id' => $blockId, 'random_key' => $key, 'source' => $source]);
+    }
+    asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_random_missing_next', 'У выбранного выхода блока «Случайный выбор» нет связи со следующим шагом.', $payload);
+    asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'У выбранного выхода блока «Случайный выбор» нет связи со следующим шагом.');
+    return true;
+}
+
 function asr_tg_runtime_schedule_settings(array $block): array {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
@@ -3665,14 +3769,17 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
         if ($type === 'schedule') {
             return asr_tg_runtime_execute_schedule_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
+        if ($type === 'random') {
+            return asr_tg_runtime_execute_random_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
+        }
         if ($type === 'condition') {
             return asr_tg_runtime_execute_condition_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
         if ($type === 'actions') {
             return asr_tg_runtime_execute_actions_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
-        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.7 пока выполняет блоки «Сообщение», «Задержка», «Расписание», «Условие» и «Действия».', ['block_type' => $type, 'source' => $source]);
-        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.7 пока выполняет блоки «Сообщение», «Задержка», «Расписание», «Условие» и «Действия».');
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.8 выполняет блоки «Сообщение», «Задержка», «Расписание», «Случайный выбор», «Условие» и «Действия».', ['block_type' => $type, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.8 выполняет блоки «Сообщение», «Задержка», «Расписание», «Случайный выбор», «Условие» и «Действия».');
         return true;
     } catch (Throwable $e) {
         asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $e->getMessage());
