@@ -2881,6 +2881,117 @@ function asr_tg_runtime_card_message_type(array $card): string {
 }
 
 
+
+function asr_tg_runtime_schedule_settings(array $block): array {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $mode = (string)($settings['schedule_mode'] ?? 'fixed');
+    if (!in_array($mode, ['fixed','field'], true)) $mode = 'fixed';
+    $timezone = trim((string)($settings['timezone'] ?? 'Asia/Almaty'));
+    try { new DateTimeZone($timezone); } catch (Throwable $e) { $timezone = 'Asia/Almaty'; }
+    return [
+        'mode' => $mode,
+        'date' => trim((string)($settings['schedule_date'] ?? '')),
+        'time' => asr_tg_runtime_delay_normalize_time((string)($settings['schedule_time'] ?? '12:00')),
+        'field_code' => trim((string)($settings['schedule_field_code'] ?? '')),
+        'field_type' => trim((string)($settings['schedule_field_type'] ?? '')),
+        'field_fallback_date' => trim((string)($settings['schedule_field_fallback_date'] ?? '')),
+        'field_fallback_time' => asr_tg_runtime_delay_normalize_time((string)($settings['schedule_field_fallback_time'] ?? '12:00')),
+        'timezone' => $timezone,
+        'valid' => !empty($settings['schedule_valid']),
+    ];
+}
+
+function asr_tg_runtime_schedule_custom_field_value(PDO $pdo, int $subscriberId, string $fieldCode): string {
+    if ($subscriberId <= 0 || $fieldCode === '' || !function_exists('asr_tg_custom_fields_all') || !function_exists('asr_tg_subscriber_custom_values_get')) return '';
+    $fieldId = 0;
+    $fieldType = '';
+    try {
+        foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
+            if (trim((string)($field['code'] ?? '')) !== $fieldCode) continue;
+            $fieldId = (int)($field['id'] ?? 0);
+            $fieldType = trim((string)($field['field_type'] ?? ''));
+            break;
+        }
+        if ($fieldId <= 0) return '';
+        $values = asr_tg_subscriber_custom_values_get($pdo, $subscriberId);
+        $row = $values[$fieldId] ?? null;
+        if (!is_array($row)) return '';
+        if ($fieldType === 'date') return trim((string)($row['value_date'] ?? $row['value_text'] ?? ''));
+        if ($fieldType === 'datetime') return trim((string)($row['value_datetime'] ?? $row['value_text'] ?? ''));
+        return trim((string)($row['value_text'] ?? ''));
+    } catch (Throwable $e) {
+        return '';
+    }
+}
+
+function asr_tg_runtime_schedule_target_at(PDO $pdo, int $subscriberId, array $settings): ?DateTimeImmutable {
+    $tz = new DateTimeZone((string)($settings['timezone'] ?? 'Asia/Almaty'));
+    if ((string)($settings['mode'] ?? 'fixed') === 'field') {
+        $raw = asr_tg_runtime_schedule_custom_field_value($pdo, $subscriberId, (string)($settings['field_code'] ?? ''));
+        $raw = trim($raw);
+        if ($raw === '') {
+            $fallbackDate = trim((string)($settings['field_fallback_date'] ?? ''));
+            $fallbackTime = asr_tg_runtime_delay_normalize_time((string)($settings['field_fallback_time'] ?? '12:00'));
+            if (preg_match('~^\d{4}-\d{2}-\d{2}$~', $fallbackDate)) $raw = $fallbackDate . ' ' . $fallbackTime . ':00';
+        }
+        if ($raw === '') return null;
+        try {
+            if (preg_match('~^\d{4}-\d{2}-\d{2}$~', $raw)) return new DateTimeImmutable($raw . ' 00:00:00', $tz);
+            if (preg_match('~^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}~', $raw)) $raw = str_replace('T', ' ', substr($raw, 0, 16));
+            return new DateTimeImmutable($raw, $tz);
+        } catch (Throwable $e) { return null; }
+    }
+    $date = trim((string)($settings['date'] ?? ''));
+    $time = asr_tg_runtime_delay_normalize_time((string)($settings['time'] ?? '12:00'));
+    if (!preg_match('~^\d{4}-\d{2}-\d{2}$~', $date)) return null;
+    try { return new DateTimeImmutable($date . ' ' . $time . ':00', $tz); } catch (Throwable $e) { return null; }
+}
+
+function asr_tg_runtime_schedule_target_block_id(PDO $pdo, int $scenarioId, int $blockId, string $branch): int {
+    if ($scenarioId <= 0 || $blockId <= 0) return 0;
+    $linkType = $branch === 'expired' ? 'schedule_expired' : 'schedule_on_time';
+    try {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        $stmt = $pdo->prepare("SELECT to_block_id FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND link_type = ? AND to_block_id IS NOT NULL AND to_block_id > 0 ORDER BY sort_order ASC, id ASC LIMIT 1");
+        $stmt->execute([$scenarioId, $blockId, $linkType]);
+        return max(0, (int)($stmt->fetchColumn() ?: 0));
+    } catch (Throwable $e) { return 0; }
+}
+
+function asr_tg_runtime_execute_schedule_block(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block, string $source = 'manual', array $sourcePayload = []): bool {
+    $blockId = (int)($block['id'] ?? 0);
+    if ($scenarioId <= 0 || $blockId <= 0) return false;
+    $settings = asr_tg_runtime_schedule_settings($block);
+    $target = asr_tg_runtime_schedule_target_at($pdo, $subscriberId, $settings);
+    $tz = new DateTimeZone((string)($settings['timezone'] ?? 'Asia/Almaty'));
+    $now = new DateTimeImmutable('now', $tz);
+    if (!$target) {
+        $targetBlockId = asr_tg_runtime_schedule_target_block_id($pdo, $scenarioId, $blockId, 'expired');
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_schedule_invalid', 'Блок «Расписание» не смог определить дату.', ['settings' => $settings, 'source' => $source] + $sourcePayload);
+        if ($targetBlockId > 0 && $targetBlockId !== $blockId) return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'schedule_expired', ['from_block_id' => $blockId, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'У блока «Расписание» не указана дата.');
+        return true;
+    }
+    if ($target <= $now) {
+        $targetBlockId = asr_tg_runtime_schedule_target_block_id($pdo, $scenarioId, $blockId, 'expired');
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_schedule_expired', 'Дата и время расписания уже прошли.', ['target_at' => $target->format('Y-m-d H:i:s'), 'now' => $now->format('Y-m-d H:i:s'), 'target_block_id' => $targetBlockId, 'source' => $source] + $sourcePayload);
+        if ($targetBlockId > 0 && $targetBlockId !== $blockId) return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'schedule_expired', ['from_block_id' => $blockId, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'stopped', null, 'Дата и время прошли, ветка не настроена.');
+        return true;
+    }
+    $nextBlockId = asr_tg_runtime_schedule_target_block_id($pdo, $scenarioId, $blockId, 'on_time');
+    if ($nextBlockId <= 0 || $nextBlockId === $blockId) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_schedule_missing_next', 'У блока «Расписание» не настроен выход «По расписанию».', ['target_at' => $target->format('Y-m-d H:i:s'), 'source' => $source] + $sourcePayload);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'У блока «Расписание» не настроен выход «По расписанию».');
+        return true;
+    }
+    $nextRunAt = $target->format('Y-m-d H:i:s');
+    asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $nextBlockId, 'delayed', $nextRunAt, '');
+    asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_schedule_scheduled', 'Блок «Расписание» поставил продолжение в очередь.', ['schedule_block_id' => $blockId, 'next_block_id' => $nextBlockId, 'next_run_at' => $nextRunAt, 'settings' => $settings, 'source' => $source] + $sourcePayload);
+    return true;
+}
+
 function asr_tg_runtime_delay_settings(array $block): array {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
@@ -3551,14 +3662,17 @@ function asr_tg_runtime_start_scenario(PDO $pdo, array $bot, int $botId, int|str
         if ($type === 'delay') {
             return asr_tg_runtime_execute_delay_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
+        if ($type === 'schedule') {
+            return asr_tg_runtime_execute_schedule_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
+        }
         if ($type === 'condition') {
             return asr_tg_runtime_execute_condition_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
         if ($type === 'actions') {
             return asr_tg_runtime_execute_actions_block($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block, $source, $sourcePayload);
         }
-        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.6 пока выполняет блоки «Сообщение», «Задержка», «Условие» и «Действия».', ['block_type' => $type, 'source' => $source]);
-        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.6 пока выполняет блоки «Сообщение», «Задержка», «Условие» и «Действия».');
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_block_unsupported', 'Runtime v0.7 пока выполняет блоки «Сообщение», «Задержка», «Расписание», «Условие» и «Действия».', ['block_type' => $type, 'source' => $source]);
+        asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, 'Runtime v0.7 пока выполняет блоки «Сообщение», «Задержка», «Расписание», «Условие» и «Действия».');
         return true;
     } catch (Throwable $e) {
         asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'error', null, $e->getMessage());

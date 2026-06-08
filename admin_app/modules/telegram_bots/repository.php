@@ -3892,6 +3892,7 @@ function asr_tg_scenario_block_type_labels(): array {
         'actions' => 'Действия',
         'delay' => 'Задержка',
         'condition' => 'Условие',
+        'schedule' => 'Расписание',
     ];
 }
 
@@ -5180,6 +5181,122 @@ function asr_tg_scenario_delay_block_save(PDO $pdo, array $data): int {
     return $blockId;
 }
 
+
+function asr_tg_scenario_normalize_schedule_settings(PDO $pdo, int $scenarioId, array $data): array {
+    $mode = (string)($data['schedule_mode'] ?? 'fixed');
+    if (!in_array($mode, ['fixed', 'field'], true)) $mode = 'fixed';
+    $date = trim((string)($data['schedule_date'] ?? ''));
+    $time = trim((string)($data['schedule_time'] ?? '12:00'));
+    if (!preg_match('~^\d{4}-\d{2}-\d{2}$~', $date)) $date = '';
+    if (!preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $time)) $time = '12:00';
+    [$h, $m] = array_map('intval', explode(':', $time));
+    $time = sprintf('%02d:%02d', $h, $m);
+    $fieldCode = trim((string)($data['schedule_field_code'] ?? ''));
+    $fieldTitle = '';
+    $fieldType = '';
+    if ($mode === 'field' && $fieldCode === '__create__') {
+        $newTitle = trim((string)($data['schedule_new_field_title'] ?? ''));
+        $newCode = trim((string)($data['schedule_new_field_code'] ?? ''));
+        $newType = trim((string)($data['schedule_new_field_type'] ?? 'datetime'));
+        if (!in_array($newType, ['date','datetime'], true)) $newType = 'datetime';
+        if ($newTitle === '') throw new InvalidArgumentException('Укажите название нового пользовательского поля.');
+        if (!function_exists('asr_tg_custom_field_save_from_post')) throw new RuntimeException('Создание пользовательских полей недоступно.');
+        $newFieldId = asr_tg_custom_field_save_from_post($pdo, [
+            'bot_id' => 0,
+            'title' => $newTitle,
+            'code' => $newCode,
+            'field_type' => $newType,
+            'sort_order' => 100,
+        ]);
+        $fieldCode = '';
+        try {
+            foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
+                if ((int)($field['id'] ?? 0) !== (int)$newFieldId) continue;
+                $fieldCode = trim((string)($field['code'] ?? ''));
+                $fieldTitle = trim((string)($field['title'] ?? $newTitle));
+                $fieldType = trim((string)($field['field_type'] ?? $newType));
+                break;
+            }
+        } catch (Throwable $e) {}
+        if ($fieldCode === '') {
+            $fieldCode = asr_tg_custom_field_normalize_code($newCode, $newTitle);
+            $fieldTitle = $newTitle;
+            $fieldType = $newType;
+        }
+    }
+    if ($fieldCode !== '' && $fieldCode !== '__create__' && function_exists('asr_tg_custom_fields_all')) {
+        try {
+            foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
+                if (trim((string)($field['code'] ?? '')) !== $fieldCode) continue;
+                $fieldType = trim((string)($field['field_type'] ?? ''));
+                if (!in_array($fieldType, ['date','datetime'], true)) $fieldType = '';
+                $fieldTitle = trim((string)($field['title'] ?? $fieldCode));
+                break;
+            }
+        } catch (Throwable $e) {}
+    }
+    $fallbackDate = trim((string)($data['schedule_field_fallback_date'] ?? ''));
+    $fallbackTime = trim((string)($data['schedule_field_fallback_time'] ?? '12:00'));
+    if (!preg_match('~^\d{4}-\d{2}-\d{2}$~', $fallbackDate)) $fallbackDate = '';
+    if (!preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $fallbackTime)) $fallbackTime = '12:00';
+    [$fh, $fm] = array_map('intval', explode(':', $fallbackTime));
+    $fallbackTime = sprintf('%02d:%02d', $fh, $fm);
+    $timezone = trim((string)($data['timezone'] ?? ''));
+    if ($timezone === '' && function_exists('asr_tg_scenario_timezone')) $timezone = asr_tg_scenario_timezone($pdo, $scenarioId);
+    if ($timezone === '') $timezone = 'Asia/Almaty';
+    try { new DateTimeZone($timezone); } catch (Throwable $e) { $timezone = 'Asia/Almaty'; }
+    $valid = ($mode === 'fixed' && $date !== '' && $time !== '') || ($mode === 'field' && $fieldCode !== '' && $fieldCode !== '__create__' && $fieldType !== '');
+    $summary = $mode === 'field' ? ($fieldTitle !== '' ? $fieldTitle : $fieldCode) : ($date !== '' ? ($date . ' ' . $time) : 'Дата не указана');
+    if ($mode === 'field' && $fallbackDate !== '') $summary .= ' · ' . $fallbackDate . ' ' . $fallbackTime;
+    return [
+        'version' => 2,
+        'schedule_mode' => $mode,
+        'schedule_date' => $date,
+        'schedule_time' => $time,
+        'schedule_field_code' => $fieldCode,
+        'schedule_field_title' => $fieldTitle,
+        'schedule_field_type' => $fieldType,
+        'schedule_field_fallback_date' => $fallbackDate,
+        'schedule_field_fallback_time' => $fallbackTime,
+        'timezone' => $timezone,
+        'schedule_valid' => $valid,
+        'summary' => $summary,
+        'runtime_plan' => ['enabled' => true, 'prepared_for' => 'schedule_runner'],
+    ];
+}
+
+function asr_tg_scenario_schedule_block_save(PDO $pdo, array $data): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($blockId > 0 && !asr_tg_scenario_block_find($pdo, $blockId, $scenarioId)) throw new InvalidArgumentException('Блок сценария не найден.');
+    $title = trim((string)($data['block_title'] ?? '')) ?: 'Расписание';
+    $settings = asr_tg_scenario_normalize_schedule_settings($pdo, $scenarioId, $data);
+    if (empty($settings['schedule_valid'])) throw new InvalidArgumentException('Укажите дату и время или выберите пользовательское поле типа дата/дата-время.');
+    $settingsJson = json_encode($settings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить данные расписания.');
+    if ($blockId > 0) {
+        $stmt = $pdo->prepare("UPDATE oca_telegram_bot_scenario_blocks SET type = 'schedule', title = ?, settings_json = ?, updated_at = NOW() WHERE id = ? AND scenario_id = ?");
+        $stmt->execute([$title, $settingsJson, $blockId, $scenarioId]);
+        return $blockId;
+    }
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ? AND type <> 'start'");
+    $stmt->execute([$scenarioId]);
+    $blockCount = (int)($stmt->fetchColumn() ?: 0);
+    $positionX = 430 + (($blockCount % 4) * 330);
+    $positionY = 140 + ((int)floor($blockCount / 4) * 250);
+    $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'schedule', ?, ?, ?, ?, ?, NOW(), NOW())");
+    $stmt->execute([$scenarioId, $title, $settingsJson, $positionX, $positionY, $sortOrder]);
+    $blockId = (int)$pdo->lastInsertId();
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
+
 function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
@@ -5194,6 +5311,9 @@ function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): i
     $type = (string)($data['block_type'] ?? 'message');
     if ($type === 'delay') {
         return asr_tg_scenario_delay_block_save($pdo, $data);
+    }
+    if ($type === 'schedule') {
+        return asr_tg_scenario_schedule_block_save($pdo, $data);
     }
     if ($type === 'condition') {
         return asr_tg_scenario_condition_block_save($pdo, $data);
@@ -5309,6 +5429,31 @@ function asr_tg_scenario_condition_link_save(PDO $pdo, int $scenarioId, int $fro
         $pdo->prepare("DELETE FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND link_type = ?")->execute([$scenarioId, $fromBlockId, $linkType]);
         $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_links (scenario_id, from_block_id, to_block_id, link_type, condition_json, button_text, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, NOW(), NOW())');
         $stmt->execute([$scenarioId, $fromBlockId, $toBlockId, $linkType, $buttonText, $linkType === 'condition_yes' ? 60 : 70]);
+        $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET updated_at = NOW() WHERE id = ?')->execute([$scenarioId]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+}
+
+
+function asr_tg_scenario_schedule_link_save(PDO $pdo, int $scenarioId, int $fromBlockId, int $toBlockId, string $sourceHandle): void {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    if ($scenarioId <= 0 || $fromBlockId <= 0 || $toBlockId <= 0) throw new InvalidArgumentException('Не выбраны блоки для связи.');
+    if ($fromBlockId === $toBlockId) throw new InvalidArgumentException('Блок нельзя соединить с самим собой.');
+    $from = asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId);
+    $to = asr_tg_scenario_block_find($pdo, $toBlockId, $scenarioId);
+    if (!$from || !$to) throw new InvalidArgumentException('Один из блоков не найден.');
+    if ((string)($from['type'] ?? '') !== 'schedule') throw new InvalidArgumentException('Исходный блок не является расписанием.');
+    if ((string)($to['type'] ?? '') === 'start') throw new InvalidArgumentException('Нельзя вести переход в стартовый блок.');
+    $linkType = $sourceHandle === 'schedule-expired' ? 'schedule_expired' : 'schedule_on_time';
+    $buttonText = $linkType === 'schedule_expired' ? 'Дата и время прошли' : 'По расписанию';
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare("DELETE FROM oca_telegram_bot_scenario_links WHERE scenario_id = ? AND from_block_id = ? AND link_type = ?")->execute([$scenarioId, $fromBlockId, $linkType]);
+        $stmt = $pdo->prepare('INSERT INTO oca_telegram_bot_scenario_links (scenario_id, from_block_id, to_block_id, link_type, condition_json, button_text, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, ?, ?, NOW(), NOW())');
+        $stmt->execute([$scenarioId, $fromBlockId, $toBlockId, $linkType, $buttonText, $linkType === 'schedule_on_time' ? 60 : 70]);
         $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET updated_at = NOW() WHERE id = ?')->execute([$scenarioId]);
         $pdo->commit();
     } catch (Throwable $e) {
@@ -5475,6 +5620,10 @@ function asr_tg_scenario_link_save_from_post(PDO $pdo, array $post): void {
         asr_tg_scenario_question_noanswer_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0), $sourceHandle);
         return;
     }
+    if (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
+        asr_tg_scenario_schedule_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0), $sourceHandle);
+        return;
+    }
     if (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
         asr_tg_scenario_condition_link_save($pdo, (int)($post['scenario_id'] ?? 0), (int)($post['from_block_id'] ?? 0), (int)($post['to_block_id'] ?? 0), $sourceHandle);
         return;
@@ -5614,6 +5763,8 @@ function asr_tg_scenario_quick_message_create_from_post(PDO $pdo, array $post): 
             asr_tg_scenario_question_answer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (preg_match('/^q-noanswer-c\d+$/', $sourceHandle)) {
             asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
+            asr_tg_scenario_schedule_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
             asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } else {
@@ -5675,6 +5826,8 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
             asr_tg_scenario_question_answer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (preg_match('/^q-noanswer-c\d+$/', $sourceHandle)) {
             asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
+            asr_tg_scenario_schedule_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
             asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } else {
@@ -5685,6 +5838,47 @@ function asr_tg_scenario_quick_delay_create_from_post(PDO $pdo, array $post): in
     return $blockId;
 }
 
+
+
+function asr_tg_scenario_quick_schedule_create_from_post(PDO $pdo, array $post): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($post['scenario_id'] ?? 0));
+    $fromBlockId = max(0, (int)($post['from_block_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) throw new InvalidArgumentException('Сценарий не найден.');
+    if ($fromBlockId > 0 && !asr_tg_scenario_block_find($pdo, $fromBlockId, $scenarioId)) throw new InvalidArgumentException('Исходный блок не найден.');
+    $x = max(-10000, min(20000, (int)($post['position_x'] ?? 430)));
+    $y = max(-10000, min(20000, (int)($post['position_y'] ?? 140)));
+    $timezone = function_exists('asr_tg_scenario_timezone') ? asr_tg_scenario_timezone($pdo, $scenarioId) : 'Asia/Almaty';
+    $settingsJson = json_encode([
+        'version' => 1,
+        'schedule_mode' => 'fixed',
+        'schedule_date' => '',
+        'schedule_time' => '12:00',
+        'schedule_field_code' => '',
+        'schedule_field_title' => '',
+        'schedule_field_type' => '',
+        'timezone' => $timezone,
+        'schedule_valid' => false,
+        'runtime_plan' => ['enabled' => true, 'prepared_for' => 'schedule_runner'],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить новый блок расписания.');
+    $stmt = $pdo->prepare('SELECT COALESCE(MAX(sort_order), 0) + 100 FROM oca_telegram_bot_scenario_blocks WHERE scenario_id = ?');
+    $stmt->execute([$scenarioId]);
+    $sortOrder = (int)($stmt->fetchColumn() ?: 100);
+    $pdo->beginTransaction();
+    try {
+        $stmt = $pdo->prepare("INSERT INTO oca_telegram_bot_scenario_blocks (scenario_id, type, title, settings_json, position_x, position_y, sort_order, created_at, updated_at) VALUES (?, 'schedule', 'Расписание', ?, ?, ?, ?, NOW(), NOW())");
+        $stmt->execute([$scenarioId, $settingsJson, $x, $y, $sortOrder]);
+        $blockId = (int)$pdo->lastInsertId();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+    asr_tg_scenario_link_from_quick_block($pdo, $scenarioId, $fromBlockId, $blockId, trim((string)($post['source_handle'] ?? 'out')));
+    asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+    return $blockId;
+}
 
 function asr_tg_scenario_quick_condition_create_from_post(PDO $pdo, array $post): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
@@ -5725,6 +5919,8 @@ function asr_tg_scenario_quick_condition_create_from_post(PDO $pdo, array $post)
             asr_tg_scenario_question_answer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (preg_match('/^q-noanswer-c\d+$/', $sourceHandle)) {
             asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+        } elseif (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
+            asr_tg_scenario_schedule_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
             asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
         } else {
@@ -5744,6 +5940,8 @@ function asr_tg_scenario_link_from_quick_block(PDO $pdo, int $scenarioId, int $f
         asr_tg_scenario_question_answer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
     } elseif (preg_match('/^q-noanswer-c\d+$/', $sourceHandle)) {
         asr_tg_scenario_question_noanswer_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
+    } elseif (in_array($sourceHandle, ['schedule-on-time','schedule-expired'], true)) {
+        asr_tg_scenario_schedule_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
     } elseif (in_array($sourceHandle, ['condition-yes','condition-no'], true)) {
         asr_tg_scenario_condition_link_save($pdo, $scenarioId, $fromBlockId, $blockId, $sourceHandle);
     } else {

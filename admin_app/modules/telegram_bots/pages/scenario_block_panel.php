@@ -920,6 +920,309 @@ if ($type === 'condition') {
     return;
 }
 
+
+if ($type === 'schedule') {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $scheduleMode = (string)($settings['schedule_mode'] ?? 'fixed');
+    if (!in_array($scheduleMode, ['fixed','field'], true)) $scheduleMode = 'fixed';
+    $scheduleDate = trim((string)($settings['schedule_date'] ?? ''));
+    $scheduleTime = trim((string)($settings['schedule_time'] ?? '12:00'));
+    if (!preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $scheduleTime)) $scheduleTime = '12:00';
+    $scheduleFieldCode = trim((string)($settings['schedule_field_code'] ?? ''));
+    $scheduleFieldFallbackDate = trim((string)($settings['schedule_field_fallback_date'] ?? ''));
+    $scheduleFieldFallbackTime = trim((string)($settings['schedule_field_fallback_time'] ?? '12:00'));
+    if (!preg_match('~^\d{4}-\d{2}-\d{2}$~', $scheduleFieldFallbackDate)) $scheduleFieldFallbackDate = '';
+    if (!preg_match('~^(?:[01]?\d|2[0-3]):[0-5]\d$~', $scheduleFieldFallbackTime)) $scheduleFieldFallbackTime = '12:00';
+    $timezone = trim((string)($settings['timezone'] ?? $scenarioTimezone)) ?: $scenarioTimezone;
+    try { new DateTimeZone($timezone); } catch (Throwable $e) { $timezone = $scenarioTimezone; }
+    $dateFields = [];
+    try {
+        if (function_exists('asr_tg_custom_fields_all')) {
+            foreach (asr_tg_custom_fields_all($pdo, 0, true) as $field) {
+                $code = trim((string)($field['code'] ?? ''));
+                $fieldType = trim((string)($field['field_type'] ?? ''));
+                if ($code === '' || !in_array($fieldType, ['date','datetime'], true)) continue;
+                $dateFields[] = [
+                    'code' => $code,
+                    'title' => trim((string)($field['title'] ?? $code)) ?: $code,
+                    'type' => $fieldType,
+                    'id' => (int)($field['id'] ?? 0),
+                ];
+            }
+        }
+    } catch (Throwable $e) { $dateFields = []; }
+    $timezonePriorityLabels = [
+        'Asia/Almaty' => 'Asia/Almaty — Алматы, Астана',
+        'Europe/Moscow' => 'Europe/Moscow — Москва',
+        'Asia/Yekaterinburg' => 'Asia/Yekaterinburg — Екатеринбург',
+        'Asia/Tashkent' => 'Asia/Tashkent — Ташкент',
+        'Asia/Dubai' => 'Asia/Dubai — Дубай',
+        'Europe/Istanbul' => 'Europe/Istanbul — Стамбул',
+        'UTC' => 'UTC — всемирное время',
+    ];
+    $timezoneIds = [];
+    try {
+        $timezoneIds = timezone_identifiers_list(DateTimeZone::ALL);
+    } catch (Throwable $e) {
+        $timezoneIds = timezone_identifiers_list();
+    }
+    if (!in_array('UTC', $timezoneIds, true)) $timezoneIds[] = 'UTC';
+    if (!in_array($timezone, $timezoneIds, true)) $timezoneIds[] = $timezone;
+    $timezoneChoices = [];
+    foreach ($timezonePriorityLabels as $tzCode => $tzLabel) {
+        if (in_array($tzCode, $timezoneIds, true)) $timezoneChoices[$tzCode] = ['label' => $tzLabel, 'popular' => true];
+    }
+    sort($timezoneIds, SORT_NATURAL | SORT_FLAG_CASE);
+    foreach ($timezoneIds as $tzCode) {
+        $tzCode = trim((string)$tzCode);
+        if ($tzCode === '' || isset($timezoneChoices[$tzCode])) continue;
+        $timezoneChoices[$tzCode] = ['label' => $tzCode, 'popular' => false];
+    }
+    $tzOffset = static function(string $tz): string {
+        try {
+            $zone = new DateTimeZone($tz);
+            $offset = $zone->getOffset(new DateTimeImmutable('now', $zone));
+            $sign = $offset >= 0 ? '+' : '-';
+            $offset = abs($offset);
+            return 'GMT' . $sign . sprintf('%02d:%02d', intdiv($offset, 3600), intdiv($offset % 3600, 60));
+        } catch (Throwable $e) { return 'GMT+00:00'; }
+    };
+    $timezoneTitle = '(' . $tzOffset($timezone) . ') ' . $timezone;
+    $lower = static function(string $value): string {
+        return function_exists('mb_strtolower') ? mb_strtolower($value, 'UTF-8') : strtolower($value);
+    };
+    $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
+    ?>
+    <section id="tg-flow-panel" class="tg-flow-panel">
+        <form method="POST" id="scenario-message-form" class="tg-flow-panel-form">
+            <div class="tg-flow-panel-head">
+                <div>
+                    <div class="tg-flow-panel-title">Редактировать блок «Расписание»</div>
+                    <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?></div>
+                </div>
+                <div class="tg-flow-panel-actions">
+                    <div class="tg-flow-panel-menu-wrap">
+                        <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
+                        <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
+                            <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
+                        </div>
+                    </div>
+                    <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
+                </div>
+            </div>
+            <div class="tg-flow-panel-body">
+                <div id="scenario-message-alert" class="tg-flow-panel-alert"></div>
+                <input type="hidden" name="action" value="tg_scenario_block_save">
+                <input type="hidden" name="return_page" value="scenario_flow">
+                <input type="hidden" name="scenario_id" value="<?php echo (int)$scenarioId; ?>">
+                <input type="hidden" name="block_id" value="<?php echo (int)$blockId; ?>">
+                <input type="hidden" name="block_type" value="schedule">
+                <input type="hidden" name="scenario_cards_json" value="[]">
+                <?php if ($csrf !== ''): ?><input type="hidden" name="csrf_token" value="<?php echo $h($csrf); ?>"><?php endif; ?>
+                <label class="tg-flow-panel-field">
+                    <span class="tg-flow-panel-label">Название блока</span>
+                    <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Расписание')); ?>" maxlength="190">
+                    <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
+                </label>
+                <div class="tg-flow-schedule-box" data-schedule-settings>
+                    <div class="tg-flow-schedule-hero">
+                        <div class="tg-flow-schedule-icon">🗓</div>
+                        <div>
+                            <h3>Расписание</h3>
+                            <p>Удержит подписчика до нужной даты. Если дата уже прошла, сценарий уйдёт по отдельной ветке.</p>
+                        </div>
+                    </div>
+
+                    <div class="tg-flow-schedule-section">
+                        <div class="tg-flow-schedule-section-head">
+                            <span>Источник даты</span>
+                            <small>фиксированная дата или поле подписчика</small>
+                        </div>
+                        <label class="tg-flow-panel-field tg-flow-schedule-field">
+                            <span class="tg-flow-panel-label">Дата и время</span>
+                            <select class="tg-flow-panel-input" name="schedule_mode" data-schedule-mode>
+                                <option value="fixed" <?php echo $scheduleMode === 'fixed' ? 'selected' : ''; ?>>Указать дату и время</option>
+                                <option value="field" <?php echo $scheduleMode === 'field' ? 'selected' : ''; ?>>Взять из пользовательского поля</option>
+                            </select>
+                        </label>
+
+                        <div class="tg-flow-schedule-grid" data-schedule-fixed>
+                            <label class="tg-flow-panel-field tg-flow-schedule-field"><span class="tg-flow-panel-label">Дата</span><input class="tg-flow-panel-input" type="date" name="schedule_date" value="<?php echo $h($scheduleDate); ?>"></label>
+                            <label class="tg-flow-panel-field tg-flow-schedule-field"><span class="tg-flow-panel-label">Время</span><input class="tg-flow-panel-input" type="time" name="schedule_time" value="<?php echo $h($scheduleTime); ?>"></label>
+                        </div>
+
+                        <div class="tg-flow-schedule-field-mode" data-schedule-field>
+                            <label class="tg-flow-panel-field tg-flow-schedule-field">
+                                <span class="tg-flow-panel-label">Пользовательское поле</span>
+                                <select class="tg-flow-panel-input" name="schedule_field_code" data-schedule-field-select>
+                                    <option value="">Выберите поле типа дата/дата-время</option>
+                                    <option value="__create__" <?php echo $scheduleFieldCode === '__create__' ? 'selected' : ''; ?>>＋ Создать новое поле</option>
+                                    <?php foreach ($dateFields as $field): ?>
+                                        <option value="<?php echo $h($field['code']); ?>" data-field-type="<?php echo $h($field['type']); ?>" <?php echo $scheduleFieldCode === $field['code'] ? 'selected' : ''; ?>><?php echo $h($field['title'] . ' · ' . ($field['type'] === 'datetime' ? 'дата и время' : 'дата')); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <div class="tg-flow-schedule-new-field" data-schedule-new-field>
+                                <div class="tg-flow-schedule-new-title">Новое пользовательское поле</div>
+                                <div class="tg-flow-schedule-grid">
+                                    <label class="tg-flow-panel-field tg-flow-schedule-field"><span class="tg-flow-panel-label">Название</span><input class="tg-flow-panel-input" type="text" name="schedule_new_field_title" placeholder="Например: Дата вебинара" maxlength="190"></label>
+                                    <label class="tg-flow-panel-field tg-flow-schedule-field"><span class="tg-flow-panel-label">Тип</span><select class="tg-flow-panel-input" name="schedule_new_field_type"><option value="datetime">Дата и время</option><option value="date">Дата</option></select></label>
+                                </div>
+                                <label class="tg-flow-panel-field tg-flow-schedule-field"><span class="tg-flow-panel-label">Код поля — необязательно</span><input class="tg-flow-panel-input" type="text" name="schedule_new_field_code" placeholder="webinar_date" maxlength="80"></label>
+                            </div>
+                            <div class="tg-flow-schedule-field-value" data-schedule-field-value>
+                                <div class="tg-flow-schedule-new-title">Дата по умолчанию</div>
+                                <div class="tg-flow-schedule-grid">
+                                    <label class="tg-flow-panel-field tg-flow-schedule-field"><span class="tg-flow-panel-label">Дата</span><input class="tg-flow-panel-input" type="date" name="schedule_field_fallback_date" value="<?php echo $h($scheduleFieldFallbackDate); ?>"></label>
+                                    <label class="tg-flow-panel-field tg-flow-schedule-field"><span class="tg-flow-panel-label">Время</span><input class="tg-flow-panel-input" type="time" name="schedule_field_fallback_time" value="<?php echo $h($scheduleFieldFallbackTime); ?>"></label>
+                                </div>
+                                <span class="tg-flow-schedule-note">Если у подписчика поле уже заполнено, сценарий возьмёт его дату. Если пустое — использует дату по умолчанию.</span>
+                            </div>
+                            <?php if (!$dateFields): ?><div class="tg-flow-schedule-empty-note">Пока нет полей типа дата. Создайте новое поле прямо здесь — оно появится в списке пользовательских полей.</div><?php endif; ?>
+                        </div>
+                    </div>
+
+                    <div class="tg-flow-schedule-section tg-flow-schedule-tz-section">
+                        <div class="tg-flow-schedule-section-head">
+                            <span>Часовой пояс</span>
+                            <small>расписание считается по времени сценария</small>
+                        </div>
+                        <div class="tg-flow-schedule-tz">
+                            <div>
+                                <strong data-tz-current><?php echo $h($timezoneTitle); ?></strong>
+                                <small>У подписчика может быть другой часовой пояс — этот блок его не учитывает.</small>
+                            </div>
+                            <input type="hidden" name="timezone" data-tz-value value="<?php echo $h($timezone); ?>">
+                            <button type="button" data-tz-open>Изменить часовой пояс</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="tg-schedule-tz-modal" data-tz-modal aria-hidden="true">
+                    <div class="tg-schedule-tz-card" role="dialog" aria-modal="true" aria-label="Часовой пояс расписания">
+                        <div class="tg-schedule-tz-head"><h3>Часовой пояс</h3><button type="button" data-tz-close aria-label="Закрыть">×</button></div>
+                        <p>Выберите, по какому времени считать дату и время в блоке «Расписание».</p>
+                        <label class="tg-flow-panel-field tg-schedule-tz-search-field">
+                            <span class="tg-flow-panel-label">Поиск</span>
+                            <input class="tg-flow-panel-input" type="search" data-tz-search placeholder="Например: Алматы, Moscow, GMT+05 или Asia/Almaty" autocomplete="off">
+                        </label>
+                        <div class="tg-schedule-tz-list" data-tz-list>
+                            <?php foreach ($timezoneChoices as $tzCode => $tzInfo): ?>
+                                <?php
+                                $tzLabel = is_array($tzInfo) ? (string)($tzInfo['label'] ?? $tzCode) : (string)$tzInfo;
+                                $tzPopular = is_array($tzInfo) && !empty($tzInfo['popular']);
+                                $tzTitle = '(' . $tzOffset($tzCode) . ') ' . $tzCode;
+                                $tzSearch = $lower($tzCode . ' ' . $tzLabel . ' ' . $tzTitle);
+                                ?>
+                                <button type="button" class="tg-schedule-tz-option<?php echo $tzCode === $timezone ? ' is-selected' : ''; ?><?php echo $tzPopular ? ' is-popular' : ''; ?>" data-tz-option value="<?php echo $h($tzCode); ?>" data-title="<?php echo $h($tzTitle); ?>" data-search="<?php echo $h($tzSearch); ?>">
+                                    <span><?php echo $h($tzTitle); ?></span>
+                                    <small><?php echo $h($tzLabel); ?><?php echo $tzPopular ? ' · часто используется' : ''; ?></small>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="tg-schedule-tz-empty" data-tz-empty>Ничего не найдено. Попробуйте город, регион или GMT-смещение.</div>
+                        <div class="tg-schedule-tz-actions"><button type="button" class="tg-flow-panel-secondary" data-tz-close>Отмена</button><button type="button" class="tg-flow-panel-primary" data-tz-apply>Применить</button></div>
+                    </div>
+                </div>
+            </div>
+            <div class="tg-flow-panel-footer"><button type="button" class="tg-flow-panel-secondary tg-flow-drawer-close">Отмена</button><button type="submit" class="tg-flow-panel-primary">Сохранить и закрыть</button></div>
+        </form>
+    </section>
+    <style data-flow-panel-style="scenario-schedule-panel-v3.5.180">
+    .tg-flow-schedule-box{border:1px solid #f0dbe7;background:linear-gradient(180deg,#fff 0%,#fff8fb 100%);border-radius:22px;padding:18px;margin-top:14px;box-shadow:0 14px 34px rgba(120,70,95,.08)}
+    .tg-flow-schedule-hero{display:flex;gap:13px;align-items:flex-start;margin-bottom:16px}.tg-flow-schedule-icon{width:42px;height:42px;border-radius:16px;background:#fff1f7;border:1px solid #f6dbe8;display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto}.tg-flow-schedule-box h3{margin:1px 0 5px;color:#2f343b;font-size:18px;font-weight:720;line-height:1.25}.tg-flow-schedule-box p{margin:0;color:#6b7280;font-size:13px;line-height:1.5}.tg-flow-schedule-section{background:#fff;border:1px solid #edf0f4;border-radius:18px;padding:16px;margin-top:12px}.tg-flow-schedule-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:13px}.tg-flow-schedule-section-head span{color:#2f343b;font-size:14px;font-weight:720;line-height:1.25}.tg-flow-schedule-section-head small{color:#8b929d;font-size:12px;line-height:1.35;text-align:right}.tg-flow-schedule-field{margin:0 0 12px}.tg-flow-schedule-field:last-child{margin-bottom:0}.tg-flow-schedule-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.tg-flow-schedule-box .tg-flow-panel-input{min-height:44px;border-radius:13px}.tg-flow-schedule-note{display:block;margin-top:8px;color:#8b929d;font-size:12px;line-height:1.45}.tg-flow-schedule-empty-note{margin-top:12px;border-radius:14px;background:#fff7ed;border:1px solid #fed7aa;color:#6b4a22;padding:11px 12px;font-size:12px;line-height:1.45}.tg-flow-schedule-new-field,.tg-flow-schedule-field-value{display:none;margin-top:12px;padding:14px;border:1px solid #f1e7ef;background:#fff8fb;border-radius:17px}.tg-flow-schedule-new-title{margin:0 0 10px;color:#4b5563;font-size:13px;font-weight:720}.tg-flow-schedule-tz-section{background:linear-gradient(180deg,#fff,#fffafc)}.tg-flow-schedule-tz{display:flex;align-items:center;justify-content:space-between;gap:14px;border:1px solid #f1e7ef;background:#fff8fb;border-radius:16px;padding:13px 14px}.tg-flow-schedule-tz strong{display:block;color:#374151;font-size:13px;font-weight:720;line-height:1.35;overflow-wrap:anywhere}.tg-flow-schedule-tz small{display:block;margin-top:3px;color:#8b929d;font-size:12px;line-height:1.35}.tg-flow-schedule-tz button{border:0;background:transparent;color:#d97706;padding:2px 0;font-size:13px;font-weight:720;cursor:pointer;white-space:nowrap}.tg-flow-schedule-tz button:hover{text-decoration:underline}.tg-flow-schedule-box[data-mode="fixed"] [data-schedule-field],.tg-flow-schedule-box[data-mode="field"] [data-schedule-fixed]{display:none}.tg-flow-schedule-box[data-mode="field"] [data-schedule-field-value]{display:block}.tg-flow-schedule-box[data-mode="field"][data-create-field="1"] [data-schedule-new-field]{display:block}.tg-schedule-tz-modal{position:fixed;inset:0;z-index:10050;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.36);padding:18px}.tg-schedule-tz-modal.is-open{display:flex}.tg-schedule-tz-card{width:min(520px,100%);background:#fff;border-radius:22px;box-shadow:0 24px 70px rgba(15,23,42,.24);padding:18px}.tg-schedule-tz-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}.tg-schedule-tz-head h3{margin:0;font-size:17px;font-weight:720;color:#1f2937}.tg-schedule-tz-head button{border:0;background:#f3f4f6;color:#6b7280;border-radius:12px;width:34px;height:34px;font-size:22px;line-height:1;cursor:pointer}.tg-schedule-tz-card p{margin:0 0 14px;color:#6b7280;font-size:13px;line-height:1.45}.tg-schedule-tz-search-field{margin-bottom:10px}.tg-schedule-tz-list{max-height:min(52vh,430px);overflow-y:auto;overflow-x:hidden;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc;padding:6px;scrollbar-gutter:stable}.tg-schedule-tz-option{width:100%;max-width:100%;box-sizing:border-box;border:0;background:transparent;border-radius:12px;padding:10px 12px;text-align:left;cursor:pointer;display:block;color:#1f2937;white-space:normal;overflow:hidden}.tg-schedule-tz-option:hover{background:#fff7ed}.tg-schedule-tz-option.is-selected{background:#ffedd5;box-shadow:inset 0 0 0 1px rgba(249,115,22,.24)}.tg-schedule-tz-option span{display:block;font-size:13px;font-weight:700;color:#1f2937;text-align:left;white-space:normal;overflow-wrap:anywhere;word-break:break-word}.tg-schedule-tz-option small{display:block;margin-top:3px;font-size:12px;color:#6b7280;line-height:1.35;text-align:left;white-space:normal;overflow-wrap:anywhere;word-break:break-word}.tg-schedule-tz-option.is-popular small{color:#9a5a09}.tg-schedule-tz-empty{display:none;margin-top:10px;border-radius:14px;background:#f8fafc;border:1px dashed #d1d5db;padding:12px;color:#6b7280;font-size:13px;line-height:1.4}.tg-schedule-tz-empty.is-visible{display:block}.tg-schedule-tz-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+    @media(max-width:620px){.tg-flow-schedule-box{padding:15px}.tg-flow-schedule-grid{grid-template-columns:1fr}.tg-flow-schedule-section-head{display:block}.tg-flow-schedule-section-head small{display:block;text-align:left;margin-top:3px}.tg-flow-schedule-tz{align-items:flex-start;flex-direction:column}.tg-schedule-tz-actions{flex-direction:column-reverse}.tg-schedule-tz-actions button{width:100%}}
+    </style>
+    <script data-flow-panel-script>
+    (function(){
+      var box=document.querySelector('[data-schedule-settings]'); if(!box||box.dataset.bound==='1')return; box.dataset.bound='1';
+      var mode=box.querySelector('[data-schedule-mode]');
+      var fieldSelect=box.querySelector('[data-schedule-field-select]');
+      function sync(){
+        box.dataset.mode=mode?mode.value:'fixed';
+        box.dataset.createField=(fieldSelect&&fieldSelect.value==='__create__')?'1':'0';
+      }
+      if(mode)mode.addEventListener('change',sync);
+      if(fieldSelect)fieldSelect.addEventListener('change',sync);
+      sync();
+
+      var tzModal=document.querySelector('[data-tz-modal]');
+      var tzSearch=tzModal?tzModal.querySelector('[data-tz-search]'):null;
+      var tzList=tzModal?tzModal.querySelector('[data-tz-list]'):null;
+      var tzEmpty=tzModal?tzModal.querySelector('[data-tz-empty]'):null;
+      var tzInput=box.querySelector('[data-tz-value]');
+      var selectedTz=tzInput&&tzInput.value?tzInput.value:<?php echo json_encode($scenarioTimezone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+      function tzOptions(){return tzModal?Array.prototype.slice.call(tzModal.querySelectorAll('[data-tz-option]')):[];}
+      function markSelected(value){
+        selectedTz=value||selectedTz||<?php echo json_encode($scenarioTimezone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+        tzOptions().forEach(function(option){option.classList.toggle('is-selected',option.getAttribute('value')===selectedTz);});
+      }
+      function filterTz(){
+        var q=tzSearch?(tzSearch.value||'').trim().toLowerCase():'';
+        var visible=0;
+        tzOptions().forEach(function(option){
+          var haystack=(option.getAttribute('data-search')||option.textContent||'').toLowerCase();
+          var show=!q||haystack.indexOf(q)!==-1;
+          option.style.display=show?'':'none';
+          if(show)visible++;
+        });
+        if(tzEmpty)tzEmpty.classList.toggle('is-visible',visible===0);
+        if(tzList)tzList.scrollLeft=0;
+      }
+      function openTz(){
+        if(!tzModal||!tzList)return;
+        if(tzInput&&tzInput.value)selectedTz=tzInput.value;
+        if(tzSearch)tzSearch.value='';
+        markSelected(selectedTz);filterTz();
+        tzModal.classList.add('is-open');tzModal.setAttribute('aria-hidden','false');
+        setTimeout(function(){try{if(tzSearch)tzSearch.focus();var selected=tzModal.querySelector('[data-tz-option].is-selected');if(selected)selected.scrollIntoView({block:'center',inline:'nearest'});if(tzList)tzList.scrollLeft=0;}catch(e){}},0);
+      }
+      function closeTz(){if(!tzModal)return;tzModal.classList.remove('is-open');tzModal.setAttribute('aria-hidden','true');}
+      function applyTz(){
+        if(!tzInput){closeTz();return;}
+        var option=tzModal?tzModal.querySelector('[data-tz-option].is-selected'):null;
+        var value=option?(option.getAttribute('value')||selectedTz):selectedTz;
+        var title=option?(option.getAttribute('data-title')||option.textContent||value):value;
+        tzInput.value=value||<?php echo json_encode($scenarioTimezone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+        box.querySelectorAll('[data-tz-current]').forEach(function(el){el.textContent=title;});
+        closeTz();
+      }
+      box.querySelectorAll('[data-tz-open]').forEach(function(btn){btn.addEventListener('click',openTz);});
+      if(tzModal){
+        tzOptions().forEach(function(option){option.addEventListener('click',function(){markSelected(option.getAttribute('value')||<?php echo json_encode($scenarioTimezone, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>);});});
+        if(tzSearch)tzSearch.addEventListener('input',filterTz);
+        tzModal.querySelectorAll('[data-tz-close]').forEach(function(btn){btn.addEventListener('click',closeTz);});
+        var applyBtn=tzModal.querySelector('[data-tz-apply]'); if(applyBtn)applyBtn.addEventListener('click',applyTz);
+        tzModal.addEventListener('click',function(event){if(event.target===tzModal)closeTz();});
+      }
+      document.addEventListener('keydown',function(event){if(event.key==='Escape')closeTz();});
+
+      var form=box.closest('form');
+      if(form)form.tgFlowPrepareSave=function(){
+        var m=mode?mode.value:'fixed';
+        var alertBox=form.querySelector('#scenario-message-alert');
+        var ok=true,msg='';
+        if(m==='fixed'){
+          var d=(form.querySelector('[name="schedule_date"]')||{}).value||''; var t=(form.querySelector('[name="schedule_time"]')||{}).value||'';
+          if(!d||!t){ok=false;msg='Укажите дату и время расписания.';}
+        }else{
+          var f=(form.querySelector('[name="schedule_field_code"]')||{}).value||'';
+          if(!f){ok=false;msg='Выберите пользовательское поле с датой или создайте новое.';}
+          if(f==='__create__'){
+            var title=(form.querySelector('[name="schedule_new_field_title"]')||{}).value||'';
+            if(!title.trim()){ok=false;msg='Укажите название нового пользовательского поля.';}
+          }
+        }
+        if(!ok&&alertBox){alertBox.textContent=msg;alertBox.classList.add('is-open');}
+        return ok?{ok:true}:{ok:false,message:msg};
+      };
+    })();
+    </script>
+    <?php
+    return;
+}
+
 if ($type === 'delay') {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];

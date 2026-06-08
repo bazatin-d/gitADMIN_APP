@@ -102,6 +102,38 @@ $getDelaySettings = static function(array $block, ?string $defaultTimezone = nul
     ];
 };
 
+$getScheduleSettings = static function(array $block, ?string $defaultTimezone = null) use ($normalizeTime): array {
+    $settings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($settings)) $settings = [];
+    $mode = (string)($settings['schedule_mode'] ?? 'fixed');
+    if (!in_array($mode, ['fixed','field'], true)) $mode = 'fixed';
+    $date = trim((string)($settings['schedule_date'] ?? ''));
+    $time = $normalizeTime($settings['schedule_time'] ?? '12:00', '12:00');
+    $fieldTitle = trim((string)($settings['schedule_field_title'] ?? ''));
+    $fieldCode = trim((string)($settings['schedule_field_code'] ?? ''));
+    $fallbackDate = trim((string)($settings['schedule_field_fallback_date'] ?? ''));
+    $fallbackTime = $normalizeTime($settings['schedule_field_fallback_time'] ?? '12:00', '12:00');
+    $fallbackTimezone = trim((string)($defaultTimezone ?: 'Asia/Almaty')) ?: 'Asia/Almaty';
+    try { new DateTimeZone($fallbackTimezone); } catch (Throwable $e) { $fallbackTimezone = 'Asia/Almaty'; }
+    $timezone = trim((string)($settings['timezone'] ?? $fallbackTimezone)) ?: $fallbackTimezone;
+    try { new DateTimeZone($timezone); } catch (Throwable $e) { $timezone = $fallbackTimezone; }
+    $summary = $mode === 'field' ? ($fieldTitle !== '' ? $fieldTitle : ($fieldCode !== '' ? $fieldCode : 'Переменная не выбрана')) : ($date !== '' ? ($date . ' ' . $time) : 'Дата не указана');
+    if ($mode === 'field' && $fallbackDate !== '') $summary .= ' · ' . $fallbackDate . ' ' . $fallbackTime;
+    return [
+        'mode' => $mode,
+        'date' => $date,
+        'time' => $time,
+        'fieldTitle' => $fieldTitle,
+        'fieldCode' => $fieldCode,
+        'fallbackDate' => $fallbackDate,
+        'fallbackTime' => $fallbackTime,
+        'timezone' => $timezone,
+        'isInvalid' => empty($settings['schedule_valid']),
+        'summary' => $summary,
+        'preview' => $summary,
+    ];
+};
+
 $getConditionSettings = static function(array $block): array {
     $settings = json_decode((string)($block['settings_json'] ?? ''), true);
     if (!is_array($settings)) $settings = [];
@@ -240,6 +272,8 @@ $findSourceHandleForLink = static function(array $nodeData, array $link): string
     $linkType = (string)($link['link_type'] ?? '');
     if ($linkType === 'condition_yes') return 'condition-yes';
     if ($linkType === 'condition_no') return 'condition-no';
+    if ($linkType === 'schedule_on_time') return 'schedule-on-time';
+    if ($linkType === 'schedule_expired') return 'schedule-expired';
     $cards = isset($nodeData['cards']) && is_array($nodeData['cards']) ? $nodeData['cards'] : [];
     if ($linkType === 'manual' || $linkType === 'start' || $linkType === 'next') return 'out';
     $to = (int)($link['to_block_id'] ?? 0);
@@ -349,11 +383,13 @@ foreach ($blocks as $index => $block) {
     $isDelay = $type === 'delay';
     $isCondition = $type === 'condition';
     $isActions = $type === 'actions';
+    $isSchedule = $type === 'schedule';
     $delaySettings = $isDelay ? $getDelaySettings($block, $scenarioTimezone) : [];
     $conditionSettings = $isCondition ? $getConditionSettings($block) : [];
     $actionSettings = $isActions ? $getActionSettings($block) : [];
-    $cards = ($isDelay || $isCondition || $isActions) ? [] : $getBlockCards($block);
-    $flowCards = ($isDelay || $isCondition || $isActions) ? [] : $normalizeFlowCards($cards);
+    $scheduleSettings = $isSchedule ? $getScheduleSettings($block, $scenarioTimezone) : [];
+    $cards = ($isDelay || $isCondition || $isActions || $isSchedule) ? [] : $getBlockCards($block);
+    $flowCards = ($isDelay || $isCondition || $isActions || $isSchedule) ? [] : $normalizeFlowCards($cards);
     $firstCard = $flowCards[0] ?? [];
     $hasStoredPosition = is_numeric($block['position_x'] ?? null) && is_numeric($block['position_y'] ?? null);
     $x = $hasStoredPosition ? (int)round((float)$block['position_x']) : 0;
@@ -365,7 +401,7 @@ foreach ($blocks as $index => $block) {
         $x = $isStart ? 120 : 470 + (($index % 4) * 320);
         $y = 140 + ((int)floor($index / 4) * 230);
     }
-    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : ($isActions ? (string)($actionSettings['preview'] ?? 'Не добавлено ни одного действия') : (string)($firstCard['textPreview'] ?? ''))));
+    $preview = $isStart ? 'По кнопке «Начать»' : ($isDelay ? (string)($delaySettings['preview'] ?? 'Подождать 5 минут') : ($isCondition ? (string)($conditionSettings['preview'] ?? 'Условие не настроено') : ($isActions ? (string)($actionSettings['preview'] ?? 'Не добавлено ни одного действия') : ($isSchedule ? (string)($scheduleSettings['preview'] ?? 'Расписание не настроено') : (string)($firstCard['textPreview'] ?? ''))))); 
     $deeplink = !$isStart ? ($deeplinksByBlock[$blockId] ?? null) : null;
     $deeplinkCode = is_array($deeplink) ? trim((string)($deeplink['code'] ?? $deeplink['token'] ?? '')) : '';
     $deeplinkUrl = is_array($deeplink) ? trim((string)($deeplink['url'] ?? '')) : '';
@@ -389,13 +425,13 @@ foreach ($blocks as $index => $block) {
     }
     $nodes[] = [
         'id' => (string)$blockId,
-        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : ($isActions ? 'actionsNode' : 'messageNode'))),
+        'type' => $isStart ? 'startNode' : ($isDelay ? 'delayNode' : ($isCondition ? 'conditionNode' : ($isActions ? 'actionsNode' : ($isSchedule ? 'scheduleNode' : 'messageNode')))),
         'position' => ['x' => $x, 'y' => $y],
         'data' => [
             'blockId' => $blockId,
             'blockType' => $type,
-            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : ($isActions ? 'Действия' : 'Сообщение')))),
-            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : ($isActions ? 'Не добавлено ни одного действия' : 'Пустой текст'))),
+            'title' => trim((string)($block['title'] ?? '')) ?: ($isStart ? 'Старт' : ($isDelay ? 'Задержка' : ($isCondition ? 'Условие' : ($isActions ? 'Действия' : ($isSchedule ? 'Расписание' : 'Сообщение'))))),
+            'preview' => $preview !== '' ? $preview : ($isDelay ? 'Подождать 5 минут' : ($isCondition ? 'Условие не настроено' : ($isActions ? 'Не добавлено ни одного действия' : ($isSchedule ? 'Расписание не настроено' : 'Пустой текст')))),
             'delayMode' => (string)($delaySettings['mode'] ?? ''),
             'delayModeLabel' => (string)($delaySettings['modeLabel'] ?? ''),
             'delayValue' => (int)($delaySettings['value'] ?? 0),
@@ -404,6 +440,10 @@ foreach ($blocks as $index => $block) {
             'delaySendLabel' => (string)($delaySettings['sendLabel'] ?? ''),
             'delayTimeLabel' => (string)($delaySettings['timeLabel'] ?? ''),
             'delayWeekdaysTitle' => (string)($delaySettings['weekdaysTitle'] ?? ''),
+            'scheduleInvalid' => !empty($scheduleSettings['isInvalid']),
+            'scheduleMode' => (string)($scheduleSettings['mode'] ?? ''),
+            'scheduleSummary' => (string)($scheduleSettings['summary'] ?? ''),
+            'scheduleTimezone' => (string)($scheduleSettings['timezone'] ?? ''),
             'missingNext' => false,
             'conditionInvalid' => !empty($conditionSettings['isInvalid']),
             'conditionMatchLabel' => (string)($conditionSettings['matchLabel'] ?? ''),
@@ -442,6 +482,8 @@ foreach ($links as $link) {
     $edgeData = [];
     if ($sourceHandle === 'condition-yes') $edgeData = ['label' => 'Да', 'kind' => 'condition_yes'];
     if ($sourceHandle === 'condition-no') $edgeData = ['label' => 'Нет', 'kind' => 'condition_no'];
+    if ($sourceHandle === 'schedule-on-time') $edgeData = ['label' => 'По расписанию', 'kind' => 'schedule_on_time'];
+    if ($sourceHandle === 'schedule-expired') $edgeData = ['label' => 'Дата прошла', 'kind' => 'schedule_expired'];
     $edges[] = [
         'id' => $edgeId,
         'source' => $from,
