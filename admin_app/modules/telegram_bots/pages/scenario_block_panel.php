@@ -2,6 +2,7 @@
 defined('ASR_ADMIN') || exit;
 
 asr_tg_repository_ensure_scenario_schema($pdo);
+require_once __DIR__ . '/../scenario_test_link_service.php';
 
 $h = $h ?? static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 $safeJson = static function($value): string {
@@ -39,6 +40,10 @@ $scenarioTimezone = function_exists('asr_tg_scenario_timezone') ? asr_tg_scenari
 try { new DateTimeZone($scenarioTimezone); } catch (Throwable $e) { $scenarioTimezone = 'Asia/Almaty'; }
 
 $type = (string)($block['type'] ?? 'message');
+$__scenarioTestLink = function_exists('asr_tg_scenario_test_link_for_block') ? asr_tg_scenario_test_link_for_block($pdo, $scenarioId, $blockId) : ['enabled' => false, 'url' => '', 'reason' => ''];
+$__scenarioTestUrl = !empty($__scenarioTestLink['enabled']) ? (string)($__scenarioTestLink['url'] ?? '') : '';
+$__scenarioTestReason = (string)($__scenarioTestLink['reason'] ?? 'Ссылка для тестирования недоступна.');
+$__scenarioTestButton = '<button type="button" data-panel-test data-test-url="' . $h($__scenarioTestUrl) . '" ' . ($__scenarioTestUrl === '' ? 'disabled' : '') . '><span class="tg-flow-panel-dropdown-ico">▶</span><span><span class="tg-flow-panel-menu-main">Тестировать с этого шага</span>' . ($__scenarioTestUrl === '' ? '<span class="tg-flow-panel-menu-note">' . $h($__scenarioTestReason) . '</span>' : '<span class="tg-flow-panel-menu-note">Откроется Telegram</span>') . '</span></button>';
 $__scenarioHelpFile = dirname(__DIR__) . '/scenario_help/block_help.php';
 if (is_file($__scenarioHelpFile)) {
     require_once $__scenarioHelpFile;
@@ -422,6 +427,7 @@ if ($type === 'actions') {
                     <div class="tg-flow-panel-menu-wrap">
                         <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
                         <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <?php echo $__scenarioTestButton; ?>
                             <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
@@ -857,6 +863,7 @@ if ($type === 'condition') {
                     <div class="tg-flow-panel-menu-wrap">
                         <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
                         <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <?php echo $__scenarioTestButton; ?>
                             <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
@@ -1229,6 +1236,7 @@ if ($type === 'random') {
                     <div class="tg-flow-panel-menu-wrap">
                         <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
                         <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <?php echo $__scenarioTestButton; ?>
                             <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
@@ -1383,6 +1391,7 @@ if ($type === 'schedule') {
                     <div class="tg-flow-panel-menu-wrap">
                         <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
                         <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <?php echo $__scenarioTestButton; ?>
                             <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
@@ -1688,6 +1697,7 @@ if ($type === 'delay') {
         'scenarioId' => $scenarioId,
         'blockId' => $blockId,
         'hasDeeplink' => ($deeplinkCode !== '' || $deeplinkUrl !== ''),
+        'testUrl' => $__scenarioTestUrl,
     ];
     ?>
     <section id="tg-flow-panel" class="tg-flow-panel">
@@ -1701,6 +1711,7 @@ if ($type === 'delay') {
                     <div class="tg-flow-panel-menu-wrap">
                         <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
                         <div class="tg-flow-panel-dropdown" data-panel-menu>
+                            <?php echo $__scenarioTestButton; ?>
                             <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
                             <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                         </div>
@@ -2044,6 +2055,7 @@ $blockMeta = [
     'hasDeeplink' => $deeplinkCode !== '' || $deeplinkUrl !== '',
     'deeplinkCode' => $deeplinkCode,
     'deeplinkUrl' => $deeplinkUrl,
+    'testUrl' => $__scenarioTestUrl,
 ];
 
 $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
@@ -2059,6 +2071,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
                 <div class="tg-flow-panel-menu-wrap">
                     <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
                     <div class="tg-flow-panel-dropdown" data-panel-menu>
+                        <?php echo $__scenarioTestButton; ?>
                         <button type="button" data-panel-deeplink <?php echo ($deeplinkCode !== '' || $deeplinkUrl !== '') ? 'disabled' : ''; ?>>
                             <span class="tg-flow-panel-dropdown-ico">🔗</span><span><span class="tg-flow-panel-menu-main"><?php echo ($deeplinkCode !== '' || $deeplinkUrl !== '') ? 'Диплинк уже создан' : 'Добавить диплинк'; ?></span><?php if ($deeplinkCode !== '' || $deeplinkUrl !== ''): ?><span class="tg-flow-panel-menu-note">Ссылка уже есть под блоком</span><?php endif; ?></span>
                         </button>
@@ -3034,5 +3047,27 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
       event.stopImmediatePropagation();
     }
   });
+})();
+</script>
+
+<script data-flow-panel-script="scenario-test-link-v3.5.207">
+(function(){
+  if (window.__tgScenarioPanelTestLinkHandlerV35207) return;
+  window.__tgScenarioPanelTestLinkHandlerV35207 = true;
+  document.addEventListener('click', function(event){
+    var btn = event.target && event.target.closest ? event.target.closest('[data-panel-test]') : null;
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (btn.disabled) return;
+    var menu = btn.closest('[data-panel-menu]');
+    if (menu) menu.classList.remove('is-open');
+    var url = String(btn.getAttribute('data-test-url') || '').trim();
+    if (!url) {
+      if (typeof window.tgScenarioFlowToast === 'function') window.tgScenarioFlowToast('Ссылка для тестирования недоступна.', 'error');
+      return;
+    }
+    window.open(url, '_blank', 'noopener');
+  }, true);
 })();
 </script>

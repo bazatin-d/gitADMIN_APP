@@ -1,6 +1,8 @@
 <?php
 defined('ASR_ADMIN') || exit;
 
+require_once dirname(__DIR__) . '/scenario_bulk_start_service.php';
+
 // Clean subscribers page v3.4.40.
 // Adds row checkboxes and bulk actions dropdown; keeps independent AND/OR operators between filter conditions.
 // New custom fields from oca_telegram_bot_custom_fields appear in the filter catalog automatically.
@@ -21,6 +23,7 @@ $safeFilterCatalog = [];
 $safeFilterCatalogForJs = [];
 $safeFilterActive = false;
 $safeAllowedColumns = [];
+$safeBulkScenarioCatalog = [];
 
 $safeHumanizeColumn = static function(string $code): string {
     $labels = [
@@ -126,6 +129,7 @@ try {
     $safeCustomFields = function_exists('asr_tg_custom_fields_all') ? asr_tg_custom_fields_all($pdo, 0, false) : [];
     $safeActiveCustomFields = array_values(array_filter($safeCustomFields, static fn($row) => !empty($row['is_active'])));
     $safeVariablesCatalog = function_exists('asr_tg_variables_catalog') ? asr_tg_variables_catalog($pdo, 0) : [];
+    $safeBulkScenarioCatalog = function_exists('asr_tg_bulk_start_catalog') ? asr_tg_bulk_start_catalog($pdo) : [];
 
     try {
         $columnStmt = $pdo->query('SHOW COLUMNS FROM oca_telegram_bot_subscribers');
@@ -455,7 +459,7 @@ $safeFormatDate = static function($value): string {
 
 
 /* v3.4.40: bulk actions */
-.tg-filter-mainline{position:relative}.tg-bulk-actions{margin-left:auto;position:relative;display:inline-flex;align-items:center}.tg-bulk-actions-btn{height:42px;border:1px solid #e5e7eb;background:#f3f4f6;color:#374151;border-radius:14px;padding:0 14px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:8px;cursor:pointer}.tg-bulk-actions-btn:disabled{opacity:.55;cursor:not-allowed}.tg-bulk-actions-btn:after{content:'▾';font-size:11px;color:#9ca3af}.tg-bulk-menu{display:none;position:absolute;right:0;top:48px;z-index:70;width:300px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 18px 48px rgba(15,23,42,.16);padding:10px}.tg-bulk-actions.is-open .tg-bulk-menu{display:block}.tg-bulk-menu-title{font-size:12px;font-weight:700;color:#9ca3af;padding:6px 8px 10px}.tg-bulk-menu-item{width:100%;min-height:38px;border:0;background:#fff;color:#374151;border-radius:12px;padding:9px 10px;font-size:13px;font-weight:600;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer}.tg-bulk-menu-item:hover{background:#fff7ed;color:#c2410c}.tg-bulk-menu-item[disabled]{color:#9ca3af;background:#f9fafb;cursor:not-allowed}.tg-bulk-menu-item.danger{color:#b91c1c}.tg-bulk-panel{display:none;border-top:1px solid #edf0f2;margin-top:8px;padding:10px 8px 4px}.tg-bulk-panel.is-open{display:grid;gap:8px}.tg-bulk-panel label{font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em}.tg-bulk-panel select{height:40px;border:1px solid #e5e7eb;border-radius:12px;padding:0 10px;color:#374151;font-size:13px;font-weight:600;background:#fff}.tg-bulk-panel button{height:38px;border:0;border-radius:12px;background:#e98222;color:#fff;font-size:12px;font-weight:700;cursor:pointer}.tg-row-check{display:flex;align-items:center;justify-content:center}.tg-row-check input{width:18px;height:18px;accent-color:#e98222;cursor:pointer}.tg-delete-confirm-card{width:min(780px,100%)}.tg-delete-alert{margin:16px 22px 0;border:1px solid #fed7aa;background:#fff7ed;color:#1f2937;border-radius:8px;padding:16px 20px;display:flex;gap:14px;align-items:flex-start;font-size:15px;font-weight:500;line-height:1.55}.tg-delete-alert-icon{width:28px;height:28px;border:2px solid #f59e0b;color:#f59e0b;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;flex:0 0 auto}.tg-delete-confirm-body{padding:22px}.tg-delete-confirm-body input{width:100%;height:72px;border:1px solid #d1d5db;border-radius:6px;padding:0 22px;font-size:18px;font-weight:500;color:#111827;outline:none}.tg-delete-confirm-body input:focus{border-color:#e98222;box-shadow:0 0 0 3px rgba(233,130,34,.12)}.tg-delete-confirm-actions{display:flex;justify-content:flex-end;gap:12px;padding:0 22px 20px}.tg-delete-confirm-actions button{height:54px;border:0;border-radius:6px;padding:0 22px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;cursor:pointer}.tg-delete-cancel{background:#fff;color:#1a73e8}.tg-delete-ok{background:#e5e7eb;color:#9ca3af}.tg-delete-ok.is-ready{background:#e98222;color:#fff}@media(max-width:820px){.tg-bulk-actions{margin-left:0;width:100%}.tg-bulk-actions-btn{width:100%;justify-content:center}.tg-bulk-menu{position:static;width:100%;margin-top:8px;box-shadow:none}.tg-delete-confirm-actions{flex-direction:column-reverse}.tg-delete-confirm-actions button{width:100%}}
+.tg-filter-mainline{position:relative}.tg-bulk-actions{margin-left:auto;position:relative;display:inline-flex;align-items:center}.tg-bulk-actions-btn{height:42px;border:1px solid #e5e7eb;background:#f3f4f6;color:#374151;border-radius:14px;padding:0 14px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:8px;cursor:pointer}.tg-bulk-actions-btn:disabled{opacity:.55;cursor:not-allowed}.tg-bulk-actions-btn:after{content:'▾';font-size:11px;color:#9ca3af}.tg-bulk-menu{display:none;position:absolute;right:0;top:48px;z-index:70;width:300px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 18px 48px rgba(15,23,42,.16);padding:10px}.tg-bulk-actions.is-open .tg-bulk-menu{display:block}.tg-bulk-menu-title{font-size:12px;font-weight:700;color:#9ca3af;padding:6px 8px 10px}.tg-bulk-menu-item{width:100%;min-height:38px;border:0;background:#fff;color:#374151;border-radius:12px;padding:9px 10px;font-size:13px;font-weight:600;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer}.tg-bulk-menu-item:hover{background:#fff7ed;color:#c2410c}.tg-bulk-menu-item[disabled]{color:#9ca3af;background:#f9fafb;cursor:not-allowed}.tg-bulk-start-note{font-size:11px;font-weight:600;color:#9ca3af;line-height:1.35}.tg-bulk-menu-item.danger{color:#b91c1c}.tg-bulk-panel{display:none;border-top:1px solid #edf0f2;margin-top:8px;padding:10px 8px 4px}.tg-bulk-panel.is-open{display:grid;gap:8px}.tg-bulk-panel label{font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em}.tg-bulk-panel select{height:40px;border:1px solid #e5e7eb;border-radius:12px;padding:0 10px;color:#374151;font-size:13px;font-weight:600;background:#fff}.tg-bulk-panel button{height:38px;border:0;border-radius:12px;background:#e98222;color:#fff;font-size:12px;font-weight:700;cursor:pointer}.tg-row-check{display:flex;align-items:center;justify-content:center}.tg-row-check input{width:18px;height:18px;accent-color:#e98222;cursor:pointer}.tg-delete-confirm-card{width:min(780px,100%)}.tg-delete-alert{margin:16px 22px 0;border:1px solid #fed7aa;background:#fff7ed;color:#1f2937;border-radius:8px;padding:16px 20px;display:flex;gap:14px;align-items:flex-start;font-size:15px;font-weight:500;line-height:1.55}.tg-delete-alert-icon{width:28px;height:28px;border:2px solid #f59e0b;color:#f59e0b;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;flex:0 0 auto}.tg-delete-confirm-body{padding:22px}.tg-delete-confirm-body input{width:100%;height:72px;border:1px solid #d1d5db;border-radius:6px;padding:0 22px;font-size:18px;font-weight:500;color:#111827;outline:none}.tg-delete-confirm-body input:focus{border-color:#e98222;box-shadow:0 0 0 3px rgba(233,130,34,.12)}.tg-delete-confirm-actions{display:flex;justify-content:flex-end;gap:12px;padding:0 22px 20px}.tg-delete-confirm-actions button{height:54px;border:0;border-radius:6px;padding:0 22px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;cursor:pointer}.tg-delete-cancel{background:#fff;color:#1a73e8}.tg-delete-ok{background:#e5e7eb;color:#9ca3af}.tg-delete-ok.is-ready{background:#e98222;color:#fff}@media(max-width:820px){.tg-bulk-actions{margin-left:0;width:100%}.tg-bulk-actions-btn{width:100%;justify-content:center}.tg-bulk-menu{position:static;width:100%;margin-top:8px;box-shadow:none}.tg-delete-confirm-actions{flex-direction:column-reverse}.tg-delete-confirm-actions button{width:100%}}
 
 </style>
 <section class="tg-subs-emergency">
@@ -503,6 +507,15 @@ $safeFormatDate = static function($value): string {
                         <select data-tg-bulk-tag-select="remove-tag" required><option value="">Тег</option><?php foreach ($safeTags as $tag): ?><option value="<?php echo (int)$tag['id']; ?>"><?php echo $h((string)$tag['name']); ?></option><?php endforeach; ?></select>
                         <button type="button" data-tg-bulk-submit="remove-tag">Снять</button>
                     </div>
+                    <button type="button" class="tg-bulk-menu-item" data-tg-bulk-panel-toggle="start-scenario">Запустить сценарий <span>›</span></button>
+                    <div class="tg-bulk-panel" data-tg-bulk-panel="start-scenario" data-tg-bulk-scenario-box>
+                        <label>Сценарий</label>
+                        <select data-tg-bulk-scenario-select required><option value="">Выберите сценарий</option><?php foreach ($safeBulkScenarioCatalog as $scenario): ?><option value="<?php echo (int)$scenario['id']; ?>"><?php echo $h((string)$scenario['title']); ?></option><?php endforeach; ?></select>
+                        <label>Стартовый блок</label>
+                        <select data-tg-bulk-block-select required><option value="">Сначала выберите сценарий</option></select>
+                        <div class="tg-bulk-start-note">Запуск пойдёт только по выбранным подписчикам и только если их канал привязан к сценарию.</div>
+                        <button type="button" data-tg-bulk-submit="start-scenario">Запустить</button>
+                    </div>
                     <button type="button" class="tg-bulk-menu-item danger" data-tg-bulk-delete-open>Удалить</button>
                 </div>
             </div>        </div>
@@ -544,6 +557,9 @@ $safeFormatDate = static function($value): string {
 </form>
 <form method="POST" action="admin.php?tab=telegram_bots&page=subscribers" data-tg-bulk-form="remove-tag">
     <input type="hidden" name="action" value="tg_subscribers_bulk_remove_tag"><input type="hidden" name="bot_id" value="<?php echo (int)$safeBotId; ?>"><input type="hidden" name="return_bot_id" value="<?php echo (int)$safeBotId; ?>"><input type="hidden" name="tag_id" value="" data-tg-bulk-tag-hidden="remove-tag"><?php if (function_exists('csrf_token')): ?><input type="hidden" name="csrf_token" value="<?php echo $h(csrf_token()); ?>"><?php endif; ?>
+</form>
+<form method="POST" action="admin.php?tab=telegram_bots&page=subscribers" data-tg-bulk-form="start-scenario">
+    <input type="hidden" name="action" value="tg_subscribers_bulk_start_scenario"><input type="hidden" name="bot_id" value="<?php echo (int)$safeBotId; ?>"><input type="hidden" name="return_bot_id" value="<?php echo (int)$safeBotId; ?>"><input type="hidden" name="scenario_id" value="" data-tg-bulk-scenario-hidden><input type="hidden" name="block_id" value="" data-tg-bulk-block-hidden><?php if (function_exists('csrf_token')): ?><input type="hidden" name="csrf_token" value="<?php echo $h(csrf_token()); ?>"><?php endif; ?>
 </form>
 <form method="POST" action="admin.php?tab=telegram_bots&page=subscribers" data-tg-bulk-delete-form>
     <input type="hidden" name="action" value="tg_subscribers_bulk_delete"><input type="hidden" name="bot_id" value="<?php echo (int)$safeBotId; ?>"><input type="hidden" name="return_bot_id" value="<?php echo (int)$safeBotId; ?>"><input type="hidden" name="confirm_word" value="" data-tg-delete-confirm-hidden><?php if (function_exists('csrf_token')): ?><input type="hidden" name="csrf_token" value="<?php echo $h(csrf_token()); ?>"><?php endif; ?>
@@ -611,6 +627,7 @@ $safeFormatDate = static function($value): string {
     var filterCatalog = <?php echo $safeJson($safeFilterCatalogForJs); ?>;
     var filterState = {logic: <?php echo $safeJson($safeFilterLogic); ?>, conditions: <?php echo $safeJson($safeFilterConditionsForUi); ?>};
     var opLabels = <?php echo $safeJson($safeFilterOpLabels); ?>;
+    var bulkScenarioCatalog = <?php echo $safeJson($safeBulkScenarioCatalog); ?>;
     function initFilterBuilder(){
         var form=document.querySelector('[data-tg-filter-form]');
         if(!form || !filterCatalog || !filterCatalog.length) return;
@@ -858,7 +875,20 @@ $safeFormatDate = static function($value): string {
         var deleteHidden=document.querySelector('[data-tg-delete-confirm-hidden]');
         var deleteSubmit=document.querySelector('[data-tg-delete-submit]');
         var deleteCount=document.querySelector('[data-tg-delete-count]');
+        var scenarioSelect=document.querySelector('[data-tg-bulk-scenario-select]');
+        var blockSelect=document.querySelector('[data-tg-bulk-block-select]');
         function selected(){return checkboxes.filter(function(cb){return cb.checked;}).map(function(cb){return cb.value;});}
+        function renderBulkBlocks(){
+            if(!scenarioSelect || !blockSelect) return;
+            var scenarioId=String(scenarioSelect.value||'');
+            var scenario=(bulkScenarioCatalog||[]).filter(function(item){return String(item.id)===scenarioId;})[0];
+            blockSelect.innerHTML='';
+            var empty=document.createElement('option');empty.value='';empty.textContent=scenario ? 'Выберите блок' : 'Сначала выберите сценарий';blockSelect.appendChild(empty);
+            if(!scenario || !Array.isArray(scenario.blocks)) return;
+            scenario.blocks.forEach(function(block){var opt=document.createElement('option');opt.value=String(block.id);opt.textContent=String(block.title||('Блок #'+block.id));blockSelect.appendChild(opt);});
+        }
+        if(scenarioSelect) scenarioSelect.addEventListener('change',renderBulkBlocks);
+        renderBulkBlocks();
         function fillForm(form, ids){
             form.querySelectorAll('input[name="subscriber_ids[]"]').forEach(function(el){el.remove();});
             ids.forEach(function(id){var input=document.createElement('input');input.type='hidden';input.name='subscriber_ids[]';input.value=id;form.appendChild(input);});
@@ -885,8 +915,18 @@ $safeFormatDate = static function($value): string {
                 sync();
                 if(!selected().length) return;
                 var key=btn.getAttribute('data-tg-bulk-submit');
-                var select=document.querySelector('[data-tg-bulk-tag-select="'+key+'"]');
                 var form=document.querySelector('[data-tg-bulk-form="'+key+'"]');
+                if(key==='start-scenario'){
+                    var scenarioHidden=document.querySelector('[data-tg-bulk-scenario-hidden]');
+                    var blockHidden=document.querySelector('[data-tg-bulk-block-hidden]');
+                    if(!form || !scenarioSelect || !blockSelect || !scenarioSelect.value){ if(scenarioSelect) scenarioSelect.focus(); return; }
+                    if(!blockSelect.value){ blockSelect.focus(); return; }
+                    if(scenarioHidden) scenarioHidden.value=scenarioSelect.value;
+                    if(blockHidden) blockHidden.value=blockSelect.value;
+                    form.submit();
+                    return;
+                }
+                var select=document.querySelector('[data-tg-bulk-tag-select="'+key+'"]');
                 var hidden=document.querySelector('[data-tg-bulk-tag-hidden="'+key+'"]');
                 if(!select || !form || !hidden || !select.value){ if(select) select.focus(); return; }
                 hidden.value=select.value;

@@ -3,6 +3,8 @@ defined('ASR_ADMIN') || exit;
 
 require_once __DIR__ . '/service.php';
 require_once __DIR__ . '/scenario_validator.php';
+require_once __DIR__ . '/scenario_state_service.php';
+require_once __DIR__ . '/scenario_bulk_start_service.php';
 
 
 function asr_tg_json_response(array $payload, int $status = 200): void {
@@ -346,7 +348,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_GET['tab'] ?? '') === 'telegram_
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = (string)$_POST['action'];
-    if (in_array($action, ['tg_bot_create','tg_bot_update','tg_channel_enable','tg_channel_disable','tg_bot_set_webhook','tg_bot_delete_webhook','tg_bot_delete','tg_dialog_settings_save','tg_dialog_status','tg_dialog_read_state','tg_dialog_assign','tg_dialog_close_all','tg_broadcast_send','tg_broadcast_test','tg_broadcast_process','tg_broadcast_cancel','tg_broadcast_cancel_scheduled','tg_broadcast_count_segment','tg_tag_save','tg_tag_delete','tg_subscriber_add_tag','tg_subscriber_tag_add_or_create','tg_subscriber_remove_tag','tg_subscriber_status','tg_subscriber_profile_save','tg_subscriber_custom_values_save','tg_subscriber_send_message','tg_subscriber_delete','tg_bot_commands_save','tg_subscribers_bulk_add_tag','tg_subscribers_bulk_remove_tag','tg_subscribers_bulk_delete','tg_subscribers_bulk_stop_scenario','tg_custom_field_save','tg_custom_field_archive','tg_custom_field_restore','tg_custom_field_delete','tg_scenario_save','tg_scenario_pause','tg_scenario_resume','tg_scenario_archive','tg_scenario_restore','tg_scenario_delete','tg_scenario_block_save','tg_scenario_block_delete','tg_scenario_block_duplicate','tg_scenario_block_deeplink_create','tg_scenario_blocks_positions_save','tg_scenario_link_save','tg_scenario_link_delete','tg_scenario_quick_message_create','tg_scenario_quick_delay_create','tg_scenario_quick_condition_create','tg_scenario_quick_schedule_create','tg_scenario_quick_random_create','tg_scenario_quick_actions_create','tg_scenario_stats_reset','tg_scenario_validate','tg_scenario_external_request_test'], true)) {
+    if (in_array($action, ['tg_bot_create','tg_bot_update','tg_channel_enable','tg_channel_disable','tg_bot_set_webhook','tg_bot_delete_webhook','tg_bot_delete','tg_dialog_settings_save','tg_dialog_status','tg_dialog_read_state','tg_dialog_assign','tg_dialog_close_all','tg_broadcast_send','tg_broadcast_test','tg_broadcast_process','tg_broadcast_cancel','tg_broadcast_cancel_scheduled','tg_broadcast_count_segment','tg_tag_save','tg_tag_delete','tg_subscriber_add_tag','tg_subscriber_tag_add_or_create','tg_subscriber_remove_tag','tg_subscriber_status','tg_subscriber_profile_save','tg_subscriber_custom_values_save','tg_subscriber_send_message','tg_subscriber_delete','tg_subscriber_scenario_stop','tg_bot_commands_save','tg_subscribers_bulk_add_tag','tg_subscribers_bulk_remove_tag','tg_subscribers_bulk_delete','tg_subscribers_bulk_start_scenario','tg_subscribers_bulk_stop_scenario','tg_custom_field_save','tg_custom_field_archive','tg_custom_field_restore','tg_custom_field_delete','tg_scenario_save','tg_scenario_pause','tg_scenario_resume','tg_scenario_archive','tg_scenario_restore','tg_scenario_delete','tg_scenario_block_save','tg_scenario_block_delete','tg_scenario_block_duplicate','tg_scenario_block_deeplink_create','tg_scenario_blocks_positions_save','tg_scenario_link_save','tg_scenario_link_delete','tg_scenario_quick_message_create','tg_scenario_quick_delay_create','tg_scenario_quick_condition_create','tg_scenario_quick_schedule_create','tg_scenario_quick_random_create','tg_scenario_quick_formula_create','tg_scenario_quick_actions_create','tg_scenario_stats_reset','tg_scenario_validate','tg_scenario_external_request_test'], true)) {
         try {
             asr_tg_repository_ensure_schema($pdo);
 
@@ -472,6 +474,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 asr_tg_redirect('Подписчик удалён.', '', ['page' => 'subscribers', 'bot_id' => $returnBotId]);
             }
 
+            if ($action === 'tg_subscriber_scenario_stop') {
+                $botId = (int)($_POST['return_bot_id'] ?? ($_POST['bot_id'] ?? 0));
+                $subscriberId = (int)($_POST['return_subscriber_id'] ?? ($_POST['subscriber_id'] ?? 0));
+                asr_tg_subscriber_scenario_stop_from_post($pdo, $_POST);
+                asr_tg_redirect('Сценарий для подписчика остановлен.', '', ['page' => 'subscriber', 'bot_id' => $botId, 'subscriber_id' => $subscriberId]);
+            }
+
             if ($action === 'tg_subscribers_bulk_add_tag') {
                 $botId = (int)($_POST['bot_id'] ?? 0);
                 $returnBotId = (int)($_POST['return_bot_id'] ?? $botId);
@@ -491,6 +500,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $returnBotId = (int)($_POST['return_bot_id'] ?? $botId);
                 $count = asr_tg_bulk_delete_subscribers_from_post($pdo, $_POST);
                 asr_tg_redirect('Подписчики удалены: ' . $count . '.', '', ['page' => 'subscribers', 'bot_id' => $returnBotId]);
+            }
+
+            if ($action === 'tg_subscribers_bulk_start_scenario') {
+                $botId = (int)($_POST['bot_id'] ?? 0);
+                $returnBotId = (int)($_POST['return_bot_id'] ?? $botId);
+                $result = asr_tg_bulk_start_scenario_from_post($pdo, $_POST);
+                $reasons = is_array($result['skip_reasons'] ?? null) ? $result['skip_reasons'] : [];
+                $parts = [];
+                if (!empty($reasons['not_subscribed'])) $parts[] = 'не подписаны/нет chat_id: ' . (int)$reasons['not_subscribed'];
+                if (!empty($reasons['already_active'])) $parts[] = 'уже в сценарии: ' . (int)$reasons['already_active'];
+                if (!empty($reasons['not_allowed_channel'])) $parts[] = 'другой канал: ' . (int)$reasons['not_allowed_channel'];
+                if (!empty($reasons['not_found'])) $parts[] = 'не найдены: ' . (int)$reasons['not_found'];
+                if (!empty($reasons['error'])) $parts[] = 'ошибки: ' . (int)$reasons['error'];
+                $message = 'Сценарий запущен: ' . (int)($result['started'] ?? 0) . '. Пропущено: ' . (int)($result['skipped'] ?? 0) . ($parts ? ' (' . implode('; ', $parts) . ')' : '') . '.';
+                $error = '';
+                if (!empty($result['errors']) && is_array($result['errors'])) {
+                    $error = implode(' ', array_slice($result['errors'], 0, 3));
+                }
+                asr_tg_redirect($message, $error, ['page' => 'subscribers', 'bot_id' => $returnBotId]);
             }
 
             if ($action === 'tg_subscribers_bulk_stop_scenario') {
@@ -563,7 +591,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $returnPage = (string)($_POST['return_page'] ?? 'scenario');
                 $returnPage = $returnPage === 'scenario_flow' ? 'scenario_flow' : 'scenario';
                 $blockType = (string)($_POST['block_type'] ?? 'message');
-                $saveMessage = $blockType === 'condition' ? 'Блок условия сохранён.' : ($blockType === 'delay' ? 'Блок задержки сохранён.' : ($blockType === 'actions' ? 'Блок действий сохранён.' : 'Блок сообщения сохранён.'));
+                $saveMessage = $blockType === 'condition' ? 'Блок условия сохранён.' : ($blockType === 'delay' ? 'Блок задержки сохранён.' : ($blockType === 'actions' ? 'Блок действий сохранён.' : ($blockType === 'formula' ? 'Блок формулы сохранён.' : 'Блок сообщения сохранён.')));
                 asr_tg_redirect($saveMessage, '', ['page' => $returnPage, 'scenario_id' => $scenarioId]);
             }
 
@@ -667,6 +695,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     asr_tg_json_response(['ok' => true, 'scenario_id' => $scenarioId, 'block_id' => $blockId]);
                 }
                 asr_tg_redirect('Новый блок случайного выбора создан и связан.', '', ['page' => 'scenario_flow', 'scenario_id' => $scenarioId]);
+            }
+
+
+            if ($action === 'tg_scenario_quick_formula_create') {
+                $scenarioId = (int)($_POST['scenario_id'] ?? 0);
+                $blockId = asr_tg_scenario_quick_formula_create_from_post($pdo, $_POST);
+                if (function_exists('asr_tg_ajax_requested') && asr_tg_ajax_requested($_POST)) {
+                    asr_tg_json_response(['ok' => true, 'scenario_id' => $scenarioId, 'block_id' => $blockId]);
+                }
+                asr_tg_redirect('Новый блок формулы создан и связан.', '', ['page' => 'scenario_flow', 'scenario_id' => $scenarioId]);
             }
 
 
@@ -963,7 +1001,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $extra['page'] = 'scenario_flow';
                 $extra['scenario_id'] = (int)($_POST['scenario_id'] ?? 0) ?: null;
             }
-            if (in_array($action, ['tg_scenario_block_save','tg_scenario_block_delete','tg_scenario_block_duplicate','tg_scenario_block_deeplink_create','tg_scenario_blocks_positions_save','tg_scenario_link_save','tg_scenario_link_delete','tg_scenario_quick_message_create','tg_scenario_quick_delay_create','tg_scenario_quick_condition_create','tg_scenario_quick_schedule_create','tg_scenario_quick_random_create','tg_scenario_quick_actions_create','tg_scenario_stats_reset','tg_scenario_validate','tg_scenario_external_request_test'], true)) {
+            if (in_array($action, ['tg_scenario_block_save','tg_scenario_block_delete','tg_scenario_block_duplicate','tg_scenario_block_deeplink_create','tg_scenario_blocks_positions_save','tg_scenario_link_save','tg_scenario_link_delete','tg_scenario_quick_message_create','tg_scenario_quick_delay_create','tg_scenario_quick_condition_create','tg_scenario_quick_schedule_create','tg_scenario_quick_random_create','tg_scenario_quick_formula_create','tg_scenario_quick_actions_create','tg_scenario_stats_reset','tg_scenario_validate','tg_scenario_external_request_test'], true)) {
                 $extra['page'] = 'scenario_flow';
                 $extra['scenario_id'] = (int)($_POST['scenario_id'] ?? 0) ?: null;
                 if ($action === 'tg_scenario_block_save') {

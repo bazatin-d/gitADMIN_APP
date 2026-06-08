@@ -4,6 +4,7 @@ defined('ASR_ADMIN') || exit;
 asr_tg_repository_ensure_scenario_schema($pdo);
 require_once __DIR__ . '/../scenario_stats.php';
 require_once __DIR__ . '/../scenario_validator.php';
+require_once __DIR__ . '/../scenario_test_link_service.php';
 
 $h = $h ?? static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 $safeJson = static function($value): string {
@@ -443,6 +444,7 @@ foreach ($blocks as $index => $block) {
     $deeplink = !$isStart ? ($deeplinksByBlock[$blockId] ?? null) : null;
     $deeplinkCode = is_array($deeplink) ? trim((string)($deeplink['code'] ?? $deeplink['token'] ?? '')) : '';
     $deeplinkUrl = is_array($deeplink) ? trim((string)($deeplink['url'] ?? '')) : '';
+    $testLink = (!$isStart && function_exists('asr_tg_scenario_test_link_for_block')) ? asr_tg_scenario_test_link_for_block($pdo, $scenarioId, $blockId) : ['enabled' => false, 'url' => '', 'reason' => ''];
 
     // v3.5.130: ссылка под блоком всегда должна быть полноценной Telegram deep link.
     // Раньше в некоторых строках сохранялся только base-url бота или только код,
@@ -504,6 +506,9 @@ foreach ($blocks as $index => $block) {
             'deeplinkCode' => $deeplinkCode,
             'deeplinkUrl' => $deeplinkUrl,
             'hasDeeplink' => $deeplinkCode !== '' || $deeplinkUrl !== '',
+            'testUrl' => (string)($testLink['url'] ?? ''),
+            'testEnabled' => !empty($testLink['enabled']),
+            'testDisabledReason' => (string)($testLink['reason'] ?? ''),
         ],
     ];
 }
@@ -1042,6 +1047,20 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
 .tg-flow-add-item--actions .tg-flow-add-name{white-space:nowrap!important;}
 
 
+/* v3.5.199: restore formula block unique color */
+.tg-flow-node.is-formula{border-color:#cdebdc;min-width:300px}
+.tg-flow-node.is-formula .tg-flow-node-head{background:#eefdf6;border-bottom-color:#cdebdc}
+.tg-flow-node.is-formula .tg-flow-node-title{color:#176c49}
+.tg-flow-node.is-formula.is-formula-invalid{border-color:#ff6b73;box-shadow:0 0 0 1px #ff6b73,0 14px 28px rgba(255,107,115,.14)}
+.tg-flow-formula-preview{background:#fff;color:#374151;border:0;display:flex;flex-direction:column;gap:8px;min-height:96px;padding:10px}
+.tg-flow-formula-preview-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#176c49;font-size:12px;font-weight:700}
+.tg-flow-formula-count{background:#eefdf6;color:#176c49;border-radius:999px;padding:3px 8px;font-size:11px}
+.tg-flow-formula-list{display:flex;flex-direction:column;gap:5px}
+.tg-flow-formula-row{border:1px solid #edf0f2;background:#fbfbfc;border-radius:9px;padding:6px 8px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:11px;font-weight:500;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tg-flow-formula-empty{border:1px dashed #cdebdc;background:#f7fffb;border-radius:10px;padding:9px;color:#6b7280;font-size:12px;font-weight:600}
+.tg-flow-formula-more{font-size:11px;color:#8b929e;font-weight:600;text-align:right}
+
+
 /* v3.5.103: keep add-block menu fully visible */
 .tg-flow-add-menu{max-height:min(520px,calc(100vh - 132px))!important;overflow:auto!important;}
 .tg-flow-add-item{min-height:56px!important;padding:10px 14px!important;}
@@ -1101,7 +1120,7 @@ body.drawer-open .tg-flow-app{pointer-events:none}body.drawer-open #adminDrawer,
     <div class="tg-flow-topbar">
         <div class="tg-flow-top-left">
             <button type="button" class="tg-flow-menu-btn" id="tg-flow-menu-btn" aria-label="Открыть меню">☰</button>
-            <div class="tg-flow-title"><?php echo $h($scenario['title'] ?? 'Сценарий'); ?> <span style="font-size:11px;color:#9ca3af;font-weight:650">Flow v3.5.131</span> <span id="tg-flow-boot-status" class="tg-flow-boot-status">PHP: <?php echo count($nodes); ?> блоков / <?php echo count($edges); ?> связей · React: запуск…</span></div>
+            <div class="tg-flow-title"><?php echo $h($scenario['title'] ?? 'Сценарий'); ?> <span style="font-size:11px;color:#9ca3af;font-weight:650">Flow v3.5.199</span> <span id="tg-flow-boot-status" class="tg-flow-boot-status">PHP: <?php echo count($nodes); ?> блоков / <?php echo count($edges); ?> связей · React: запуск…</span></div>
         </div>
         <div class="tg-flow-top-right">
             <div class="tg-flow-gear-wrap">
