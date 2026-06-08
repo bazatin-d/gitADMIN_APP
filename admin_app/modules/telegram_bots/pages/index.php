@@ -35,6 +35,15 @@ try {
 $tgMessageVariablesJson = json_encode($tgMessageVariables, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 if ($tgMessageVariablesJson === false) $tgMessageVariablesJson = '[]';
 $page = (string)($_GET['page'] ?? 'bots');
+$tgCurrentRole = function_exists('asr_current_role') ? (string)asr_current_role() : (string)($_SESSION['user_role'] ?? '');
+$tgIsSuperAdmin = false;
+if (function_exists('asr_is_protected_user')) {
+    $tgIsSuperAdmin = (bool)asr_is_protected_user([
+        'id' => (int)($_SESSION['user_id'] ?? 0),
+        'role' => $tgCurrentRole,
+    ]);
+}
+$tgIsSuperAdmin = $tgIsSuperAdmin || $tgCurrentRole === 'superadmin';
 
 // Legacy scenario editors were removed. Keep old URLs working by routing them
 // to the single React Flow editor. Do not include scenario.php/scenario_editor.php.
@@ -54,9 +63,10 @@ if ($page === 'scenario_block_panel') {
     return;
 }
 
-$allowedPages = ['bots','subscribers','subscriber','messages','broadcasts','flows','scenarios','scenario_flow','logs'];
+$allowedPages = ['bots','subscribers','subscriber','messages','broadcasts','flows','scenarios','scenario_flow','system_status','logs'];
 if (!in_array($page, $allowedPages, true)) $page = 'bots';
 if ($page === 'logs') $page = 'messages';
+if ($page === 'system_status' && !$tgIsSuperAdmin) $page = 'bots';
 if ($page === 'flows') $page = 'scenarios';
 if ($page === 'subscriber' && !asr_tg_can('view')) $page = 'bots';
 if ($page === 'broadcasts' && !asr_tg_can('broadcast')) $page = 'bots';
@@ -85,7 +95,7 @@ if ($page !== 'subscribers') {
 $bots = $page === 'subscribers' ? asr_tg_bots_all_light($pdo) : asr_tg_bots_all($pdo);
 $selectedBotId = (int)($_GET['bot_id'] ?? 0);
 $selectedBot = $selectedBotId > 0 ? ($page === 'subscribers' ? asr_tg_bot_find_light($pdo, $selectedBotId) : asr_tg_bot_find($pdo, $selectedBotId)) : null;
-if (!$selectedBot && $bots && !in_array($page, ['subscribers','messages','scenarios','scenario_flow'], true)) {
+if (!$selectedBot && $bots && !in_array($page, ['subscribers','messages','scenarios','scenario_flow','system_status'], true)) {
     $selectedBot = $bots[0];
     $selectedBotId = (int)$selectedBot['id'];
 }
@@ -117,6 +127,10 @@ $navItems = [
     'scenarios' => ['Сценарии', 'telegram_bots.flows'],
     'bots' => ['Каналы', 'telegram_bots.view'],
 ];
+if (function_exists('asr_current_role') && asr_current_role() === 'superadmin') {
+    $navItems['system_status'] = ['Состояние системы', 'telegram_bots.view'];
+}
+
 
 $botSelect = static function(array $bots, int $selectedBotId, string $page) use ($h): void { ?>
     <form method="GET" class="flex flex-col sm:flex-row gap-3 sm:items-end">
@@ -543,6 +557,8 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
         <?php if (!empty($_GET['tg_error'])): ?><div class="tg-toast tg-toast--error" data-tg-toast><?php echo $h($_GET['tg_error']); ?></div><?php endif; ?>
         <?php if (!asr_tg_has_crypto_key()): ?><div class="tg-toast tg-toast--error" data-tg-toast>Не задан ACCESS_VAULT_KEY. Без него нельзя безопасно хранить токены ботов.</div><?php endif; ?>
     </div>
+
+    <?php /* v3.5.214: module subnavigation was removed from Chat-bots pages by request. */ ?>
 
 <?php if ($page === 'bots'):
     $channelServiceOf = static function(array $bot): string {
@@ -2655,6 +2671,9 @@ $dialogBroadcastDiag = null;
 <?php elseif ($page === 'broadcasts'):
     require __DIR__ . '/broadcasts.php';
 ?>
+
+<?php elseif ($page === 'system_status'): ?>
+    <?php require __DIR__ . '/system_status.php'; ?>
 
 <?php elseif ($page === 'scenario_flow'): ?>
     <?php require __DIR__ . '/scenario_flow.php'; ?>
