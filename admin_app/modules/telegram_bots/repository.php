@@ -199,6 +199,14 @@ function asr_tg_repository_ensure_schema(PDO $pdo): void {
     asr_tg_add_column_if_missing($pdo, 'oca_telegram_bot_subscribers', 'utm_content', "VARCHAR(190) NULL DEFAULT NULL AFTER `utm_campaign`");
     asr_tg_add_column_if_missing($pdo, 'oca_telegram_bot_subscribers', 'utm_term', "VARCHAR(190) NULL DEFAULT NULL AFTER `utm_content`");
 
+    // Platform-neutral fields for new adapters. Telegram keeps using the legacy fields,
+    // while VK gets isolated identifiers without overloading Telegram semantics.
+    asr_tg_add_column_if_missing($pdo, 'oca_telegram_bot_subscribers', 'platform', "VARCHAR(30) NOT NULL DEFAULT 'telegram' AFTER `bot_id`");
+    asr_tg_add_column_if_missing($pdo, 'oca_telegram_bot_subscribers', 'external_user_id', "VARCHAR(80) NULL DEFAULT NULL AFTER `chat_id`");
+    asr_tg_add_column_if_missing($pdo, 'oca_telegram_bot_subscribers', 'external_chat_id', "VARCHAR(80) NULL DEFAULT NULL AFTER `external_user_id`");
+    asr_tg_add_index_if_missing($pdo, 'oca_telegram_bot_subscribers', 'idx_platform_external_user', '(`bot_id`, `platform`, `external_user_id`)');
+    asr_tg_add_index_if_missing($pdo, 'oca_telegram_bot_subscribers', 'idx_platform_external_chat', '(`bot_id`, `platform`, `external_chat_id`)');
+
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS `oca_telegram_bot_custom_fields` (
         `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1658,8 +1666,8 @@ function asr_tg_dialogs_counts(PDO $pdo, int $botId = 0, array $filters = []): a
     $q = trim((string)($filters['q'] ?? ''));
     if ($q !== '') {
         $like = '%' . $q . '%';
-        $where[] = '(s.username LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CAST(s.telegram_user_id AS CHAR) LIKE ? OR CAST(s.chat_id AS CHAR) LIKE ? OR lm.message_text LIKE ? OR b.title LIKE ?)';
-        array_push($params, $like, $like, $like, $like, $like, $like, $like);
+        $where[] = '(s.username LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CAST(s.telegram_user_id AS CHAR) LIKE ? OR CAST(s.chat_id AS CHAR) LIKE ? OR s.external_user_id LIKE ? OR s.external_chat_id LIKE ? OR lm.message_text LIKE ? OR b.title LIKE ?)';
+        array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
     }
 
     $channelIds = [];
@@ -1769,8 +1777,8 @@ function asr_tg_dialogs_recent(PDO $pdo, int $botId = 0, int $limit = 80, array 
     $q = trim((string)($filters['q'] ?? ''));
     if ($q !== '') {
         $like = '%' . $q . '%';
-        $where[] = '(s.username LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CAST(s.telegram_user_id AS CHAR) LIKE ? OR CAST(s.chat_id AS CHAR) LIKE ? OR lm.message_text LIKE ? OR b.title LIKE ?)';
-        array_push($params, $like, $like, $like, $like, $like, $like, $like);
+        $where[] = '(s.username LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CAST(s.telegram_user_id AS CHAR) LIKE ? OR CAST(s.chat_id AS CHAR) LIKE ? OR s.external_user_id LIKE ? OR s.external_chat_id LIKE ? OR lm.message_text LIKE ? OR b.title LIKE ?)';
+        array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
     }
     if (!empty($filters['unread_only'])) {
         $where[] = 'd.unread_count > 0';
@@ -1826,6 +1834,9 @@ function asr_tg_dialogs_recent(PDO $pdo, int $botId = 0, int $limit = 80, array 
             s.last_name,
             s.telegram_user_id,
             s.chat_id,
+            s.platform,
+            s.external_user_id,
+            s.external_chat_id,
             s.status,
             s.last_seen_at,
             b.title AS bot_title,
@@ -2092,6 +2103,9 @@ function asr_tg_dialog_display_name(array $row): string {
     if ($name !== '') return $name;
     $username = trim((string)($row['username'] ?? ''));
     if ($username !== '') return '@' . ltrim($username, '@');
+    $channelType = strtolower((string)($row['channel_type'] ?? $row['platform'] ?? 'telegram'));
+    $externalUserId = trim((string)($row['external_user_id'] ?? ''));
+    if ($channelType === 'vk' && $externalUserId !== '') return 'VK ID ' . $externalUserId;
     $telegramUserId = (string)($row['telegram_user_id'] ?? '');
     if ($telegramUserId !== '' && $telegramUserId !== '0') return 'ID ' . $telegramUserId;
     return 'Подписчик #' . (int)($row['subscriber_id'] ?? $row['id'] ?? 0);
@@ -2134,6 +2148,8 @@ function asr_tg_dialog_row_payload(array $row): array {
         'display_name' => asr_tg_dialog_display_name($row),
         'username' => (string)($row['username'] ?? ''),
         'telegram_user_id' => (string)($row['telegram_user_id'] ?? ''),
+        'external_user_id' => (string)($row['external_user_id'] ?? ''),
+        'external_chat_id' => (string)($row['external_chat_id'] ?? ''),
         'subscriber_status' => (string)($row['status'] ?? ''),
         'channel_type' => strtolower((string)($row['channel_type'] ?? 'telegram')) === 'vk' ? 'vk' : 'telegram',
         'channel_label' => asr_tg_dialog_channel_label($row),
@@ -2189,6 +2205,8 @@ function asr_tg_dialog_subscriber_payload(PDO $pdo, array $subscriber): array {
         'username' => (string)($subscriber['username'] ?? ''),
         'telegram_user_id' => (string)($subscriber['telegram_user_id'] ?? ''),
         'chat_id' => (string)($subscriber['chat_id'] ?? ''),
+        'external_user_id' => (string)($subscriber['external_user_id'] ?? ''),
+        'external_chat_id' => (string)($subscriber['external_chat_id'] ?? ''),
         'phone' => (string)($subscriber['phone'] ?? ''),
         'email' => (string)($subscriber['email'] ?? ''),
         'status' => (string)($subscriber['status'] ?? ''),
@@ -2197,6 +2215,7 @@ function asr_tg_dialog_subscriber_payload(PDO $pdo, array $subscriber): array {
         'last_seen_at' => (string)($subscriber['last_seen_at'] ?? ''),
         'bot_title' => (string)($subscriber['bot_title'] ?? ''),
         'bot_username' => (string)($subscriber['bot_username'] ?? ''),
+        'vk_screen_name' => (string)($subscriber['vk_screen_name'] ?? ''),
         'channel_type' => strtolower((string)($subscriber['channel_type'] ?? 'telegram')) === 'vk' ? 'vk' : 'telegram',
         'utm' => [
             'utm_source' => (string)($subscriber['utm_source'] ?? ''),
@@ -2213,6 +2232,7 @@ function asr_tg_dialog_subscriber_payload(PDO $pdo, array $subscriber): array {
                 'status' => (string)($row['status'] ?? ''),
                 'bot_title' => (string)($row['bot_title'] ?? ''),
                 'bot_username' => (string)($row['bot_username'] ?? ''),
+                'vk_screen_name' => (string)($row['vk_screen_name'] ?? ''),
                 'channel_type' => strtolower((string)($row['channel_type'] ?? 'telegram')) === 'vk' ? 'vk' : 'telegram',
                 'dialog_id' => (int)($row['dialog_id'] ?? 0),
                 'dialog_status' => (string)($row['dialog_status'] ?? ''),
@@ -2409,6 +2429,8 @@ function asr_tg_dialog_broadcast_context_debug(PDO $pdo, int $subscriberId, int 
         'bot_id' => (int)($subscriber['bot_id'] ?? 0),
         'telegram_user_id' => (string)($subscriber['telegram_user_id'] ?? ''),
         'chat_id' => (string)($subscriber['chat_id'] ?? ''),
+        'external_user_id' => (string)($subscriber['external_user_id'] ?? ''),
+        'external_chat_id' => (string)($subscriber['external_chat_id'] ?? ''),
         'username' => (string)($subscriber['username'] ?? ''),
         'first_name' => (string)($subscriber['first_name'] ?? ''),
         'last_name' => (string)($subscriber['last_name'] ?? ''),

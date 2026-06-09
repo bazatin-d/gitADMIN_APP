@@ -1,12 +1,15 @@
 <?php
 defined('ASR_ADMIN') || exit;
 
+require_once __DIR__ . '/vk_subscriber_service.php';
+
 /**
  * VK Callback API layer.
  *
- * Этот файл намеренно не создаёт диалоги, подписчиков и не запускает сценарии.
- * На текущем шаге он только принимает Callback API, подтверждает сервер ВК
- * и пишет безопасную диагностику в существующий журнал Чат-ботов.
+ * На текущем шаге слой принимает Callback API, подтверждает сервер ВК
+ * и для события message_new создаёт/обновляет VK-подписчика и входящее
+ * сообщение в существующей модели диалогов. Сценарии и исходящая отправка
+ * пока намеренно не подключаются.
  */
 
 if (!function_exists('asr_tg_vk_webhook_json_response')) {
@@ -129,10 +132,32 @@ if (!function_exists('asr_tg_vk_webhook_handle')) {
 
         try {
             asr_tg_bot_update($pdo, $botId, ['last_error' => null, 'last_webhook_at' => date('Y-m-d H:i:s')]);
-            asr_tg_log($pdo, $botId, 'info', 'vk_callback_event_received', 'Получено событие VK Callback API. На этом шаге событие только диагностируется.', asr_tg_vk_webhook_event_context($event));
         } catch (Throwable $ignored) {}
 
-        // На текущем шаге не создаём подписчиков, диалоги и сценарии. Только подтверждаем приём события.
+        if ($type === 'message_new') {
+            try {
+                $result = asr_tg_vk_message_new_handle($pdo, $channel, $event);
+                if (empty($result['handled'])) {
+                    asr_tg_log($pdo, $botId, 'warning', 'vk_message_new_skipped', 'Событие VK message_new получено, но не добавлено в диалоги.', array_merge(asr_tg_vk_webhook_event_context($event), [
+                        'reason' => (string)($result['reason'] ?? 'unknown'),
+                    ]));
+                }
+            } catch (Throwable $e) {
+                try {
+                    asr_tg_bot_update($pdo, $botId, ['last_error' => 'VK message_new: ' . $e->getMessage()]);
+                    asr_tg_log($pdo, $botId, 'error', 'vk_message_new_error', $e->getMessage(), asr_tg_vk_webhook_event_context($event));
+                } catch (Throwable $ignored) {}
+                // VK должен получить ok, иначе он будет ретраить событие и плодить дубли/нагрузку.
+                asr_tg_vk_webhook_text_response('ok');
+            }
+
+            asr_tg_vk_webhook_text_response('ok');
+        }
+
+        try {
+            asr_tg_log($pdo, $botId, 'info', 'vk_callback_event_received', 'Получено событие VK Callback API. На этом шаге этот тип события только диагностируется.', asr_tg_vk_webhook_event_context($event));
+        } catch (Throwable $ignored) {}
+
         asr_tg_vk_webhook_text_response('ok');
     }
 }

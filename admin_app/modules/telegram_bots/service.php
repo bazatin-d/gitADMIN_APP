@@ -11,6 +11,7 @@ require_once __DIR__ . '/scenario_stats.php';
 require_once __DIR__ . '/scenario_condition_runtime.php';
 require_once __DIR__ . '/scenario_action_runtime.php';
 require_once __DIR__ . '/scenario_formula_runtime.php';
+require_once __DIR__ . '/platforms/vk/vk_client.php';
 
 function asr_tg_can(string $permission): bool {
     $key = 'telegram_bots.' . $permission;
@@ -403,15 +404,57 @@ function asr_tg_send_subscriber_message_from_post(PDO $pdo, array $post, array $
     $subscriberId = (int)($post['subscriber_id'] ?? 0);
     $originalText = trim((string)($post['message_text'] ?? ''));
     $text = $originalText;
+
+    $subscriber = asr_tg_subscriber_find($pdo, $subscriberId, $botId);
+    if (!$subscriber) throw new RuntimeException('Подписчик не найден.');
+
+    $channelType = asr_tg_channel_type_of($subscriber);
+    $hasUploadedFile = !empty($files['chat_attachment']) && is_array($files['chat_attachment']) && (int)($files['chat_attachment']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
+
+    if ($channelType === 'vk') {
+        if ($hasUploadedFile) {
+            throw new RuntimeException('Для VK на этом шаге подключена только текстовая ручная отправка. Файлы добавим отдельным патчем, чтобы не смешивать отправку текста и VK-вложения.');
+        }
+        if ($text === '') throw new InvalidArgumentException('Введите текст сообщения.');
+
+        $text = asr_tg_render_subscriber_macros($pdo, $text, $subscriber);
+        if (mb_strlen($text, 'UTF-8') > 4096) {
+            throw new InvalidArgumentException('Сообщение после подстановки переменных слишком длинное. Лимит VK: 4096 символов.');
+        }
+
+        $bot = asr_tg_bot_find($pdo, $botId);
+        if (!$bot || asr_tg_channel_type_of($bot) !== 'vk') throw new RuntimeException('VK-канал не найден.');
+        $token = asr_tg_decrypt_token((string)($bot['vk_api_token_encrypted'] ?? ''));
+        if ($token === '') throw new RuntimeException('Не удалось расшифровать токен VK-канала. Проверьте ключ доступа сообщества.');
+
+        $peerId = trim((string)($subscriber['external_chat_id'] ?? ''));
+        if ($peerId === '') $peerId = trim((string)($subscriber['chat_id'] ?? ''));
+        if ($peerId === '') throw new RuntimeException('У VK-подписчика нет peer_id. Попросите пользователя написать в сообщество ещё раз.');
+
+        $sent = asr_tg_vk_send_message($token, $peerId, $text);
+        $vkResponse = $sent['response'] ?? null;
+        $vkMessageId = is_numeric($vkResponse) ? (int)$vkResponse : null;
+
+        $payload = [
+            'platform' => 'vk',
+            'vk_response' => $vkResponse,
+            'vk_peer_id' => $peerId,
+        ];
+        if ($originalText !== $text) $payload['original_text'] = $originalText;
+
+        asr_tg_message_add($pdo, $botId, $subscriberId, 'out', 'text', $text, $vkMessageId, $payload);
+        asr_tg_log($pdo, $botId, 'info', 'manual_vk_message_sent', 'Сообщение VK-подписчику отправлено вручную.', ['subscriber_id' => $subscriberId, 'vk_peer_id' => $peerId]);
+        return $subscriberId;
+    }
+
     $attachment = asr_tg_save_chat_attachment($files['chat_attachment'] ?? []);
     $hasAttachment = !empty($attachment);
     if ($text === '' && !$hasAttachment) throw new InvalidArgumentException('Введите текст сообщения или прикрепите файл.');
-    $subscriber = asr_tg_subscriber_find($pdo, $subscriberId, $botId);
-    if (!$subscriber) throw new RuntimeException('Подписчик не найден.');
+
     $text = asr_tg_render_subscriber_macros($pdo, $text, $subscriber);
     $limit = $hasAttachment ? 1024 : 4096;
     if (mb_strlen($text, 'UTF-8') > $limit) throw new InvalidArgumentException('Сообщение после подстановки переменных слишком длинное. Лимит Telegram: ' . $limit . ' символов' . ($hasAttachment ? ' для подписи к файлу.' : '.'));
-    if (asr_tg_channel_type_of($subscriber) !== 'telegram') throw new RuntimeException('Ручная отправка сейчас подключена только для Telegram-каналов.');
+
     $token = asr_tg_decrypt_token((string)($subscriber['bot_token_encrypted'] ?? ''));
     if ($token === '') throw new RuntimeException('Не удалось расшифровать токен Telegram-канала.');
     $chatId = (string)($subscriber['chat_id'] ?? '');
