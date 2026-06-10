@@ -39,11 +39,22 @@ if (!$scenario || !$block) {
 $scenarioTimezone = function_exists('asr_tg_scenario_timezone') ? asr_tg_scenario_timezone($pdo, $scenarioId) : (string)($scenario['timezone'] ?? 'Asia/Almaty');
 try { new DateTimeZone($scenarioTimezone); } catch (Throwable $e) { $scenarioTimezone = 'Asia/Almaty'; }
 
+$__scenarioBotId = function_exists('asr_tg_scenario_bot_id') ? asr_tg_scenario_bot_id($pdo, $scenarioId) : (int)($scenario['bot_id'] ?? 0);
+$__scenarioBot = $__scenarioBotId > 0 && function_exists('asr_tg_bot_find_light') ? asr_tg_bot_find_light($pdo, $__scenarioBotId) : null;
+$__scenarioChannelType = function_exists('asr_tg_channel_type_of') && is_array($__scenarioBot) ? asr_tg_channel_type_of($__scenarioBot) : (string)($__scenarioBot['channel_type'] ?? 'telegram');
+$__scenarioChannelType = $__scenarioChannelType === 'vk' ? 'vk' : 'telegram';
+$__isVkScenario = $__scenarioChannelType === 'vk';
+$__vkCompatibilityNote = static function(string $title, string $text) use ($h, $__isVkScenario): string {
+    if (!$__isVkScenario) return '';
+    return '<div class="tg-flow-platform-note" style="display:flex;gap:10px;align-items:flex-start;border:1px solid #dbeafe;background:#f8fbff;border-radius:14px;padding:11px 13px;margin:12px 0;color:#334155;font-size:13px;line-height:1.45"><strong style="color:#315a8a;white-space:nowrap;font-weight:650">' . $h($title) . '</strong><span>' . $h($text) . '</span></div>';
+};
+
 $type = (string)($block['type'] ?? 'message');
-$__scenarioTestLink = function_exists('asr_tg_scenario_test_link_for_block') ? asr_tg_scenario_test_link_for_block($pdo, $scenarioId, $blockId) : ['enabled' => false, 'url' => '', 'reason' => ''];
+$__scenarioTestLink = (!$__isVkScenario && function_exists('asr_tg_scenario_test_link_for_block')) ? asr_tg_scenario_test_link_for_block($pdo, $scenarioId, $blockId) : ['enabled' => false, 'url' => '', 'reason' => ''];
 $__scenarioTestUrl = !empty($__scenarioTestLink['enabled']) ? (string)($__scenarioTestLink['url'] ?? '') : '';
-$__scenarioTestReason = (string)($__scenarioTestLink['reason'] ?? 'Ссылка для тестирования недоступна.');
+$__scenarioTestReason = $__isVkScenario ? 'Тестовая ссылка через Telegram недоступна для VK-сценария.' : (string)($__scenarioTestLink['reason'] ?? 'Ссылка для тестирования недоступна.');
 $__scenarioTestButton = '<button type="button" data-panel-test data-test-url="' . $h($__scenarioTestUrl) . '" ' . ($__scenarioTestUrl === '' ? 'disabled' : '') . '><span class="tg-flow-panel-dropdown-ico">▶</span><span><span class="tg-flow-panel-menu-main">Тестировать с этого шага</span>' . ($__scenarioTestUrl === '' ? '<span class="tg-flow-panel-menu-note">' . $h($__scenarioTestReason) . '</span>' : '<span class="tg-flow-panel-menu-note">Откроется Telegram</span>') . '</span></button>';
+$__scenarioDeeplinkAllowed = !$__isVkScenario;
 $__scenarioHelpFile = dirname(__DIR__) . '/scenario_help/block_help.php';
 if (is_file($__scenarioHelpFile)) {
     require_once $__scenarioHelpFile;
@@ -63,23 +74,79 @@ if (is_file($__scenarioHelpFile)) {
 }
 $__scenarioHelpButton = (function_exists('asr_tg_scenario_block_help_button')) ? asr_tg_scenario_block_help_button($type) : '';
 if ($type === 'start') {
+    $__startSettings = json_decode((string)($block['settings_json'] ?? ''), true);
+    if (!is_array($__startSettings)) $__startSettings = [];
+    $__startCommandEnabled = array_key_exists('start_command_enabled', $__startSettings) ? (bool)$__startSettings['start_command_enabled'] : true;
+    $__keywordTriggersEnabled = !empty($__startSettings['keyword_triggers_enabled']);
+    $__keywordMatchMode = (string)($__startSettings['keyword_match_mode'] ?? 'contains');
+    if (!in_array($__keywordMatchMode, ['exact','contains'], true)) $__keywordMatchMode = 'contains';
+    $__keywordPriority = max(1, min(100, (int)($__startSettings['keyword_priority'] ?? 50)));
+    $__keywordPhrases = isset($__startSettings['keyword_phrases']) && is_array($__startSettings['keyword_phrases']) ? array_values(array_filter(array_map('strval', $__startSettings['keyword_phrases']))) : [];
+    $__keywordPhrasesText = implode("\n", $__keywordPhrases);
     ?>
     <section id="tg-flow-panel" class="tg-flow-panel">
         <div class="tg-flow-panel-head">
-            <div><div class="tg-flow-panel-title">Старт сценария</div><div class="tg-flow-panel-subtitle">Пока запускаем сценарий по кнопке «Начать».</div></div>
+            <div><div class="tg-flow-panel-title">Старт сценария</div><div class="tg-flow-panel-subtitle"><?php echo $__isVkScenario ? 'VK: запуск по входящему сообщению, кнопкам и ключевым словам.' : 'Запуск по /start, команде и ключевым словам.'; ?></div></div>
             <div class="tg-flow-panel-actions">
                 <?php echo $__scenarioHelpButton; ?>
                 <button type="button" class="tg-flow-drawer-close" aria-label="Закрыть">×</button>
             </div>
         </div>
-        <div class="tg-flow-panel-body">
-            <div class="tg-flow-card">
-                <div class="tg-flow-card-title">Запуск по кнопке «Начать»</div>
-                <div class="tg-flow-card-sub" style="font-size:13px;line-height:1.6;margin-top:10px;color:#6b7280">Бот будет запускать сценарий при нажатии кнопки «Начать» или команде /start. Диплинки и ключевые слова добавим отдельным шагом.</div>
+        <form method="POST" id="scenario-message-form" class="tg-flow-panel-form">
+            <input type="hidden" name="action" value="tg_scenario_block_save">
+            <input type="hidden" name="return_page" value="scenario_flow">
+            <input type="hidden" name="scenario_id" value="<?php echo $scenarioId; ?>">
+            <input type="hidden" name="block_id" value="<?php echo $blockId; ?>">
+            <input type="hidden" name="block_type" value="start">
+            <div class="tg-flow-panel-body">
+                <div id="scenario-message-alert" class="tg-flow-panel-alert"></div>
+                <div class="tg-flow-card">
+                    <div class="tg-flow-card-title"><?php echo $__isVkScenario ? 'Запуск VK-сценария' : 'Запуск сценария'; ?></div>
+                    <div class="tg-flow-card-sub" style="font-size:13px;line-height:1.6;margin-top:10px;color:#6b7280"><?php echo $__isVkScenario ? 'VK может запускать сценарий по входящему тексту, командному слову или payload-кнопке. Telegram /start и Telegram-диплинки для VK не используются.' : 'Telegram может запускать сценарий по /start, команде меню, диплинку или обычному входящему сообщению с ключевым словом.'; ?></div>
+                </div>
+                <div class="tg-flow-card" style="margin-top:14px">
+                    <div class="tg-flow-card-title">Команда старта</div>
+                    <label class="tg-flow-check-row" style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;color:#374151;font-size:13px;line-height:1.45">
+                        <input type="checkbox" name="start_command_enabled" value="1" <?php echo $__startCommandEnabled ? 'checked' : ''; ?> style="width:18px;height:18px;accent-color:#FFA048;margin-top:1px">
+                        <span><?php echo $__isVkScenario ? 'Разрешить запуск по стартовому/командному сообщению VK, если оно приходит во входящем тексте.' : 'Разрешить запуск по /start и командам Telegram.'; ?></span>
+                    </label>
+                </div>
+                <div class="tg-flow-card" style="margin-top:14px">
+                    <div class="tg-flow-card-title">Запуск по ключевым словам</div>
+                    <div class="tg-flow-card-sub" style="font-size:13px;line-height:1.6;margin-top:8px;color:#6b7280">Если клиент напишет одно из слов или фраз, сценарий сможет стартовать автоматически. Сам runtime подключим следующим шагом; сейчас сохраняем настройки.</div>
+                    <label class="tg-flow-check-row" style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;color:#374151;font-size:13px;line-height:1.45">
+                        <input type="checkbox" name="keyword_triggers_enabled" value="1" <?php echo $__keywordTriggersEnabled ? 'checked' : ''; ?> style="width:18px;height:18px;accent-color:#FFA048;margin-top:1px" data-keyword-trigger-toggle>
+                        <span>Включить запуск сценария по ключевым словам и фразам</span>
+                    </label>
+                    <div class="tg-flow-keyword-grid" style="display:grid;grid-template-columns:1fr 160px;gap:12px;margin-top:14px">
+                        <label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Тип совпадения</span><select class="tg-flow-panel-input" name="keyword_match_mode">
+                            <option value="contains" <?php echo $__keywordMatchMode === 'contains' ? 'selected' : ''; ?>>Содержит фразу</option>
+                            <option value="exact" <?php echo $__keywordMatchMode === 'exact' ? 'selected' : ''; ?>>Точное совпадение</option>
+                        </select></label>
+                        <label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Приоритет</span><input class="tg-flow-panel-input" type="number" name="keyword_priority" value="<?php echo $__keywordPriority; ?>" min="1" max="100" step="1"></label>
+                    </div>
+                    <label class="tg-flow-panel-field" style="margin-top:12px"><span class="tg-flow-panel-label">Ключевые слова и фразы</span><textarea class="tg-flow-panel-input" name="keyword_phrases" rows="8" placeholder="прайс&#10;стоимость&#10;хочу консультацию&#10;получить гайд" style="min-height:160px;resize:vertical"><?php echo $h($__keywordPhrasesText); ?></textarea><small>Каждую фразу — с новой строки. Сохраняем до 50 фраз, длина одной фразы — до 120 символов. Регистр не будет иметь значения.</small></label>
+                    <div class="tg-flow-card-sub" style="font-size:12px;line-height:1.55;margin-top:10px;color:#8b929e"><?php echo $__isVkScenario ? 'Для VK это основной удобный запуск: человек пишет «прайс» или «записаться» в сообщество, и сценарий стартует.' : 'Для Telegram это дополнительный запуск обычным сообщением, помимо /start и меню команд.'; ?></div>
+                </div>
             </div>
-        </div>
-        <div class="tg-flow-panel-footer"><button type="button" class="tg-flow-panel-secondary tg-flow-drawer-close">Закрыть</button></div>
+            <div class="tg-flow-panel-footer"><button type="button" class="tg-flow-panel-secondary tg-flow-drawer-close">Закрыть</button><button type="submit" class="tg-flow-panel-primary">Сохранить</button></div>
+        </form>
     </section>
+    <script>
+    (function(){
+      const panel = document.getElementById('tg-flow-panel');
+      if (!panel) return;
+      const toggle = panel.querySelector('[data-keyword-trigger-toggle]');
+      const phrases = panel.querySelector('textarea[name="keyword_phrases"]');
+      const sync = () => {
+        if (!toggle || !phrases) return;
+        const enabled = !!toggle.checked;
+        phrases.closest('.tg-flow-panel-field').style.opacity = enabled ? '1' : '.58';
+      };
+      if (toggle) toggle.addEventListener('change', sync);
+      sync();
+    })();
+    </script>
     <?php
     return;
 }
@@ -154,6 +221,7 @@ if ($type === 'formula') {
                     <span class="tg-flow-panel-label">Название блока</span>
                     <input type="text" name="block_title" class="tg-flow-panel-input" value="<?php echo $h((string)($block['title'] ?? 'Формула')); ?>" maxlength="120">
                 </label>
+                <?php echo $__vkCompatibilityNote('VK-сценарий', 'Формула работает как универсальный серверный шаг: считает значения и записывает поля подписчика. Telegram-отправки и Telegram-ссылки здесь не используются.'); ?>
 
                 <div class="tg-formula-box">
                     <div class="tg-formula-topline">
@@ -218,7 +286,7 @@ client.score = int(client.score) + bonus"><?php echo $h($code); ?></textarea>
                             </div>
                         </div>
                     </div>
-                    <div class="tg-formula-warning">Технические поля вроде <code>username</code>, <code>telegram_user_id</code>, <code>chat_id</code> можно читать, но нельзя перезаписывать. Внешние запросы и API здесь не запускаем — для этого уже есть действие «Внешний запрос».</div>
+                    <div class="tg-formula-warning"><?php echo $__isVkScenario ? 'Технические поля можно читать, но нельзя перезаписывать. Для VK используйте платформенные поля вроде <code>platform</code>, <code>external_user_id</code>, <code>external_chat_id</code>, если они доступны в каталоге. Telegram-поля <code>telegram_user_id</code> и <code>chat_id</code> в VK-сценариях лучше не использовать.' : 'Технические поля вроде <code>username</code>, <code>telegram_user_id</code>, <code>chat_id</code> можно читать, но нельзя перезаписывать. Внешние запросы и API здесь не запускаем — для этого уже есть действие «Внешний запрос».'; ?></div>
                 </div>
             </div>
             <div class="tg-flow-panel-footer tg-flow-clean-footer">
@@ -258,7 +326,7 @@ client.score = int(client.score) + bonus"><?php echo $h($code); ?></textarea>
       }
       function validate(value){
         var errors = [], lines = splitLines(value), meaningful = 0;
-        var readonly = {username:1,telegram_user_id:1,chat_id:1,subscriber_id:1,bot_id:1,status:1};
+        var readonly = {username:1,telegram_user_id:1,chat_id:1,external_user_id:1,external_chat_id:1,platform:1,subscriber_id:1,bot_id:1,status:1};
         lines.forEach(function(raw, idx){
           var line = String(raw || '').trim();
           if (!line || line.indexOf('#') === 0) return;
@@ -421,7 +489,7 @@ if ($type === 'actions') {
             <div class="tg-flow-panel-head tg-actions-panel-head">
                 <div>
                     <div class="tg-flow-panel-title">Редактировать блок «Действия»</div>
-                    <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?></div>
+                    <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?> · <?php echo $__isVkScenario ? 'VK' : 'Telegram'; ?></div>
                 </div>
                 <div class="tg-flow-panel-actions">
                     <div class="tg-flow-panel-menu-wrap">
@@ -438,6 +506,9 @@ if ($type === 'actions') {
             </div>
             <div class="tg-flow-panel-body">
                 <div id="scenario-message-alert" class="tg-flow-panel-alert"></div>
+                <?php if ($__isVkScenario): ?>
+                    <div class="tg-flow-platform-note tg-flow-platform-note-vk"><strong>VK-сценарий</strong><span>Telegram-действия групп/каналов и удаление Telegram-сообщений здесь скрыты. Остаются универсальные действия: теги, поля, уведомления, webhook, внешний запрос и Яндекс.Метрика.</span></div>
+                <?php endif; ?>
                 <input type="hidden" name="action" value="tg_scenario_block_save">
                 <input type="hidden" name="return_page" value="scenario_flow">
                 <input type="hidden" name="scenario_id" value="<?php echo (int)$scenarioId; ?>">
@@ -467,6 +538,7 @@ if ($type === 'actions') {
         </form>
     </section>
     <style data-flow-panel-style="scenario-actions-panel-v3.5.174">
+    .tg-flow-platform-note{border:1px solid #f2dcc5;background:#fff8f1;color:#7a4a1d;border-radius:16px;padding:12px 14px;margin:0 0 14px;font-size:13px;line-height:1.45;display:flex;flex-direction:column;gap:3px}.tg-flow-platform-note strong{font-size:13px;font-weight:650;color:#7a4a1d}.tg-flow-platform-note span{color:#8a6a4d;font-weight:500}
     .tg-actions-panel-head{border-bottom-color:#ead5ff}.tg-actions-box{border:1px solid #ead5ff;background:linear-gradient(180deg,#fff 0%,#fdfaff 100%);border-radius:20px;padding:20px;margin-top:12px;box-shadow:0 12px 30px rgba(15,23,42,.05)}.tg-actions-section-title{font-size:18px;font-weight:650;color:#3f315c;margin:0 0 8px}.tg-actions-note{font-size:13px;color:#6b7280;line-height:1.5;margin:0 0 18px}.tg-actions-list{display:flex;flex-direction:column;gap:14px}.tg-action-card{background:#fff;border:1px solid #eadff8;border-radius:16px;padding:16px;position:relative;box-shadow:0 8px 22px rgba(63,49,92,.06);overflow:hidden}.tg-action-card:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:#b99cff}.tg-action-card.is-invalid{border-color:#ff9aa1;box-shadow:0 0 0 1px rgba(255,107,115,.28),0 8px 22px rgba(63,49,92,.05);background:#fffafa}.tg-action-card.is-invalid:before{background:#ff6b73}.tg-action-head{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:12px;align-items:start;margin-bottom:12px}.tg-action-title{font-size:16px;font-weight:650;color:#2f3437;line-height:1.3}.tg-action-remove{border:0;background:transparent;color:#a8aaa6;font-size:18px;line-height:1;cursor:pointer;padding:8px 6px;border-radius:10px}.tg-action-remove:hover{color:#dc2626;background:#fff1f1}.tg-action-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.tg-action-card .tg-flow-panel-field{margin:0}.tg-action-card .tg-flow-panel-label{font-size:12px;font-weight:600;color:#777085;background:transparent;letter-spacing:.01em}.tg-action-card .tg-flow-panel-input{background:#fff;border-color:#ddd3ec;border-radius:12px;min-height:44px;font-size:15px;color:#2f3437}.tg-action-card .tg-flow-panel-input:focus{border-color:#b99cff;box-shadow:0 0 0 3px rgba(185,156,255,.18)}.tg-action-card.is-invalid .tg-flow-panel-input[data-invalid="1"]{border-color:#ff6b73!important;box-shadow:0 0 0 3px rgba(255,107,115,.12)!important}.tg-action-error{display:none;margin-top:8px;color:#dc2626;font-size:12px;font-weight:600;line-height:1.35}.tg-action-card.is-invalid .tg-action-error{display:block}.tg-actions-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px}.tg-actions-toolbar span{font-size:12px;font-weight:600;color:#8b8497}.tg-action-field{display:none}.tg-action-card[data-type="add_tag"] [data-action-field="tag"],.tg-action-card[data-type="remove_tag"] [data-action-field="tag"]{display:block}.tg-action-card[data-type="set_field"] [data-action-field="field"],.tg-action-card[data-type="set_field"] [data-action-field="operation"],.tg-action-card[data-type="set_field"] [data-action-field="value"]{display:block}.tg-action-card[data-type="notify_staff"] [data-action-field="staff"],.tg-action-card[data-type="notify_staff"] [data-action-field="message"],.tg-action-card[data-type="notify_staff"] [data-action-field="dialog_link"]{display:block}.tg-action-card[data-type="webhook_subscriber"] [data-action-field="url"],.tg-action-card[data-type="webhook_subscriber"] [data-action-field="webhook_flags"]{display:block}.tg-action-card[data-type="delete_step_message"] [data-action-field="step_messages"]{display:block}.tg-action-card[data-type="external_request"] [data-action-field="external_request"]{display:block}.tg-action-card[data-type="yandex_metrika"] [data-action-field="yandex_metrika"]{display:block}.tg-action-card[data-type="telegram_unban_user"] [data-action-field="telegram_group"],.tg-action-card[data-type="telegram_kick_user"] [data-action-field="telegram_group"],.tg-action-card[data-type="telegram_approve_join"] [data-action-field="telegram_group"],.tg-action-card[data-type="telegram_decline_join"] [data-action-field="telegram_group"]{display:block}.tg-action-card[data-type="telegram_kick_user"] [data-action-field="telegram_delete_messages"],.tg-action-card[data-type="telegram_kick_user"] [data-action-field="telegram_unban_after_kick"]{display:block}.tg-action-external-preview{border:1px solid #e5d8f6;background:#fff;border-radius:12px;padding:10px 11px;color:#4b5563;font-size:13px;font-weight:600;line-height:1.45}.tg-action-external-preview.is-empty{color:#ef4444;background:#fff7f7;border-color:#fecaca}.tg-action-edit{height:38px;border:1px solid #e5d8f6;background:#fff;border-radius:12px;color:#6f54bd;font-size:13px;font-weight:600;cursor:pointer;padding:0 12px}.tg-action-edit:hover{background:#f2eaff}.tg-external-modal-backdrop{position:fixed;inset:0;z-index:7000;background:rgba(15,23,42,.35);display:none;align-items:center;justify-content:center;padding:20px}.tg-external-modal-backdrop.is-open{display:flex}.tg-external-modal{width:min(980px,calc(100vw - 40px));max-height:calc(100vh - 40px);background:#fff;border:1px solid #e5e7eb;border-radius:22px;box-shadow:0 28px 80px rgba(15,23,42,.24);display:flex;flex-direction:column;overflow:hidden}.tg-external-head{display:flex;align-items:center;justify-content:space-between;padding:20px 26px;border-bottom:1px solid #edf0f2}.tg-external-title{font-size:20px;font-weight:650;color:#1f2937}.tg-external-close{width:38px;height:38px;border:0;background:#fff;border-radius:12px;color:#6b7280;font-size:24px;cursor:pointer}.tg-external-close:hover{background:#f3f4f6}.tg-external-body{padding:20px 26px;overflow:auto}.tg-external-top{display:grid;grid-template-columns:180px 1fr;gap:14px;margin-bottom:18px}.tg-external-tabs{display:flex;gap:16px;border-bottom:1px solid #edf0f2;margin:8px -26px 18px;padding:0 26px}.tg-external-tab{border:0;background:#fff;padding:13px 0 14px;color:#8b929e;font-size:14px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent}.tg-external-tab.is-active{color:#6f54bd;border-bottom-color:#b99cff}.tg-external-pane{display:none;min-height:220px}.tg-external-pane.is-active{display:block}.tg-external-row{display:grid;grid-template-columns:1fr 1fr 42px;gap:12px;align-items:end;margin-bottom:10px}.tg-external-del{height:42px;border:0;background:#fff;color:#9ca3af;border-radius:12px;font-size:20px;cursor:pointer}.tg-external-del:hover{background:#fef2f2;color:#dc2626}.tg-external-add{height:42px;border:1px solid #ead5ff;background:#fff;color:#6f54bd;border-radius:12px;padding:0 14px;font-size:13px;font-weight:600;cursor:pointer}.tg-external-help{border:1px solid #f1e7c7;background:#fff8e8;border-radius:12px;padding:12px;color:#705d2d;font-size:13px;line-height:1.45}.tg-external-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 26px;border-top:1px solid #edf0f2;background:#fff}.tg-external-secondary{border:0;background:#f3f4f6;color:#6b7280;border-radius:14px;min-height:42px;padding:0 18px;font-size:13px;font-weight:600;cursor:pointer}.tg-external-primary{border:0;background:#FFA048;color:#fff;border-radius:14px;min-height:42px;padding:0 18px;font-size:13px;font-weight:700;cursor:pointer}.tg-external-result{white-space:pre-wrap;border:1px dashed #d1d5db;background:#f9fafb;border-radius:12px;padding:14px;color:#6b7280;font-size:13px;line-height:1.45}.tg-external-mapping-list{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}.tg-external-mapping-row{display:grid;grid-template-columns:1fr 1fr 42px;gap:12px;align-items:end}.tg-external-mapping-note{font-size:12px;color:#6b7280;line-height:1.45;margin-top:8px}.tg-action-group-warning,.tg-action-help{margin-top:8px;border:1px solid #efe6d2;background:#fffaf0;border-radius:12px;padding:9px 11px;color:#75613a;font-size:12px;line-height:1.45}.tg-action-card[data-type="stop_scenario"] .tg-action-grid,.tg-action-card[data-type="unsubscribe_bot"] .tg-action-grid{display:none}.tg-action-card[data-type="set_field"][data-action-no-value="1"] [data-action-field="value"]{display:none}.tg-action-check{display:flex;align-items:flex-start;gap:8px;font-size:13px;font-weight:500;color:#4b5563;line-height:1.35}.tg-action-check input{margin-top:2px}.tg-action-step-search{margin-bottom:8px}.tg-action-step-list{max-height:180px;overflow:auto;border:1px solid #e5d8f6;background:#fff;border-radius:12px;padding:8px;display:flex;flex-direction:column;gap:6px}.tg-action-step-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;font-size:13px;color:#374151;cursor:pointer}.tg-action-step-row:hover{background:#f7f4fb}.tg-action-step-row small{margin-left:auto;color:#9ca3af;font-size:11px}.tg-action-empty{border:1px dashed #e5d8f6;background:#fff;border-radius:14px;padding:16px;color:#6b7280;font-size:13px;font-weight:600;line-height:1.4}@media(max-width:680px){.tg-actions-box{padding:16px}.tg-action-grid,.tg-action-head{grid-template-columns:1fr}.tg-action-remove{justify-self:end}.tg-actions-toolbar{align-items:stretch;flex-direction:column}.tg-actions-toolbar button{width:100%}}
     </style>
     <script data-flow-panel-script>
@@ -480,6 +552,7 @@ if ($type === 'actions') {
       var hidden = document.getElementById('scenario-actions-json');
       var counter = box.querySelector('[data-actions-counter]');
       var actionLabels = <?php echo $safeJson($actionLabels); ?>;
+      var isVkScenario = <?php echo $__isVkScenario ? 'true' : 'false'; ?>;
       var initialActions = <?php echo $safeJson($actions); ?>;
       var tags = <?php echo $safeJson($tags); ?>;
       var fields = <?php echo $safeJson($fields); ?>;
@@ -492,9 +565,9 @@ if ($type === 'actions') {
       var actionGroups = [
         {title:'Теги', items:['add_tag','remove_tag']},
         {title:'Поля и переменные', items:['set_field']},
-        {title:'Сценарий', items:['stop_scenario','unsubscribe_bot','delete_step_message']},
+        {title:'Сценарий', items:isVkScenario?['stop_scenario','unsubscribe_bot']:['stop_scenario','unsubscribe_bot','delete_step_message']},
         {title:'Уведомления и интеграции', items:['notify_staff','webhook_subscriber','external_request','yandex_metrika']},
-        {title:'Управление группами', items:['telegram_unban_user','telegram_kick_user','telegram_approve_join','telegram_decline_join']}
+        {title:'Управление группами', items:isVkScenario?[]:['telegram_unban_user','telegram_kick_user','telegram_approve_join','telegram_decline_join']}
       ];
       var actionTypes = [];
       actionGroups.forEach(function(group){ (group.items || []).forEach(function(type){ if (actionTypes.indexOf(type) === -1) actionTypes.push(type); }); });
@@ -887,6 +960,7 @@ if ($type === 'condition') {
                     <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Условие')); ?>" maxlength="190">
                     <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
                 </label>
+                <?php echo $__vkCompatibilityNote('VK-сценарий', 'Условия работают одинаково для VK и Telegram. Для VK ориентируйтесь на универсальные поля подписчика, теги, custom fields и канал; Telegram-специфичные ID лучше не использовать.'); ?>
 
                 <div class="tg-condition-box" data-condition-box data-max="15">
                     <div class="tg-condition-section-title">Условие</div>
@@ -1260,6 +1334,7 @@ if ($type === 'random') {
                     <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Случайный выбор')); ?>" maxlength="190">
                     <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
                 </label>
+                <?php echo $__vkCompatibilityNote('VK-сценарий', 'Случайный выбор — универсальный шаг. Он только выбирает выход; следующее сообщение уже отправится через VK с VK-ограничениями.'); ?>
 
                 <div class="tg-random-box" data-random-box data-initial='<?php echo $h(json_encode($normalizedOutputs, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)); ?>'>
                     <div class="tg-random-hero">
@@ -1414,6 +1489,7 @@ if ($type === 'schedule') {
                     <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Расписание')); ?>" maxlength="190">
                     <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
                 </label>
+                <?php echo $__vkCompatibilityNote('VK-сценарий', 'Расписание работает как универсальная пауза до даты/времени. Telegram-диплинки и Telegram-меню здесь не участвуют.'); ?>
                 <div class="tg-flow-schedule-box" data-schedule-settings>
                     <div class="tg-flow-schedule-hero">
                         <div class="tg-flow-schedule-icon">🗓</div>
@@ -1735,6 +1811,7 @@ if ($type === 'delay') {
                     <input class="tg-flow-panel-input" type="text" name="block_title" value="<?php echo $h((string)($block['title'] ?? 'Задержка')); ?>" maxlength="190">
                     <span class="tg-flow-panel-block-id">Блок #<?php echo (int)$blockId; ?></span>
                 </label>
+                <?php echo $__vkCompatibilityNote('VK-сценарий', 'Задержка работает одинаково для VK и Telegram: она ждёт нужное время, а следующий блок отправляется уже через платформу канала.'); ?>
 
                 <div class="tg-flow-delay-box" data-delay-settings>
                     <h3>Задержка</h3>
@@ -2056,6 +2133,20 @@ $blockMeta = [
     'deeplinkCode' => $deeplinkCode,
     'deeplinkUrl' => $deeplinkUrl,
     'testUrl' => $__scenarioTestUrl,
+    'platform' => $__scenarioChannelType,
+    'capabilities' => $__isVkScenario ? [
+        'formatting' => false,
+        'telegramDateLink' => false,
+        'protectContent' => false,
+        'disableWebPreview' => false,
+        'media' => ['text', 'image', 'file', 'gallery', 'question'],
+    ] : [
+        'formatting' => true,
+        'telegramDateLink' => true,
+        'protectContent' => true,
+        'disableWebPreview' => true,
+        'media' => ['text', 'image', 'file', 'audio', 'video', 'video_note', 'gallery', 'question'],
+    ],
 ];
 
 $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists('csrf_token') ? csrf_token() : '');
@@ -2065,16 +2156,18 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
         <div class="tg-flow-panel-head">
             <div>
                 <div class="tg-flow-panel-title">Редактировать блок «Сообщение»</div>
-                <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?></div>
+                <div class="tg-flow-panel-subtitle">Блок #<?php echo (int)$blockId; ?> · <?php echo $__isVkScenario ? 'VK' : 'Telegram'; ?></div>
             </div>
             <div class="tg-flow-panel-actions">
                 <div class="tg-flow-panel-menu-wrap">
                     <button type="button" class="tg-flow-panel-more" data-panel-menu-toggle aria-label="Действия блока">⋯</button>
                     <div class="tg-flow-panel-dropdown" data-panel-menu>
                         <?php echo $__scenarioTestButton; ?>
-                        <button type="button" data-panel-deeplink <?php echo ($deeplinkCode !== '' || $deeplinkUrl !== '') ? 'disabled' : ''; ?>>
-                            <span class="tg-flow-panel-dropdown-ico">🔗</span><span><span class="tg-flow-panel-menu-main"><?php echo ($deeplinkCode !== '' || $deeplinkUrl !== '') ? 'Диплинк уже создан' : 'Добавить диплинк'; ?></span><?php if ($deeplinkCode !== '' || $deeplinkUrl !== ''): ?><span class="tg-flow-panel-menu-note">Ссылка уже есть под блоком</span><?php endif; ?></span>
-                        </button>
+                        <?php if ($__scenarioDeeplinkAllowed): ?>
+                            <button type="button" data-panel-deeplink <?php echo ($deeplinkCode !== '' || $deeplinkUrl !== '') ? 'disabled' : ''; ?>>
+                                <span class="tg-flow-panel-dropdown-ico">🔗</span><span><span class="tg-flow-panel-menu-main"><?php echo ($deeplinkCode !== '' || $deeplinkUrl !== '') ? 'Диплинк уже создан' : 'Добавить диплинк'; ?></span><?php if ($deeplinkCode !== '' || $deeplinkUrl !== ''): ?><span class="tg-flow-panel-menu-note">Ссылка уже есть под блоком</span><?php endif; ?></span>
+                            </button>
+                        <?php endif; ?>
                         <button type="button" data-panel-duplicate><span class="tg-flow-panel-dropdown-ico">⧉</span><span class="tg-flow-panel-menu-main">Дублировать</span></button>
                         <button type="button" class="is-danger" data-panel-delete><span class="tg-flow-panel-dropdown-ico">🗑</span><span class="tg-flow-panel-menu-main">Удалить</span></button>
                     </div>
@@ -2085,6 +2178,11 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
         </div>
         <div class="tg-flow-panel-body">
             <div id="scenario-message-alert" class="tg-flow-panel-alert"></div>
+            <?php if ($__isVkScenario): ?>
+                <div class="tg-flow-platform-note tg-flow-platform-note-vk">
+                    <strong>VK-сценарий</strong><span>Сообщения отправляются plain text. Форматирование Telegram, дата-ссылка, защищённый контент, аудио, видео и видео-заметки здесь скрыты. Для видео используйте картинку/файл и URL-кнопку.</span>
+                </div>
+            <?php endif; ?>
             <input type="hidden" name="action" value="tg_scenario_block_save">
             <input type="hidden" name="return_page" value="scenario_flow">
             <input type="hidden" name="scenario_id" value="<?php echo (int)$scenarioId; ?>">
@@ -2103,9 +2201,11 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
                 <button type="button" class="tg-flow-card-add" data-add-card="text">T Текст</button>
                 <button type="button" class="tg-flow-card-add" data-add-card="image">▣ Картинка</button>
                 <button type="button" class="tg-flow-card-add" data-add-card="file">▤ Файл</button>
-                <button type="button" class="tg-flow-card-add" data-add-card="audio">♫ Аудио</button>
-                <button type="button" class="tg-flow-card-add" data-add-card="video">▶ Видео</button>
-                <button type="button" class="tg-flow-card-add" data-add-card="video_note">◉ Видео-заметка</button>
+                <?php if (!$__isVkScenario): ?>
+                    <button type="button" class="tg-flow-card-add" data-add-card="audio">♫ Аудио</button>
+                    <button type="button" class="tg-flow-card-add" data-add-card="video">▶ Видео</button>
+                    <button type="button" class="tg-flow-card-add" data-add-card="video_note">◉ Видео-заметка</button>
+                <?php endif; ?>
                 <button type="button" class="tg-flow-card-add" data-add-card="gallery">▣ Галерея</button>
                 <button type="button" class="tg-flow-card-add" data-add-card="question">? Вопрос</button>
             </div>
@@ -2132,6 +2232,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
 </section>
 <style data-flow-panel-style="scenario-block-panel-v3.5.89">
 /* scenario block panel styles v3.5.89 */
+.tg-flow-platform-note{border:1px solid #f2dcc5;background:#fff8f1;color:#7a4a1d;border-radius:16px;padding:12px 14px;margin:0 0 14px;font-size:13px;line-height:1.45;display:flex;flex-direction:column;gap:3px}.tg-flow-platform-note strong{font-size:13px;font-weight:650;color:#7a4a1d}.tg-flow-platform-note span{color:#8a6a4d;font-weight:500}.tg-message-card.is-vk-unsupported{border-color:#f1d4ba;background:#fffaf5}.tg-message-card.is-vk-unsupported .tg-flow-card-head:after{content:'Не поддерживается VK';display:inline-flex;align-items:center;margin-left:auto;border:1px solid #f1d4ba;background:#fff7ed;color:#9a5a1f;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:650}.tg-vk-plain-note{border:1px dashed #ead3bd;background:#fffaf5;color:#8a6a4d;border-radius:12px;padding:9px 11px;margin:8px 0 10px;font-size:12px;line-height:1.4;font-weight:500}
 .tg-video-note-status{display:none;margin:10px 0 0;padding:10px 12px;border-radius:12px;font-size:13px;line-height:1.45;font-weight:650}
 .tg-video-note-status.is-open{display:block}
 .tg-video-note-status.is-ok{background:#ecfdf3;color:#267044;border:1px solid #bbf7d0}
@@ -2193,6 +2294,8 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
 .tg-question-settings-modal .tg-reminder-box.is-open{display:block}
 .tg-question-settings-modal .tg-reminder-box textarea{min-height:110px;resize:vertical}
 @media(max-width:720px){.tg-message-card[data-type="question"]{padding:18px 16px}.tg-question-actions .tg-btn-ghost{flex:0 0 auto}.tg-question-wait{width:100%;margin-left:0;justify-content:center}.tg-question-settings-modal .tg-question-settings-row{grid-template-columns:1fr}}
+.tg-vk-button-hint,.tg-vk-button-note{border-color:#dbeafe!important;background:#f8fafc!important;color:#516070!important}
+.tg-vk-button-note{margin-top:10px}
 
 </style>
 <script data-flow-panel-script>
@@ -2209,6 +2312,14 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
   const macroCatalog = <?php echo $safeJson($messageVariables); ?>;
   const questionFieldOptions = <?php echo $safeJson($questionFieldOptions); ?>;
   const blockMeta = <?php echo $safeJson($blockMeta); ?>;
+  const scenarioPlatform = String(blockMeta.platform || 'telegram');
+  const isVkScenario = scenarioPlatform === 'vk';
+  const vkButtonTextMax = 40;
+  const tgButtonTextMax = 64;
+  const vkMessageButtonMax = 5;
+  const vkQuestionAnswerMax = 5;
+  const tgQuestionAnswerMax = 20;
+  const vkAllowedCardTypes = new Set(['text','image','file','gallery','question']);
   const emojiGroups = {
     'Частые': ['😀','😁','🙂','😉','😍','🔥','👍','👏','🙏','✅','❗','💡','🚀','🎯','📌','❤️'],
     'Работа': ['📅','📍','📎','📞','✉️','💬','📣','📊','🧩','⚙️','🔔','⭐','🏁','⏱️','📝','💰']
@@ -2403,9 +2514,34 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     Object.keys(grouped).forEach(group=>{html+='<div class="tg-macro-group">'+esc(group)+'</div>'; grouped[group].forEach(item=>{const token=String(item.token||''); if(!token)return; html+='<button type="button" class="tg-macro-item" data-macro-insert="'+esc(token)+'" data-macro-search-text="'+esc((item.title||'')+' '+token+' '+group)+'"><span>'+esc(item.icon||'Т')+'</span><span>'+esc(item.title||token)+'</span><span class="tg-macro-token">'+esc(token)+'</span></button>';});});
     return html;
   }
+  function buttonTextLimit(){ return isVkScenario ? vkButtonTextMax : tgButtonTextMax; }
+  function questionAnswerLimit(){ return isVkScenario ? vkQuestionAnswerMax : tgQuestionAnswerMax; }
+  function messageButtonLimit(){ return isVkScenario ? vkMessageButtonMax : 999; }
+  function countMessageButtons(rows){
+    let total = 0;
+    (Array.isArray(rows) ? rows : []).forEach(row => { total += Array.isArray(row) ? row.length : (row ? 1 : 0); });
+    return total;
+  }
   function normalizeRows(buttons){
     if(!Array.isArray(buttons)) return [];
-    const rows=[]; buttons.forEach(row=>{ if(!Array.isArray(row)) row=[row]; const clean=row.filter(btn=>btn&&typeof btn==='object').map(btn=>({type:btn.type==='transition'?'transition':'url', text:String(btn.text||btn.title||''), url:String(btn.url||''), target_block_id:parseInt(btn.target_block_id||0,10)||0})); if(clean.length) rows.push(clean); });
+    const rows=[];
+    const maxTotal = messageButtonLimit();
+    let total = 0;
+    buttons.forEach(row=>{
+      if(total >= maxTotal) return;
+      if(!Array.isArray(row)) row=[row];
+      const clean=[];
+      row.forEach(btn=>{
+        if(total >= maxTotal) return;
+        if(!btn || typeof btn !== 'object') return;
+        const type = btn.type === 'transition' ? 'transition' : 'url';
+        const text = String(btn.text || btn.title || '').trim().slice(0, buttonTextLimit());
+        if(!text) return;
+        clean.push({type, text, url:String(btn.url||'').trim(), target_block_id:parseInt(btn.target_block_id||0,10)||0});
+        total++;
+      });
+      if(clean.length) rows.push(clean);
+    });
     return rows;
   }
   function renderButtons(card){
@@ -2429,6 +2565,9 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
         plus.className='tg-message-button-add';
         plus.textContent='+';
         plus.title='Добавить рядом';
+        if(isVkScenario && countMessageButtons(getRows(card)) >= messageButtonLimit()) {
+          plus.style.display='none';
+        }
         plus.addEventListener('click',()=>openButtonModal(card,ri,bi+1,true));
         line.appendChild(plus);
       });
@@ -2437,6 +2576,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
       below.type='button';
       below.className='tg-btn-ghost self-start';
       below.textContent='+ Добавить ниже';
+      if(isVkScenario && countMessageButtons(getRows(card)) >= messageButtonLimit()) below.style.display='none';
       below.addEventListener('click',()=>openButtonModal(card,ri+1,0,true));
       btnBox.appendChild(below);
     });
@@ -2457,12 +2597,18 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
   }
   function openButtonModal(card,rowIndex,buttonIndex,isNew){
     const rows=getRows(card);
+    if(isNew && isVkScenario && countMessageButtons(rows) >= messageButtonLimit()){
+      panelNotice('Для VK в одном сообщении можно добавить до '+messageButtonLimit()+' кнопок.');
+      return;
+    }
     if(rowIndex==null){rowIndex=rows.length; buttonIndex=0; isNew=true;}
     const current=!isNew&&rows[rowIndex]&&rows[rowIndex][buttonIndex]?rows[rowIndex][buttonIndex]:{type:'url',text:'',url:'',target_block_id:0};
     const modal=document.createElement('div');
     modal.className='tg-button-modal-backdrop tg-message-button-modal is-open';
     const opts=['<option value="0">Без перехода</option>'].concat(transitionOptions.map(o=>'<option value="'+esc(o.id)+'" '+(parseInt(current.target_block_id||0,10)===parseInt(o.id,10)?'selected':'')+'>'+esc(o.title)+'</option>')).join('');
-    modal.innerHTML='<div class="tg-button-modal"><div class="tg-button-modal-head"><h4>Кнопка сообщения</h4><button type="button" class="tg-question-modal-close" data-btn-cancel>×</button></div><div class="tg-button-modal-body"><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Текст кнопки</span><input class="tg-flow-panel-input" data-modal-btn-text value="'+esc(current.text||current.title||'')+'" maxlength="64" placeholder="Например: Перейти"></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Действие</span><select class="tg-button-select" data-modal-btn-type><option value="url" '+(current.type==='transition'?'':'selected')+'>Открыть ссылку</option><option value="transition" '+(current.type==='transition'?'selected':'')+'>Переход к блоку</option></select></label><label class="tg-flow-panel-field" data-url-field><span class="tg-flow-panel-label">Ссылка</span><input class="tg-flow-panel-input" data-modal-btn-url value="'+esc(current.url||'')+'" placeholder="https://..."></label><label class="tg-flow-panel-field" data-target-field><span class="tg-flow-panel-label">Целевой блок</span><select class="tg-button-select" data-modal-btn-target>'+opts+'</select></label></div><div class="tg-button-modal-foot"><button type="button" class="tg-button-danger" data-btn-delete>Удалить</button><button type="button" class="tg-button-muted" data-btn-cancel>Отмена</button><button type="button" class="tg-button-save" data-btn-save>Сохранить</button></div></div>';
+    const maxText = buttonTextLimit();
+    const platformHint = isVkScenario ? '<div class="tg-question-settings-meta tg-vk-button-hint">VK: до 5 кнопок в одном сообщении, текст кнопки до 40 символов. Переход к блоку отправляется как VK text-кнопка с payload, ссылка — как open_link.</div>' : '';
+    modal.innerHTML='<div class="tg-button-modal"><div class="tg-button-modal-head"><h4>Кнопка сообщения</h4><button type="button" class="tg-question-modal-close" data-btn-cancel>×</button></div><div class="tg-button-modal-body">'+platformHint+'<label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Текст кнопки</span><input class="tg-flow-panel-input" data-modal-btn-text value="'+esc(current.text||current.title||'')+'" maxlength="'+maxText+'" placeholder="Например: Перейти"></label><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Действие</span><select class="tg-button-select" data-modal-btn-type><option value="url" '+(current.type==='transition'?'':'selected')+'>Открыть ссылку</option><option value="transition" '+(current.type==='transition'?'selected':'')+'>Переход к блоку</option></select></label><label class="tg-flow-panel-field" data-url-field><span class="tg-flow-panel-label">Ссылка</span><input class="tg-flow-panel-input" data-modal-btn-url value="'+esc(current.url||'')+'" placeholder="https://..."></label><label class="tg-flow-panel-field" data-target-field><span class="tg-flow-panel-label">Целевой блок</span><select class="tg-button-select" data-modal-btn-target>'+opts+'</select></label></div><div class="tg-button-modal-foot"><button type="button" class="tg-button-danger" data-btn-delete>Удалить</button><button type="button" class="tg-button-muted" data-btn-cancel>Отмена</button><button type="button" class="tg-button-save" data-btn-save>Сохранить</button></div></div>';
     panelModalHost().appendChild(modal);
     const typeSel=modal.querySelector('[data-modal-btn-type]'), urlField=modal.querySelector('[data-url-field]'), targetField=modal.querySelector('[data-target-field]');
     function sync(){const t=typeSel.value==='transition'; urlField.style.display=t?'none':''; targetField.style.display=t?'':'none';}
@@ -2481,8 +2627,18 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     modal.querySelector('[data-btn-save]')?.addEventListener('click',(e)=>{
       e.preventDefault(); e.stopPropagation();
       const type=typeSel.value==='transition'?'transition':'url';
-      const item={type,text:String(textInput?.value||'').trim(),url:type==='url'?String(modal.querySelector('[data-modal-btn-url]')?.value||'').trim():'',target_block_id:type==='transition'?(parseInt(modal.querySelector('[data-modal-btn-target]')?.value||'0',10)||0):0};
+      const item={type,text:String(textInput?.value||'').trim().slice(0, buttonTextLimit()),url:type==='url'?String(modal.querySelector('[data-modal-btn-url]')?.value||'').trim():'',target_block_id:type==='transition'?(parseInt(modal.querySelector('[data-modal-btn-target]')?.value||'0',10)||0):0};
       if(!item.text){textInput?.focus();return;}
+      if(type==='url' && isVkScenario && !/^https?:\/\//i.test(item.url)){
+        panelNotice('VK принимает только ссылки, которые начинаются с http:// или https://.');
+        modal.querySelector('[data-modal-btn-url]')?.focus();
+        return;
+      }
+      if(type==='transition' && !item.target_block_id){
+        panelNotice('Выберите целевой блок для перехода.');
+        modal.querySelector('[data-modal-btn-target]')?.focus();
+        return;
+      }
       if(!rows[rowIndex]) rows[rowIndex]=[];
       rows[rowIndex].splice(buttonIndex, isNew?0:1, item);
       setRows(card,rows.filter(r=>r&&r.length));
@@ -2674,14 +2830,17 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     const hidden = visible ? '' : ' style="display:none"';
     const rawText=String(text||'');
     const clearOnFocus=(type==='text' && rawText.replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').trim()==='Новое сообщение')?' data-clear-on-focus="1"':'';
-    return '<div class="tg-caption-editor" data-caption-editor'+hidden+'><div class="tg-card-toolbar"><button type="button" title="Жирный" data-format="bold">'+adminIcon('bold')+'</button><button type="button" title="Курсив" data-format="italic">'+adminIcon('italic')+'</button><button type="button" title="Подчёркнутый" data-format="underline">'+adminIcon('underline')+'</button><button type="button" title="Зачёркнутый" data-format="strikeThrough">'+adminIcon('strike')+'</button><button type="button" title="Моноширинный текст" data-wrap="<code>|</code>">'+adminIcon('mono')+'</button><button type="button" title="Скрытый текст" data-wrap="<tg-spoiler>|</tg-spoiler>">'+adminIcon('spoiler')+'</button><button type="button" title="Код" data-wrap="<pre>|</pre>">'+adminIcon('code')+'</button><button type="button" title="Цитата" data-wrap="<blockquote>|</blockquote>">'+adminIcon('quote')+'</button><span class="tg-toolbar-sep"></span><button type="button" title="Дата / напоминание" data-date>'+adminIcon('calendar')+'</button><button type="button" title="Ссылка" data-link>'+adminIcon('link')+'</button></div><div class="tg-editor-wrap"><div class="tg-card-editor" contenteditable="true" data-editor data-placeholder="'+esc(placeholder)+'" spellcheck="true"'+clearOnFocus+'>'+(text||'')+'</div><div class="tg-card-bottom"><div class="tg-editor-tools"><button type="button" class="tg-mini-btn" data-emoji>'+adminIcon('emoji')+'<span>Эмодзи</span></button><button type="button" class="tg-mini-btn" data-macro>'+adminIcon('variables')+'<span>Переменные</span></button><button type="button" class="tg-mini-btn" data-clear-format>'+adminIcon('clear')+'<span>Очистить</span></button><div class="tg-emoji-menu">'+emojiHtml()+'</div><div class="tg-macro-menu">'+macroMenuHtml()+'</div></div><div class="tg-char-count"><span data-char-count>0</span> / '+limit+'</div></div></div></div>';
+    const formattingToolbar = isVkScenario ? '<div class="tg-vk-plain-note">Форматирование Telegram скрыто: VK получит обычный текст. Переносы строк, эмодзи и переменные можно использовать.</div>' : '<div class="tg-card-toolbar"><button type="button" title="Жирный" data-format="bold">'+adminIcon('bold')+'</button><button type="button" title="Курсив" data-format="italic">'+adminIcon('italic')+'</button><button type="button" title="Подчёркнутый" data-format="underline">'+adminIcon('underline')+'</button><button type="button" title="Зачёркнутый" data-format="strikeThrough">'+adminIcon('strike')+'</button><button type="button" title="Моноширинный текст" data-wrap="<code>|</code>">'+adminIcon('mono')+'</button><button type="button" title="Скрытый текст" data-wrap="<tg-spoiler>|</tg-spoiler>">'+adminIcon('spoiler')+'</button><button type="button" title="Код" data-wrap="<pre>|</pre>">'+adminIcon('code')+'</button><button type="button" title="Цитата" data-wrap="<blockquote>|</blockquote>">'+adminIcon('quote')+'</button><span class="tg-toolbar-sep"></span><button type="button" title="Дата / напоминание" data-date>'+adminIcon('calendar')+'</button><button type="button" title="Ссылка" data-link>'+adminIcon('link')+'</button></div>';
+    return '<div class="tg-caption-editor" data-caption-editor'+hidden+'>'+formattingToolbar+'<div class="tg-editor-wrap"><div class="tg-card-editor" contenteditable="true" data-editor data-placeholder="'+esc(placeholder)+'" spellcheck="true"'+clearOnFocus+'>'+(text||'')+'</div><div class="tg-card-bottom"><div class="tg-editor-tools"><button type="button" class="tg-mini-btn" data-emoji>'+adminIcon('emoji')+'<span>Эмодзи</span></button><button type="button" class="tg-mini-btn" data-macro>'+adminIcon('variables')+'<span>Переменные</span></button><button type="button" class="tg-mini-btn" data-clear-format>'+adminIcon('clear')+'<span>Очистить</span></button><div class="tg-emoji-menu">'+emojiHtml()+'</div><div class="tg-macro-menu">'+macroMenuHtml()+'</div></div><div class="tg-char-count"><span data-char-count>0</span> / '+limit+'</div></div></div></div>';
   }
   function disablePreviewOptionHtml(source){
     const checked = source && source.disable_web_page_preview ? ' checked' : '';
+    if (isVkScenario) return '';
     return '<label class="tg-protect-option"><input type="checkbox" data-disable-preview-toggle'+checked+'> Отключить предпросмотр ссылок <span class="tg-protect-help" tabindex="0" aria-label="Ссылки в тексте сообщения будут отправлены без автоматического предпросмотра" data-tooltip="Ссылки в тексте сообщения будут отправлены без автоматического предпросмотра">?</span></label>';
   }
   function protectOptionHtml(source){
     const checked = source && source.protect_content ? ' checked' : '';
+    if (isVkScenario) return '';
     return '<label class="tg-protect-option"><input type="checkbox" data-protect-toggle'+checked+'> Защищать контент <span class="tg-protect-help" tabindex="0" aria-label="Защищает содержимое отправленного сообщения от пересылки и сохранения" data-tooltip="Защищает содержимое отправленного сообщения от пересылки и сохранения">?</span></label>';
   }
   function cardOptionsHtml(source, captionHtml=''){
@@ -2704,7 +2863,8 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
   }
   function normalizeQuestionAnswers(answers){
     if(!Array.isArray(answers)) return [];
-    return answers.map(item=>({text:String((item&& (item.text||item.title))||'').trim().slice(0,128),target_block_id:parseInt((item&&item.target_block_id)||0,10)||0})).filter(item=>item.text).slice(0,20);
+    const maxText = isVkScenario ? vkButtonTextMax : 128;
+    return answers.map(item=>({text:String((item&& (item.text||item.title))||'').trim().slice(0,maxText),target_block_id:parseInt((item&&item.target_block_id)||0,10)||0})).filter(item=>item.text).slice(0,questionAnswerLimit());
   }
   function getQuestionAnswers(card){try{const parsed=JSON.parse(card.dataset.questionAnswers||'[]'); return normalizeQuestionAnswers(parsed);}catch(e){return[];}}
   function setQuestionAnswers(card,answers){
@@ -2737,7 +2897,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     const answers=getQuestionAnswers(card);
     const openedFromAdd = index===null || index<0;
     const rowsData = answers.map((answer,idx)=>({text:String(answer.text||''), target_block_id:parseInt(answer.target_block_id||0,10)||0, original_index:idx}));
-    if(openedFromAdd && rowsData.length < 20){
+    if(openedFromAdd && rowsData.length < questionAnswerLimit()){
       rowsData.push({text:'', target_block_id:0, original_index:-1});
     }
     if(!rowsData.length){
@@ -2745,8 +2905,8 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     }
     const modal=document.createElement('div');
     modal.className='tg-button-modal-backdrop tg-question-answer-modal is-open';
-    const rowHtml=(row={})=>'<div class="tg-question-answer-row" data-question-answer-row data-original-index="'+String(parseInt(row.original_index||-1,10)||-1)+'" data-target-block-id="'+String(parseInt(row.target_block_id||0,10)||0)+'"><input class="tg-flow-panel-input" data-question-answer-text value="'+esc(row.text||'')+'" maxlength="128" placeholder="Например: Валик"><button type="button" class="tg-question-row-remove" data-question-row-remove title="Удалить строку">×</button></div>';
-    modal.innerHTML='<div class="tg-button-modal"><div class="tg-button-modal-head"><h4>Ответы</h4><button type="button" class="tg-question-modal-close" data-question-cancel>×</button></div><div class="tg-button-modal-body"><div class="tg-question-answer-bulk"><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Варианты ответов</span><div class="tg-question-answer-rows" data-question-answer-rows>'+rowsData.map(rowHtml).join('')+'</div></label><button type="button" class="tg-btn-ghost tg-question-add-row" data-question-add-row>+ Ещё ответ</button><div class="tg-question-settings-meta">Можно добавить до 20 вариантов, максимум 128 символов каждый. Переходы настраиваются на холсте через точки рядом с ответами.</div></div></div><div class="tg-button-modal-foot"><button type="button" class="tg-button-muted" data-question-cancel>Отмена</button><button type="button" class="tg-button-save" data-question-save>Сохранить</button></div></div>';
+    const rowHtml=(row={})=>'<div class="tg-question-answer-row" data-question-answer-row data-original-index="'+String(parseInt(row.original_index||-1,10)||-1)+'" data-target-block-id="'+String(parseInt(row.target_block_id||0,10)||0)+'"><input class="tg-flow-panel-input" data-question-answer-text value="'+esc(row.text||'')+'" maxlength="'+(isVkScenario ? vkButtonTextMax : 128)+'" placeholder="Например: Валик"><button type="button" class="tg-question-row-remove" data-question-row-remove title="Удалить строку">×</button></div>';
+    modal.innerHTML='<div class="tg-button-modal"><div class="tg-button-modal-head"><h4>Ответы</h4><button type="button" class="tg-question-modal-close" data-question-cancel>×</button></div><div class="tg-button-modal-body"><div class="tg-question-answer-bulk"><label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Варианты ответов</span><div class="tg-question-answer-rows" data-question-answer-rows>'+rowsData.map(rowHtml).join('')+'</div></label><button type="button" class="tg-btn-ghost tg-question-add-row" data-question-add-row>+ Ещё ответ</button><div class="tg-question-settings-meta">'+(isVkScenario ? 'VK: до 5 вариантов ответа, максимум 40 символов каждый. Нажатие отправляется как VK text-кнопка с payload.' : 'Можно добавить до 20 вариантов, максимум 128 символов каждый. Переходы настраиваются на холсте через точки рядом с ответами.')+'</div></div></div><div class="tg-button-modal-foot"><button type="button" class="tg-button-muted" data-question-cancel>Отмена</button><button type="button" class="tg-button-save" data-question-save>Сохранить</button></div></div>';
     panelModalHost().appendChild(modal);
     const close=()=>modal.remove();
     const focusLast=()=>{const inputs=modal.querySelectorAll('[data-question-answer-text]'); inputs[inputs.length-1]?.focus();};
@@ -2757,7 +2917,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     modal.querySelector('[data-question-add-row]')?.addEventListener('click',(e)=>{
       e.preventDefault(); e.stopPropagation();
       const rowsBox=modal.querySelector('[data-question-answer-rows]');
-      if(!rowsBox || currentCount()>=20){ panelNotice('В вопросе можно добавить максимум 20 ответов.'); return; }
+      if(!rowsBox || currentCount()>=questionAnswerLimit()){ panelNotice('В вопросе можно добавить максимум '+questionAnswerLimit()+' ответов.'); return; }
       rowsBox.insertAdjacentHTML('beforeend', rowHtml({text:'',target_block_id:0,original_index:-1}));
       syncRemoveButtons();
       focusLast();
@@ -2778,7 +2938,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
         e.preventDefault();
         const inputs=Array.from(modal.querySelectorAll('[data-question-answer-text]'));
         const last=inputs[inputs.length-1];
-        if(document.activeElement===last && String(last.value||'').trim() && currentCount()<20) modal.querySelector('[data-question-add-row]')?.click();
+        if(document.activeElement===last && String(last.value||'').trim() && currentCount()<questionAnswerLimit()) modal.querySelector('[data-question-add-row]')?.click();
         else modal.querySelector('[data-question-save]')?.click();
       }
     });
@@ -2791,9 +2951,9 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
       const next=[];
       const seen=new Set();
       rows.forEach(row=>{
-        if(next.length>=20) return;
+        if(next.length>=questionAnswerLimit()) return;
         const input=row.querySelector('[data-question-answer-text]');
-        const text=String(input?.value||'').trim().slice(0,128);
+        const text=String(input?.value||'').trim().slice(0, isVkScenario ? vkButtonTextMax : 128);
         if(!text || seen.has(text)) return;
         seen.add(text);
         const originalIndex=parseInt(row.dataset.originalIndex||'-1',10);
@@ -2822,7 +2982,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
       : '<span class="tg-question-empty">Ответы не добавлены.</span>';
     modal.innerHTML='<div class="tg-button-modal"><div class="tg-button-modal-head"><h4>Настройки вопроса</h4><button type="button" class="tg-question-modal-close" data-question-settings-cancel>×</button></div>'
       + '<div class="tg-button-modal-body">'
-      + '<label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Варианты ответов</span><div class="tg-question-settings-answer-box"><div class="tg-question-settings-chips">'+chips+'<button type="button" class="tg-question-settings-add" data-settings-add-answer>+ ответ</button></div><div class="tg-question-settings-meta">До 20 элементов. Максимум 128 символов каждый.</div></div></label>'
+      + '<label class="tg-flow-panel-field"><span class="tg-flow-panel-label">Варианты ответов</span><div class="tg-question-settings-answer-box"><div class="tg-question-settings-chips">'+chips+'<button type="button" class="tg-question-settings-add" data-settings-add-answer>+ ответ</button></div><div class="tg-question-settings-meta">'+(isVkScenario ? 'VK: до 5 ответов. Максимум 40 символов каждый.' : 'До 20 элементов. Максимум 128 символов каждый.')+'</div></div></label>'
       + '<div class="tg-flow-panel-label" style="margin-top:18px;margin-bottom:8px">Ожидание ответа пользователя</div>'
       + '<div class="tg-question-settings-row"><input class="tg-flow-panel-input" type="number" min="1" max="999" data-question-wait-value value="'+esc(value)+'"><select class="tg-button-select" data-question-wait-unit><option value="minutes" '+(unit==='minutes'?'selected':'')+'>минут</option><option value="hours" '+(unit==='hours'?'selected':'')+'>часов</option><option value="days" '+(unit==='days'?'selected':'')+'>дней</option></select></div>'
       + '<div class="tg-question-switches"><label class="tg-switch-line"><input type="checkbox" data-question-check '+(check?'checked':'')+'> <span>Включить проверку</span></label><label class="tg-switch-line"><input type="checkbox" data-question-remind '+(remind?'checked':'')+'> <span>Напомнить, если нет ответа</span></label></div>'
@@ -2856,18 +3016,17 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     const selected=source.save_field_code||'';
     const previewChecked=source.disable_web_page_preview?' checked':'';
     const protectChecked=source && source.protect_content ? ' checked' : '';
+    const platformOptions = isVkScenario ? '' : '<div class="tg-question-option-stack"><label class="tg-question-option-line"><input type="checkbox" data-question-disable-preview'+previewChecked+'> <span>Отключить предпросмотр ссылок</span><span class="tg-help-dot" data-tip="Ссылки в тексте вопроса будут отправлены без автоматического предпросмотра">?</span></label><label class="tg-question-option-line"><input type="checkbox" data-protect-toggle'+protectChecked+'> <span>Защищать контент</span><span class="tg-protect-help" data-tip="Защищает содержимое отправленного сообщения от пересылки и сохранения">?</span></label></div>';
     return '<div class="tg-question-box">'
-      + '<div class="tg-question-option-stack">'
-      + '<label class="tg-question-option-line"><input type="checkbox" data-question-disable-preview'+previewChecked+'> <span>Отключить предпросмотр ссылок</span><span class="tg-help-dot" data-tip="Ссылки в тексте вопроса будут отправлены без автоматического предпросмотра">?</span></label>'
-      + '<label class="tg-question-option-line"><input type="checkbox" data-protect-toggle'+protectChecked+'> <span>Защищать контент</span><span class="tg-protect-help" data-tip="Защищает содержимое отправленного сообщения от пересылки и сохранения">?</span></label>'
-      + '</div>'
+      + platformOptions
       + '<label class="tg-question-save-field"><span class="tg-question-field-title">Сохранить ответ в поле</span><select class="tg-button-select" data-question-save-field>'+questionFieldOptionsHtml(selected)+'</select><div class="tg-question-field-hint">Для вопросов доступны только пользовательские поля типа «текст» и «число». Поля «дата» и «дата со временем» здесь скрыты, чтобы подписчик не ломал формат ответа.</div></label>'
-      + '<div class="tg-question-answers-panel"><div class="tg-question-answers-head"><div><div class="tg-question-answers-title">Ответы</div><div class="tg-question-answers-hint">Кнопки ответа можно добавить здесь или оставить пустым.</div></div></div><div class="tg-question-answers" data-question-answers></div><div class="tg-question-actions"><button type="button" class="tg-btn-ghost" data-question-add-answer>+ Добавить ответ</button><button type="button" class="tg-btn-ghost" data-question-settings>Настройки</button><span class="tg-question-wait" data-question-wait-label></span></div></div>'
+      + '<div class="tg-question-answers-panel"><div class="tg-question-answers-head"><div><div class="tg-question-answers-title">Ответы</div><div class="tg-question-answers-hint">'+(isVkScenario?'VK-кнопки: до 5 ответов, до 40 символов. Переходы работают через payload.':'Кнопки ответа можно добавить здесь или оставить пустым.')+'</div></div></div><div class="tg-question-answers" data-question-answers></div><div class="tg-question-actions"><button type="button" class="tg-btn-ghost" data-question-add-answer>+ Добавить ответ</button><button type="button" class="tg-btn-ghost" data-question-settings>Настройки</button><span class="tg-question-wait" data-question-wait-label></span></div></div>'
       + '<div class="tg-question-noanswer"><strong>Подписчик не ответил</strong><span>Отдельный выход на холсте добавим следующим шагом.</span></div>'
       + '</div>';
   }
   function addCard(type='text', source={}){
     const card=document.createElement('div'); card.className='tg-message-card'; card.dataset.card='1'; card.dataset.type=type; card.dataset.buttons=JSON.stringify(normalizeRows(source.buttons));
+    if(isVkScenario && !vkAllowedCardTypes.has(type)) card.classList.add('is-vk-unsupported');
     if(type==='question'){card.dataset.questionAnswers=JSON.stringify(normalizeQuestionAnswers(source.answers)); card.dataset.questionWaitValue=String(source.wait_value||24); card.dataset.questionWaitUnit=String(source.wait_unit||'hours'); card.dataset.questionCheck=source.enable_check?'1':'0'; card.dataset.questionRemind=source.remind_no_answer?'1':'0'; card.dataset.questionRemindText=String(source.remind_text||''); card.dataset.questionRemindValue=String(source.remind_value||5); card.dataset.questionRemindUnit=String(source.remind_unit||'minutes'); card.dataset.questionNoAnswerTarget=String(parseInt(source.no_answer_target_block_id||0,10)||0);}
     let media=''; const url=mediaUrl(source);
     if(type==='question'){
@@ -2876,7 +3035,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
       setGalleryItems(card, galleryItems(source));
       const captionOn = !!(source.caption_enabled || String(source.text||'').trim());
       const caption = captionOn ? ' checked' : '';
-      media='<div class="tg-flow-gallery-box"><div class="tg-flow-media-grid"><label class="tg-media-field"><span class="tg-form-label">Картинки</span><div class="tg-flow-file-control"><input type="file" data-gallery-files multiple accept="image/*"><span class="tg-flow-file-button">Выберите файлы</span><span class="tg-flow-upload-name" data-upload-name>Можно выбрать сразу несколько</span></div></label><label class="tg-media-field"><span class="tg-form-label">Или ссылка на картинку</span><div class="tg-gallery-url-row"><input class="tg-form-field tg-media-url-field" data-gallery-url placeholder="https://..."><button type="button" data-gallery-url-add>+</button></div></label></div><div class="tg-gallery-list" data-gallery-list></div><div class="tg-gallery-options"><label><input type="checkbox" data-gallery-caption'+caption+'> Подпись</label>'+protectOptionHtml(source)+'</div><div class="tg-flow-card-note"><strong>Галерея</strong><span>Можно добавить несколько картинок одной карточкой. Отправку в Telegram через медиагруппу подключим следующим шагом.</span></div></div>';
+      media='<div class="tg-flow-gallery-box"><div class="tg-flow-media-grid"><label class="tg-media-field"><span class="tg-form-label">Картинки</span><div class="tg-flow-file-control"><input type="file" data-gallery-files multiple accept="image/*"><span class="tg-flow-file-button">Выберите файлы</span><span class="tg-flow-upload-name" data-upload-name>Можно выбрать сразу несколько</span></div></label><label class="tg-media-field"><span class="tg-form-label">Или ссылка на картинку</span><div class="tg-gallery-url-row"><input class="tg-form-field tg-media-url-field" data-gallery-url placeholder="https://..."><button type="button" data-gallery-url-add>+</button></div></label></div><div class="tg-gallery-list" data-gallery-list></div><div class="tg-gallery-options"><label><input type="checkbox" data-gallery-caption'+caption+'> Подпись</label>'+protectOptionHtml(source)+'</div><div class="tg-flow-card-note"><strong>Галерея</strong><span>'+(isVkScenario?'VK получит первую картинку галереи. Несколько картинок подключим отдельным шагом.':'Можно добавить несколько картинок одной карточкой. Отправку в Telegram через медиагруппу подключим следующим шагом.')+'</span></div></div>';
     } else if(type!=='text'){
       const fileLabel = type === 'video_note' ? 'Файл MP4 / M4V' : 'Файл';
       const urlLabel = type === 'video_note' ? 'Или ссылка на видео' : 'Или ссылка на медиа';
@@ -2885,11 +3044,12 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
       if(type==='video_note') media+='<div class="tg-flow-card-note"><strong>Видео-заметка Telegram</strong><span>MP4 или M4V, до 10 МБ и до 60 секунд. В Telegram будет отображаться как кружок.</span></div><div class="tg-video-note-status" data-video-note-status></div>';
       if(url&&type==='image') media+='<div class="tg-flow-media-preview"><img src="'+esc(url)+'" alt="Превью картинки"></div>'; else if(url) media+='<div class="tg-flow-media-preview"><strong>'+esc(source.media_file_name||cardTitle(type))+'</strong><div>'+esc(url)+'</div></div>';
     }
+    const unsupportedVkNote = (isVkScenario && !vkAllowedCardTypes.has(type)) ? '<div class="tg-flow-platform-note"><strong>Эта карточка не поддерживается VK</strong><span>Она осталась в блоке после Telegram-настроек. Для VK лучше заменить её на картинку/файл и URL-кнопку.</span></div>' : '';
     const captionVisible = type==='text' || type==='question' || !!(source.caption_enabled || String(source.text||'').trim());
     const afterEditorOptions = type==='text' ? '<div class="tg-card-options tg-card-options-after">'+disablePreviewOptionHtml(source)+protectOptionHtml(source)+'</div>' : (type==='question' ? questionControlsHtml(source) : '');
-    const buttonsHtml = type==='question' ? '' : '<div class="tg-message-buttons" data-buttons-box></div><div class="tg-flow-button-add-line"><button type="button" class="tg-btn-ghost" data-add-button>+ Добавить кнопку</button></div>';
+    const buttonsHtml = type==='question' ? '' : '<div class="tg-message-buttons" data-buttons-box></div>'+(isVkScenario?'<div class="tg-flow-card-note tg-vk-button-note"><strong>Кнопки VK</strong><span>До 5 кнопок в сообщении. Текст — до 40 символов. URL-кнопки открывают ссылку, переходы идут через payload.</span></div>':'')+'<div class="tg-flow-button-add-line"><button type="button" class="tg-btn-ghost" data-add-button>+ Добавить кнопку</button></div>';
     const editorHtml = type==='question' ? '<div class="tg-question-editor-wrap">'+editorTemplate(type, source.text||'', true)+'</div>' : editorTemplate(type, source.text||'', captionVisible);
-    card.innerHTML='<div class="tg-flow-card-head"><h5>'+cardTitle(type)+'</h5><div class="tg-flow-card-actions"><button type="button" title="Выше" data-card-up>'+adminIcon('arrow-up')+'</button><button type="button" title="Ниже" data-card-down>'+adminIcon('arrow-down')+'</button><button type="button" title="Удалить" data-card-delete>'+adminIcon('delete')+'</button></div></div>'+media+editorHtml+afterEditorOptions+buttonsHtml;
+    card.innerHTML='<div class="tg-flow-card-head"><h5>'+cardTitle(type)+'</h5><div class="tg-flow-card-actions"><button type="button" title="Выше" data-card-up>'+adminIcon('arrow-up')+'</button><button type="button" title="Ниже" data-card-down>'+adminIcon('arrow-down')+'</button><button type="button" title="Удалить" data-card-delete>'+adminIcon('delete')+'</button></div></div>'+unsupportedVkNote+media+editorHtml+afterEditorOptions+buttonsHtml;
     box.appendChild(card); bindCard(card); renderButtons(card); if(type==='gallery') renderGalleryItems(card); if(type==='question'){renderQuestionAnswers(card); const wait=card.querySelector('[data-question-wait-label]'); if(wait) wait.textContent=questionWaitLabel(card);} reindexFiles(); updateCharCount(card); return card;
   }
   function syncCaptionEditor(card, clearWhenHidden=false){
@@ -2927,7 +3087,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
     card.querySelector('[data-macro-search]')?.addEventListener('input',e=>{const q=String(e.target.value||'').toLowerCase().trim(); card.querySelectorAll('[data-macro-search-text]').forEach(item=>{item.style.display=!q||String(item.dataset.macroSearchText||'').toLowerCase().includes(q)?'grid':'none';});});
     card.querySelectorAll('[data-emoji-insert]').forEach(b=>b.addEventListener('click',()=>{insertHtmlAtSelection(editor,b.dataset.emojiInsert||'');emojiMenu.classList.remove('is-open');collectCards();updateCharCount(card);}));
     card.querySelectorAll('[data-macro-insert]').forEach(b=>b.addEventListener('click',()=>{insertHtmlAtSelection(editor,b.dataset.macroInsert||'');macroMenu.classList.remove('is-open');collectCards();updateCharCount(card);}));
-    card.querySelector('[data-add-button]')?.addEventListener('click',()=>openButtonModal(card,null,0,true));
+    card.querySelector('[data-add-button]')?.addEventListener('click',()=>{ if(isVkScenario && countMessageButtons(getRows(card)) >= messageButtonLimit()){ panelNotice('Для VK в одном сообщении можно добавить до '+messageButtonLimit()+' кнопок.'); return; } openButtonModal(card,null,0,true); });
     card.querySelector('[data-card-delete]')?.addEventListener('click',()=>{card.remove(); if(!box.querySelector('[data-card]')) addCard('text',{}); reindexFiles(); collectCards();});
     card.querySelector('[data-card-up]')?.addEventListener('click',()=>{if(card.previousElementSibling) box.insertBefore(card,card.previousElementSibling); reindexFiles(); collectCards();});
     card.querySelector('[data-card-down]')?.addEventListener('click',()=>{if(card.nextElementSibling) box.insertBefore(card.nextElementSibling,card); reindexFiles(); collectCards();});
@@ -2954,12 +3114,12 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
         const type=card.dataset.type||'text';
         const captionEnabled = (type==='text'||type==='question') ? true : !!card.querySelector('[data-caption-toggle], [data-gallery-caption]')?.checked;
         const rawText=(card.querySelector('[data-editor]')?.innerHTML||'').trim();
-        const item={type,text:captionEnabled?rawText:'',buttons:type==='question'?[]:getRows(card),protect_content:!!card.querySelector('[data-protect-toggle]')?.checked};
+        const item={type,text:captionEnabled?rawText:'',buttons:type==='question'?[]:getRows(card),protect_content:isVkScenario ? false : !!card.querySelector('[data-protect-toggle]')?.checked};
         if(type==='text'){
-          item.disable_web_page_preview=!!card.querySelector('[data-disable-preview-toggle]')?.checked;
+          item.disable_web_page_preview=isVkScenario ? false : !!card.querySelector('[data-disable-preview-toggle]')?.checked;
         }
         if(type==='question'){
-          item.disable_web_page_preview=!!card.querySelector('[data-question-disable-preview]')?.checked;
+          item.disable_web_page_preview=isVkScenario ? false : !!card.querySelector('[data-question-disable-preview]')?.checked;
           item.save_field_code=card.querySelector('[data-question-save-field]')?.value||'';
           item.answers=getQuestionAnswers(card);
           item.wait_value=Math.max(1,parseInt(card.dataset.questionWaitValue||'24',10)||24);
@@ -2987,6 +3147,7 @@ $csrf = function_exists('asr_csrf_token') ? asr_csrf_token() : (function_exists(
   }
   document.querySelectorAll('[data-add-card]').forEach(btn=>btn.addEventListener('click',()=>{
     const type = btn.dataset.addCard || 'text';
+    if(isVkScenario && !vkAllowedCardTypes.has(type)){ panelNotice('Эта карточка недоступна для VK-сценария. Используйте картинку/файл и URL-кнопку.'); return; }
     addCard(type,{}); collectCards();
   }));
   (panel ? panel.querySelector('#tgScenarioDateApply') : document.getElementById('tgScenarioDateApply'))?.addEventListener('click',applyDateModal);

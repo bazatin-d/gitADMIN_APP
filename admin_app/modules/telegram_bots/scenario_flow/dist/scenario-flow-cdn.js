@@ -807,8 +807,10 @@ function NodeShell({id, data, isStart}) {
     );
   };
 
-  const deeplinkText = String((data && (data.deeplinkUrl || data.deeplinkCode)) || '').trim();
-  const showDeeplink = !isStart && !isDelay && !isCondition && !isActions && !isSchedule && !isFormula && !!deeplinkText;
+  const platform = String((data && data.platform) || '').toLowerCase();
+  const isVkNode = platform === 'vk';
+  const deeplinkText = isVkNode ? '' : String((data && (data.deeplinkUrl || data.deeplinkCode)) || '').trim();
+  const showDeeplink = !isVkNode && !isStart && !isDelay && !isCondition && !isActions && !isSchedule && !isFormula && !!deeplinkText;
   const copyDeeplink = (event) => {
     stop(event);
     if (!deeplinkText) return;
@@ -938,7 +940,7 @@ function NodeShell({id, data, isStart}) {
       ),
       React.createElement('div', {className: 'tg-flow-node-actions', onMouseDown: (event) => event.stopPropagation(), onClick: (event) => event.stopPropagation()},
         React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: 'Редактировать', onClick: edit}, isStart ? '⚙' : '✎'),
-        !isStart && React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: 'Тестировать с этого шага', onClick: testBlock}, '▶'),
+        !isStart && React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: isVkNode ? 'Тест с этого шага для VK подключим отдельным шагом' : 'Тестировать с этого шага', disabled: isVkNode || (data && data.testEnabled === false), onClick: testBlock}, '▶'),
         !isStart && React.createElement('button', {type: 'button', className: 'tg-flow-node-action', title: 'Дублировать', onClick: duplicateBlock}, '⧉'),
         !isStart && React.createElement('button', {type: 'button', className: 'tg-flow-node-action is-danger', title: 'Удалить', onClick: deleteBlock}, '×')
       )
@@ -1208,7 +1210,7 @@ function ScenarioFlow() {
       try {
         const navEntries = window.performance && typeof window.performance.getEntriesByType === 'function' ? window.performance.getEntriesByType('navigation') : [];
         const navType = navEntries && navEntries[0] && navEntries[0].type ? String(navEntries[0].type) : '';
-        if (navType === 'reload') return false;
+        if (navType === 'reload' || navType === 'back_forward') return false;
       } catch (e) {}
       const currentScenarioId = String(cfg.scenarioId || '');
       const ref = String(document.referrer || '');
@@ -1216,10 +1218,21 @@ function ScenarioFlow() {
       try {
         const refUrl = new URL(ref, window.location.href);
         const sameHost = refUrl.host === window.location.host;
-        const refIsFlow = refUrl.searchParams.get('tab') === 'telegram_bots' && refUrl.searchParams.get('page') === 'scenario_flow';
-        const refScenarioId = String(refUrl.searchParams.get('scenario_id') || '');
-        if (sameHost && refIsFlow && refScenarioId === currentScenarioId) return false;
-        return sameHost;
+        if (!sameHost) return false;
+
+        // Валидационное окно автоматически показываем только при первом входе
+        // в холст из списка сценариев. Создание блоков, сохранение карточек,
+        // перетаскивание и ajax-обновления холста не должны будить проверку.
+        const refIsScenarioList = refUrl.searchParams.get('tab') === 'telegram_bots'
+          && refUrl.searchParams.get('page') === 'scenarios';
+        if (!refIsScenarioList) return false;
+
+        const storageKey = 'tgScenarioFlowCheckShown:' + currentScenarioId + ':' + String(window.location.pathname || '');
+        try {
+          if (window.sessionStorage && window.sessionStorage.getItem(storageKey) === '1') return false;
+          if (window.sessionStorage) window.sessionStorage.setItem(storageKey, '1');
+        } catch (e) {}
+        return true;
       } catch (e) {
         return false;
       }

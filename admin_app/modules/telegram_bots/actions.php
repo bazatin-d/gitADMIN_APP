@@ -5,12 +5,46 @@ require_once __DIR__ . '/service.php';
 require_once __DIR__ . '/scenario_validator.php';
 require_once __DIR__ . '/scenario_state_service.php';
 require_once __DIR__ . '/scenario_bulk_start_service.php';
+require_once __DIR__ . '/system_status_service.php';
 
 
 function asr_tg_json_response(array $payload, int $status = 200): void {
     header('Content-Type: application/json; charset=utf-8', true, $status);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+
+function asr_tg_system_status_ajax_allowed(): bool {
+    $role = function_exists('asr_current_role') ? (string)asr_current_role() : (string)($_SESSION['user_role'] ?? '');
+    if ($role === 'superadmin') return true;
+    if (function_exists('asr_is_protected_user')) {
+        return (bool)asr_is_protected_user([
+            'id' => (int)($_SESSION['user_id'] ?? 0),
+            'role' => $role,
+        ]);
+    }
+    return false;
+}
+
+function asr_tg_handle_system_status_panel_ajax(PDO $pdo, array $source): void {
+    try {
+        if (!asr_tg_system_status_ajax_allowed()) throw new RuntimeException('Раздел доступен только суперадминистратору.');
+        $h = static fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+        $platform = function_exists('asr_tg_system_platform') ? asr_tg_system_platform((string)($source['platform'] ?? 'telegram')) : 'telegram';
+        $sys = asr_tg_system_collect($pdo, $platform);
+        $date = trim((string)($sys['generated_at'] ?? ''));
+        $ts = $date !== '' ? strtotime($date) : false;
+        asr_tg_json_response([
+            'ok' => true,
+            'platform' => $platform,
+            'generated_at' => $date,
+            'generated_at_label' => $ts ? date('d.m.Y H:i', $ts) : ($date !== '' ? $date : '—'),
+            'html' => asr_tg_system_render_panel($sys, $h),
+        ]);
+    } catch (Throwable $e) {
+        asr_tg_json_response(['ok' => false, 'error' => $e->getMessage()], 400);
+    }
 }
 
 function asr_tg_handle_segment_count(PDO $pdo, array $source): void {
@@ -321,6 +355,11 @@ function asr_tg_external_request_test_from_post(array $source): array {
         'response_headers' => implode("\n", $responseHeaders),
         'response_body' => $bodyText,
     ];
+}
+
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_bots' && ($_GET['page'] ?? '') === 'system_status' && ($_GET['tg_ajax'] ?? '') === 'system_status_panel') {
+    asr_tg_handle_system_status_panel_ajax($pdo, $_GET);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_bots' && ($_GET['tg_ajax'] ?? '') === 'broadcast_process') {
@@ -870,7 +909,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             if ($action === 'tg_broadcast_test') {
                 $result = asr_tg_send_broadcast_test_from_post($pdo, $_POST, $_FILES ?? []);
-                $message = 'Тестовая рассылка отправлена сотрудникам: ' . (int)($result['sent'] ?? 0) . '. Ошибок: ' . (int)($result['failed'] ?? 0) . '.';
+                $isVkTest = (string)($result['platform'] ?? '') === 'vk';
+                $message = $isVkTest
+                    ? ('Тестовая VK-рассылка отправлена: ' . (int)($result['sent'] ?? 0) . '. Ошибок: ' . (int)($result['failed'] ?? 0) . '.')
+                    : ('Тестовая рассылка отправлена сотрудникам: ' . (int)($result['sent'] ?? 0) . '. Ошибок: ' . (int)($result['failed'] ?? 0) . '.');
                 if (asr_tg_ajax_requested($_POST)) {
                     asr_tg_json_response(['ok' => true, 'message' => $message, 'result' => $result]);
                 }
@@ -885,13 +927,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                 $isScheduled = !empty($result['scheduled']);
                 $scheduledAt = trim((string)($result['scheduled_at'] ?? ''));
+                $platform = (string)($result['platform'] ?? 'telegram');
 
-                // Мгновенные рассылки получают первый небольшой серверный проход сразу.
+                // Мгновенные Telegram-рассылки получают первый небольшой серверный проход сразу.
+                // VK-рассылки не запускаем внутри браузерного запроса: картинки/медиа требуют внешних upload-запросов,
+                // поэтому отправку должен забрать cron/очередь, иначе страница может долго крутиться.
                 // Запланированные рассылки не трогаем до scheduled_at: их активирует cron.
                 $firstPassSent = 0;
                 $firstPassFailed = 0;
                 $firstPassProcessed = 0;
-                if (!$isScheduled) {
+                if (!$isScheduled && $platform !== 'vk') {
                     foreach ($createdIds as $createdBroadcastId) {
                         $pass = asr_tg_process_broadcast_queue($pdo, 20, $createdBroadcastId);
                         $firstPassSent += (int)($pass['sent'] ?? 0);
@@ -907,10 +952,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         if (empty($result['allow_duplicates'])) $message .= ' Дубли по Telegram User ID исключены.';
                     }
                 } else {
-                    $message = 'Рассылка создана. Первый проход: обработано ' . $firstPassProcessed . ', отправлено ' . $firstPassSent . ', ошибок ' . $firstPassFailed . '. Получателей: ' . (int)($result['total'] ?? 0) . '.';
-                    if ((int)($result['bot_count'] ?? 1) > 1) {
-                        $message = 'Создано рассылок по каналам: ' . (int)($result['bot_count'] ?? 0) . '. Первый проход: обработано ' . $firstPassProcessed . ', отправлено ' . $firstPassSent . ', ошибок ' . $firstPassFailed . '. Получателей: ' . (int)($result['total'] ?? 0) . '.';
-                        if (empty($result['allow_duplicates'])) $message .= ' Дубли по Telegram User ID исключены.';
+                    if ($platform === 'vk') {
+                        $message = 'VK-рассылка создана и поставлена в очередь. Получателей: ' . (int)($result['total'] ?? 0) . '. Отправку выполнит cron, чтобы страница не ждала загрузку медиа и отправку получателям.';
+                        if ((int)($result['bot_count'] ?? 1) > 1) {
+                            $message = 'Создано VK-рассылок по каналам: ' . (int)($result['bot_count'] ?? 0) . '. Получателей: ' . (int)($result['total'] ?? 0) . '. Отправку выполнит cron.';
+                        }
+                    } else {
+                        $message = 'Рассылка создана. Первый проход: обработано ' . $firstPassProcessed . ', отправлено ' . $firstPassSent . ', ошибок ' . $firstPassFailed . '. Получателей: ' . (int)($result['total'] ?? 0) . '.';
+                        if ((int)($result['bot_count'] ?? 1) > 1) {
+                            $message = 'Создано рассылок по каналам: ' . (int)($result['bot_count'] ?? 0) . '. Первый проход: обработано ' . $firstPassProcessed . ', отправлено ' . $firstPassSent . ', ошибок ' . $firstPassFailed . '. Получателей: ' . (int)($result['total'] ?? 0) . '.';
+                            if (empty($result['allow_duplicates'])) $message .= ' Дубли по Telegram User ID исключены.';
+                        }
                     }
                 }
                 $redirectExtra = [

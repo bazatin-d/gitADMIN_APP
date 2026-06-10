@@ -284,6 +284,26 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
     min-height: 44px;
     text-transform: uppercase;
 }
+.tg-channel-top-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.tg-channel-help-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    border: 1px solid #fed7aa;
+    background: #fff7ed;
+    color: #e98222;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    box-shadow: 0 10px 24px rgba(249, 115, 22, .08);
+}
+.tg-channel-help-btn:hover { background: #ffedd5; color: #c2410c; }
 .tg-channel-table { width: 100%; }
 .tg-channel-table-head,
 .tg-channel-row {
@@ -506,6 +526,119 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
     font-weight: 700;
     line-height: 1.45;
 }
+.tg-channel-welcome-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid #edf0f2;
+    background: #fff;
+    border-radius: 16px;
+    color: #374151;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.35;
+}
+.tg-channel-welcome-toggle input {
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    accent-color: #FFA048;
+    flex: 0 0 auto;
+}
+.tg-channel-welcome-toggle small {
+    display: block;
+    margin-top: 3px;
+    color: #8b929e;
+    font-size: 12px;
+    font-weight: 600;
+}
+.tg-channel-welcome-disabled textarea {
+    background: #f3f4f6;
+    color: #9ca3af;
+}
+.tg-channel-form-section {
+    border: 1px solid #edf0f2;
+    border-radius: 22px;
+    background: #fbfcfd;
+    padding: 16px;
+    display: grid;
+    gap: 14px;
+}
+
+.tg-channel-fields[hidden],
+.tg-channel-form-section[hidden] {
+    display: none !important;
+}
+.tg-channel-form-section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: #2f3437;
+    font-size: 14px;
+    font-weight: 700;
+}
+.tg-channel-form-section-sub {
+    margin-top: 3px;
+    color: #8b929e;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.45;
+}
+.tg-channel-form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+.tg-channel-form-grid .is-full { grid-column: 1 / -1; }
+.tg-channel-help-content {
+    padding: 22px 24px 24px;
+    display: grid;
+    gap: 16px;
+}
+.tg-channel-help-card {
+    border: 1px solid #edf0f2;
+    background: #fbfcfd;
+    border-radius: 22px;
+    padding: 16px;
+}
+.tg-channel-help-card h3 {
+    margin: 0 0 10px;
+    color: #2f3437;
+    font-size: 16px;
+    font-weight: 700;
+}
+.tg-channel-help-card ol,
+.tg-channel-help-card ul {
+    margin: 0;
+    padding-left: 20px;
+    display: grid;
+    gap: 7px;
+    color: #59616a;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.45;
+}
+.tg-channel-help-card code {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 8px;
+    background: #fff7ed;
+    color: #c2410c;
+    font-size: 12px;
+    font-weight: 700;
+}
+.tg-channel-help-warning {
+    border: 1px solid #fed7aa;
+    background: #fff7ed;
+    color: #9a3412;
+    border-radius: 18px;
+    padding: 12px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.45;
+}
 .tg-channel-modal-actions {
     display: flex;
     flex-wrap: wrap;
@@ -531,7 +664,10 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
 }
 @media (max-width: 760px) {
     .tg-channel-top { align-items: stretch; flex-direction: column; padding: 16px; }
-    .tg-channel-add-btn { width: 100%; }
+    .tg-channel-top-actions { width: 100%; justify-content: stretch; }
+    .tg-channel-add-btn { flex: 1 1 auto; }
+    .tg-channel-help-btn { flex: 0 0 44px; }
+    .tg-channel-form-grid { grid-template-columns: 1fr; }
     .tg-channel-table-head { display: none; }
     .tg-channel-row {
         grid-template-columns: 1fr 42px;
@@ -585,9 +721,12 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                 </div>
             </div>
             <?php if ($canManage): ?>
-                <button type="button" class="tg-channel-add-btn" data-tg-modal-open="tg-channel-add-modal">
-                    <img src="/assets/admin/icons/tb2-plus-white.svg" alt="" aria-hidden="true">Добавить новый канал
-                </button>
+                <div class="tg-channel-top-actions">
+                    <button type="button" class="tg-channel-add-btn" data-tg-modal-open="tg-channel-add-modal">
+                        <img src="/assets/admin/icons/tb2-plus-white.svg" alt="" aria-hidden="true">Добавить новый канал
+                    </button>
+                    <button type="button" class="tg-channel-help-btn" data-tg-modal-open="tg-channel-help-modal" aria-label="Как добавить канал">?</button>
+                </div>
             <?php endif; ?>
         </div>
 
@@ -719,9 +858,15 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                                         <input type="password" name="bot_token" autocomplete="new-password" placeholder="Оставьте пустым, если токен не меняется">
                                     </label>
                                 <?php endif; ?>
-                                <label class="tg-channel-field">
+                                <label class="tg-channel-welcome-toggle">
+                                    <input type="checkbox" name="welcome_enabled" value="1" data-channel-welcome-toggle <?php echo ((int)($bot['welcome_enabled'] ?? 1) === 1) ? 'checked' : ''; ?>>
+                                    <span>Активировать стартовое сообщение
+                                        <small>Можно включить для первичной проверки канала, а потом выключить, когда приветствие будет делать сценарий.</small>
+                                    </span>
+                                </label>
+                                <label class="tg-channel-field" data-channel-welcome-field>
                                     <span>Стартовое сообщение</span>
-                                    <textarea name="welcome_text" rows="5"><?php echo $h($bot['welcome_text'] ?? ''); ?></textarea>
+                                    <textarea name="welcome_text" rows="5" data-channel-welcome-text><?php echo $h($bot['welcome_text'] ?? ''); ?></textarea>
                                 </label>
                                 <?php if (!empty($bot['webhook_url'])): ?>
                                     <label class="tg-channel-field">
@@ -750,62 +895,141 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
                 <div class="tg-channel-modal-head">
                     <div>
                         <div class="tg-channel-modal-title" id="tg-channel-add-title">Добавить новый канал</div>
-                        <div class="tg-channel-modal-text">Выберите Telegram или ВК. Сейчас ВК сохраняется как первичная настройка канала; механику webhook и сценариев подключим отдельным шагом.</div>
+                        <div class="tg-channel-modal-text">Сначала выберите платформу. Ниже останутся только поля, которые нужны для выбранного канала.</div>
                     </div>
                     <button type="button" class="tg-channel-modal-close" data-tg-modal-close><img src="/assets/admin/icons/mo2-close-gray.svg" alt="" aria-hidden="true"></button>
                 </div>
                 <form method="POST" class="tg-channel-form">
                     <input type="hidden" name="action" value="tg_bot_create">
                     <input type="hidden" name="return_page" value="bots">
-                    <label class="tg-channel-field">
-                        <span>Тип канала</span>
-                        <select name="channel_type" data-channel-type-select>
-                            <option value="telegram">Telegram</option>
-                            <option value="vk">ВК</option>
-                        </select>
-                    </label>
-                    <label class="tg-channel-field">
-                        <span>Название в системе</span>
-                        <input type="text" name="title" placeholder="Например: Бот для заявок" required>
-                    </label>
-                    <div class="tg-channel-fields" data-channel-fields="telegram">
+
+                    <div class="tg-channel-form-section">
+                        <div>
+                            <div class="tg-channel-form-section-title">1. Основные данные</div>
+                            <div class="tg-channel-form-section-sub">Название видно только внутри админки. Его можно менять без влияния на сам канал.</div>
+                        </div>
+                        <div class="tg-channel-form-grid">
+                            <label class="tg-channel-field">
+                                <span>Тип канала</span>
+                                <select name="channel_type" data-channel-type-select>
+                                    <option value="telegram">Telegram</option>
+                                    <option value="vk">ВК</option>
+                                </select>
+                            </label>
+                            <label class="tg-channel-field">
+                                <span>Название в системе</span>
+                                <input type="text" name="title" placeholder="Например: Бот для заявок" required>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="tg-channel-fields tg-channel-form-section" data-channel-fields="telegram">
+                        <div>
+                            <div class="tg-channel-form-section-title">2. Подключение Telegram</div>
+                            <div class="tg-channel-form-section-sub">Токен берётся у BotFather. После сохранения система сможет работать с этим Telegram-ботом.</div>
+                        </div>
                         <label class="tg-channel-field">
                             <span>Токен Telegram Bot API</span>
                             <input type="password" name="bot_token" autocomplete="new-password" placeholder="123456789:AA..." data-telegram-token>
                         </label>
                     </div>
-                    <div class="tg-channel-fields" data-channel-fields="vk" hidden>
-                        <label class="tg-channel-field">
-                            <span>Короткий адрес сообщества ВК</span>
-                            <input type="text" name="vk_screen_name" placeholder="Например: execbooster">
-                        </label>
-                        <label class="tg-channel-field">
-                            <span>ID сообщества ВК</span>
-                            <input type="text" name="vk_group_id" placeholder="Например: 123456789">
-                        </label>
-                        <label class="tg-channel-field">
-                            <span>Ключ доступа сообщества ВК</span>
-                            <input type="password" name="vk_api_token" autocomplete="new-password" placeholder="Можно заполнить позже">
-                        </label>
-                        <label class="tg-channel-field">
-                            <span>Строка подтверждения сервера ВК</span>
-                            <input type="text" name="vk_confirmation_code" placeholder="Позже понадобится для Callback API">
-                        </label>
-                        <label class="tg-channel-field">
-                            <span>Секретный ключ Callback API</span>
-                            <input type="password" name="vk_secret_key" placeholder="Можно заполнить позже">
-                        </label>
-                        <div class="tg-channel-note">Пока ВК-канал только сохраняется в списке. Приём сообщений, webhook и запуск сценариев подключим отдельным безопасным шагом.</div>
+
+                    <div class="tg-channel-fields tg-channel-form-section" data-channel-fields="vk" hidden>
+                        <div>
+                            <div class="tg-channel-form-section-title">2. Подключение ВК</div>
+                            <div class="tg-channel-form-section-sub">Все значения берутся в управлении сообществом ВК: «Дополнительно» → «Работа с API».</div>
+                        </div>
+                        <div class="tg-channel-form-grid">
+                            <label class="tg-channel-field">
+                                <span>Короткий адрес сообщества</span>
+                                <input type="text" name="vk_screen_name" placeholder="Например: execbooster">
+                            </label>
+                            <label class="tg-channel-field">
+                                <span>ID сообщества</span>
+                                <input type="text" name="vk_group_id" placeholder="Например: 123456789">
+                            </label>
+                            <label class="tg-channel-field is-full">
+                                <span>Ключ доступа сообщества</span>
+                                <input type="password" name="vk_api_token" autocomplete="new-password" placeholder="Ключ с доступом к сообщениям сообщества">
+                            </label>
+                            <label class="tg-channel-field">
+                                <span>Строка подтверждения сервера</span>
+                                <input type="text" name="vk_confirmation_code" placeholder="Например: 983ed923">
+                            </label>
+                            <label class="tg-channel-field">
+                                <span>Секретный ключ Callback API</span>
+                                <input type="password" name="vk_secret_key" placeholder="Та же строка, что указана в Callback API">
+                            </label>
+                        </div>
+                        <div class="tg-channel-note">Callback URL для ВК: <code>https://app.exec-booster.kz/vk_bot_webhook.php</code>. В типах событий включите «Входящее сообщение».</div>
                     </div>
-                    <label class="tg-channel-field">
-                        <span>Стартовое сообщение</span>
-                        <textarea name="welcome_text" rows="4">Здравствуйте! Бот подключён и готов к работе.</textarea>
-                    </label>
+
+                    <div class="tg-channel-form-section">
+                        <div>
+                            <div class="tg-channel-form-section-title">3. Стартовое сообщение</div>
+                            <div class="tg-channel-form-section-sub">Нужно для быстрой проверки нового канала. Когда сценарий будет настроен, приветствие можно выключить.</div>
+                        </div>
+                        <label class="tg-channel-welcome-toggle">
+                            <input type="checkbox" name="welcome_enabled" value="1" data-channel-welcome-toggle checked>
+                            <span>Активировать стартовое сообщение
+                                <small>Если галочку снять, текст сохранится, но автоматически отправляться не будет.</small>
+                            </span>
+                        </label>
+                        <label class="tg-channel-field" data-channel-welcome-field>
+                            <span>Текст</span>
+                            <textarea name="welcome_text" rows="4" data-channel-welcome-text>Здравствуйте! Бот подключён и готов к работе.</textarea>
+                        </label>
+                    </div>
+
                     <div class="tg-channel-modal-actions">
                         <button type="button" class="tg-channel-secondary" data-tg-modal-close>Отмена</button>
                         <button type="submit" class="tg-channel-primary"><img src="/assets/admin/icons/tb2-save-white.svg" alt="" aria-hidden="true">Сохранить канал</button>
                     </div>
                 </form>
+            </div>
+        </div>
+
+        <div class="tg-channel-modal-backdrop" id="tg-channel-help-modal" aria-hidden="true">
+            <div class="tg-channel-modal tg-channel-modal-wide" role="dialog" aria-modal="true" aria-labelledby="tg-channel-help-title">
+                <div class="tg-channel-modal-head">
+                    <div>
+                        <div class="tg-channel-modal-title" id="tg-channel-help-title">Как добавить канал</div>
+                        <div class="tg-channel-modal-text">Короткая инструкция для Telegram и ВК. Особенно для ВК — там настройки спрятаны так, будто их прятал человек с личной обидой на интерфейсы.</div>
+                    </div>
+                    <button type="button" class="tg-channel-modal-close" data-tg-modal-close><img src="/assets/admin/icons/mo2-close-gray.svg" alt="" aria-hidden="true"></button>
+                </div>
+                <div class="tg-channel-help-content">
+                    <div class="tg-channel-help-card">
+                        <h3>Telegram</h3>
+                        <ol>
+                            <li>Откройте в Telegram бота <code>@BotFather</code>.</li>
+                            <li>Создайте нового бота командой <code>/newbot</code> или откройте существующего.</li>
+                            <li>Скопируйте токен Bot API. Он выглядит примерно так: <code>123456789:AA...</code>.</li>
+                            <li>В админке нажмите «Добавить новый канал», выберите Telegram, вставьте токен и сохраните канал.</li>
+                            <li>После сохранения проверьте, что канал появился в списке и статус не показывает ошибку.</li>
+                        </ol>
+                    </div>
+                    <div class="tg-channel-help-card">
+                        <h3>ВК</h3>
+                        <ol>
+                            <li>Откройте нужное сообщество ВК. Нужны права администратора.</li>
+                            <li>Зайдите в <code>Управление → Сообщения</code> и включите сообщения сообщества.</li>
+                            <li>Зайдите в <code>Управление → Дополнительно → Работа с API → Ключи доступа</code>.</li>
+                            <li>Создайте ключ доступа с правом на сообщения сообщества и вставьте его в поле «Ключ доступа сообщества».</li>
+                            <li>Откройте <code>Callback API</code>, выберите актуальную версию API и добавьте сервер.</li>
+                            <li>В поле адреса сервера укажите <code>https://app.exec-booster.kz/vk_bot_webhook.php</code>.</li>
+                            <li>Скопируйте <code>group_id</code> из блока подтверждения — это ID сообщества.</li>
+                            <li>Скопируйте строку, которую должен вернуть сервер, и вставьте её в поле «Строка подтверждения сервера».</li>
+                            <li>Задайте секретный ключ Callback API в ВК и вставьте такую же строку в админку.</li>
+                            <li>Сохраните канал в админке, затем в ВК нажмите «Подтвердить».</li>
+                            <li>Во вкладке «Типы событий» включите только <code>Входящее сообщение</code>.</li>
+                            <li>Напишите тестовое сообщение в сообщество — в админке должен появиться диалог.</li>
+                        </ol>
+                    </div>
+                    <div class="tg-channel-help-warning">
+                        ВК ID сообщества — это число из <code>group_id</code>, а не строка подтверждения. Строка подтверждения и секретный ключ Callback API — разные значения. Если их перепутать, сервер не подтвердится.
+                    </div>
+                </div>
             </div>
         </div>
     <?php endif; ?>
@@ -833,6 +1057,8 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
             scope.querySelectorAll('[data-channel-fields]').forEach(block => {
                 const active = block.getAttribute('data-channel-fields') === type;
                 block.hidden = !active;
+                block.classList.toggle('is-hidden', !active);
+                block.setAttribute('aria-hidden', active ? 'false' : 'true');
                 block.querySelectorAll('input, textarea, select').forEach(field => {
                     field.disabled = !active;
                 });
@@ -841,11 +1067,28 @@ $botSelect = static function(array $bots, int $selectedBotId, string $page) use 
             if (telegramToken) telegramToken.required = type === 'telegram';
         }
 
-        root.querySelectorAll('.tg-channel-form').forEach(syncChannelFields);
+        function syncWelcomeFields(scope) {
+            const toggle = scope.querySelector('[data-channel-welcome-toggle]');
+            if (!toggle) return;
+            const enabled = !!toggle.checked;
+            const field = scope.querySelector('[data-channel-welcome-field]');
+            const text = scope.querySelector('[data-channel-welcome-text]');
+            if (field) field.classList.toggle('tg-channel-welcome-disabled', !enabled);
+            if (text) text.disabled = false;
+        }
+
+        root.querySelectorAll('.tg-channel-form').forEach(form => {
+            syncChannelFields(form);
+            syncWelcomeFields(form);
+        });
         root.addEventListener('change', function(event) {
             if (event.target.matches('[data-channel-type-select]')) {
                 const form = event.target.closest('.tg-channel-form');
                 if (form) syncChannelFields(form);
+            }
+            if (event.target.matches('[data-channel-welcome-toggle]')) {
+                const form = event.target.closest('.tg-channel-form');
+                if (form) syncWelcomeFields(form);
             }
         });
 

@@ -142,45 +142,132 @@ if (!function_exists('asr_tg_vk_message_new_handle')) {
             return ['handled' => false, 'subscriber_id' => 0, 'reason' => 'not_supported_message'];
         }
 
+        $wasKnownSubscriber = false;
+        try {
+            $knownStmt = $pdo->prepare("SELECT id FROM oca_telegram_bot_subscribers WHERE bot_id = ? AND platform = 'vk' AND external_user_id = ? LIMIT 1");
+            $knownStmt->execute([$botId, (string)$vkMessage['user_id']]);
+            $wasKnownSubscriber = (int)$knownStmt->fetchColumn() > 0;
+        } catch (Throwable $ignored) {}
+
         $subscriberId = asr_tg_vk_subscriber_upsert($pdo, $botId, $vkMessage);
         if ($subscriberId <= 0) {
             return ['handled' => false, 'subscriber_id' => 0, 'reason' => 'subscriber_not_created'];
         }
 
-        $payload = [
-            'platform' => 'vk',
-            'vk_user_id' => $vkMessage['user_id'],
-            'vk_peer_id' => $vkMessage['peer_id'],
-            'vk_message_id' => $vkMessage['message_id'],
-            'vk_conversation_message_id' => $vkMessage['conversation_message_id'],
-            'vk_event_id' => $vkMessage['event_id'],
-            'vk_attachments' => $vkMessage['attachments_summary'],
-        ];
-        if ($vkMessage['payload'] !== null) {
-            $payload['vk_payload'] = $vkMessage['payload'];
+        $text = (string)$vkMessage['text'];
+        $vkPayload = $vkMessage['payload'] ?? null;
+        $scenarioRuntimeHandled = false;
+        $isServiceCommand = function_exists('asr_tg_runtime_is_service_command_text') ? asr_tg_runtime_is_service_command_text($text) : false;
+
+        if (($text !== '' || $vkPayload !== null) && function_exists('asr_tg_runtime_start_scenario')) {
+            try {
+                if ($vkPayload !== null && function_exists('asr_tg_runtime_try_vk_payload')) {
+                    $scenarioRuntimeHandled = asr_tg_runtime_try_vk_payload($pdo, $channel, $botId, (string)$vkMessage['peer_id'], $subscriberId, $vkPayload);
+                }
+                $startPayload = (!$scenarioRuntimeHandled && function_exists('asr_tg_runtime_extract_start_payload')) ? asr_tg_runtime_extract_start_payload($text) : '';
+                if ($startPayload !== '' && function_exists('asr_tg_runtime_deeplink_find_by_code')) {
+                    $deeplink = asr_tg_runtime_deeplink_find_by_code($pdo, $startPayload);
+                    if ($deeplink) {
+                        $deeplinkScenarioId = (int)($deeplink['scenario_id'] ?? 0);
+                        $deeplinkBlockId = (int)($deeplink['block_id'] ?? 0);
+                        if ($deeplinkScenarioId > 0 && $deeplinkBlockId > 0) {
+                            $scenarioRuntimeHandled = asr_tg_runtime_start_scenario($pdo, $channel, $botId, (string)$vkMessage['peer_id'], $subscriberId, $deeplinkScenarioId, $deeplinkBlockId, 'vk_deeplink', ['code' => $startPayload]);
+                        }
+                    }
+                }
+                if (!$scenarioRuntimeHandled && !$isServiceCommand && function_exists('asr_tg_runtime_try_waiting_question_text')) {
+                    $scenarioRuntimeHandled = asr_tg_runtime_try_waiting_question_text($pdo, $channel, $botId, (string)$vkMessage['peer_id'], $subscriberId, $text);
+                }
+                if (!$scenarioRuntimeHandled && function_exists('asr_tg_runtime_try_command')) {
+                    $scenarioRuntimeHandled = asr_tg_runtime_try_command($pdo, $channel, $botId, (string)$vkMessage['peer_id'], $subscriberId, $text);
+                }
+                if (!$scenarioRuntimeHandled && !$isServiceCommand && function_exists('asr_tg_runtime_try_keyword_trigger')) {
+                    $scenarioRuntimeHandled = asr_tg_runtime_try_keyword_trigger($pdo, $channel, $botId, (string)$vkMessage['peer_id'], $subscriberId, $text, 'vk');
+                }
+            } catch (Throwable $e) {
+                try {
+                    asr_tg_bot_update($pdo, $botId, ['last_error' => 'VK-сценарий: ' . $e->getMessage()]);
+                    asr_tg_log($pdo, $botId, 'error', 'vk_scenario_runtime_failed', $e->getMessage(), [
+                        'subscriber_id' => $subscriberId,
+                        'vk_user_id' => $vkMessage['user_id'],
+                        'vk_peer_id' => $vkMessage['peer_id'],
+                        'text_preview' => mb_substr($text, 0, 160, 'UTF-8'),
+                    ]);
+                } catch (Throwable $ignored) {}
+                $scenarioRuntimeHandled = true;
+            }
         }
 
-        asr_tg_message_add(
-            $pdo,
-            $botId,
-            $subscriberId,
-            'in',
-            (string)$vkMessage['message_type'],
-            (string)$vkMessage['text'],
-            $vkMessage['message_id'] !== null ? (int)$vkMessage['message_id'] : null,
-            $payload
-        );
-
-        try {
-            asr_tg_log($pdo, $botId, 'info', 'vk_message_new_received', 'Входящее сообщение VK добавлено в диалоги.', [
-                'subscriber_id' => $subscriberId,
+        if (!$scenarioRuntimeHandled && !$isServiceCommand) {
+            $payload = [
+                'platform' => 'vk',
                 'vk_user_id' => $vkMessage['user_id'],
                 'vk_peer_id' => $vkMessage['peer_id'],
-                'message_type' => $vkMessage['message_type'],
-                'attachments_count' => (int)($vkMessage['attachments_summary']['count'] ?? 0),
-            ]);
-        } catch (Throwable $ignored) {}
+                'vk_message_id' => $vkMessage['message_id'],
+                'vk_conversation_message_id' => $vkMessage['conversation_message_id'],
+                'vk_event_id' => $vkMessage['event_id'],
+                'vk_attachments' => $vkMessage['attachments_summary'],
+            ];
+            if ($vkMessage['payload'] !== null) {
+                $payload['vk_payload'] = $vkMessage['payload'];
+            }
 
-        return ['handled' => true, 'subscriber_id' => $subscriberId, 'reason' => 'ok'];
+            asr_tg_message_add(
+                $pdo,
+                $botId,
+                $subscriberId,
+                'in',
+                (string)$vkMessage['message_type'],
+                $text,
+                $vkMessage['message_id'] !== null ? (int)$vkMessage['message_id'] : null,
+                $payload
+            );
+
+            if (function_exists('asr_tg_notify_technical_bot_about_dialog')) {
+                try {
+                    asr_tg_notify_technical_bot_about_dialog($pdo, $channel, $botId, $subscriberId, [
+                        'text' => $text,
+                        'platform' => 'vk',
+                        'vk_user_id' => $vkMessage['user_id'],
+                        'vk_peer_id' => $vkMessage['peer_id'],
+                        'vk_message_id' => $vkMessage['message_id'],
+                        'vk_attachments' => $vkMessage['attachments_summary'],
+                    ], $text);
+                } catch (Throwable $e) {
+                    try {
+                        asr_tg_log($pdo, $botId, 'warning', 'vk_dialog_technical_notify_failed', $e->getMessage(), [
+                            'subscriber_id' => $subscriberId,
+                            'vk_user_id' => $vkMessage['user_id'],
+                        ]);
+                    } catch (Throwable $ignored) {}
+                }
+            }
+
+            try {
+                asr_tg_log($pdo, $botId, 'info', 'vk_message_new_received', 'Входящее сообщение VK добавлено в диалоги.', [
+                    'subscriber_id' => $subscriberId,
+                    'vk_user_id' => $vkMessage['user_id'],
+                    'vk_peer_id' => $vkMessage['peer_id'],
+                    'message_type' => $vkMessage['message_type'],
+                    'attachments_count' => (int)($vkMessage['attachments_summary']['count'] ?? 0),
+                ]);
+            } catch (Throwable $ignored) {}
+        } else {
+            try {
+                asr_tg_log($pdo, $botId, 'info', 'vk_message_new_runtime_handled', 'Входящее VK-сообщение обработано сценарным runtime и не добавлено как обычный диалог.', [
+                    'subscriber_id' => $subscriberId,
+                    'vk_user_id' => $vkMessage['user_id'],
+                    'vk_peer_id' => $vkMessage['peer_id'],
+                    'runtime_handled' => $scenarioRuntimeHandled,
+                    'service_command' => $isServiceCommand,
+                ]);
+            } catch (Throwable $ignored) {}
+        }
+
+        if (!$wasKnownSubscriber && !$scenarioRuntimeHandled && function_exists('asr_tg_send_welcome_message_if_enabled')) {
+            asr_tg_send_welcome_message_if_enabled($pdo, $channel, $botId, (string)$vkMessage['peer_id'], $subscriberId, 'vk_first_message');
+        }
+
+        return ['handled' => true, 'subscriber_id' => $subscriberId, 'reason' => $scenarioRuntimeHandled ? 'scenario_runtime' : 'ok'];
     }
 }
