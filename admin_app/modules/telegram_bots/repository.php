@@ -151,6 +151,7 @@ function asr_tg_repository_ensure_schema(PDO $pdo): void {
         `webhook_url` VARCHAR(500) NULL DEFAULT NULL,
         `status` VARCHAR(30) NOT NULL DEFAULT 'draft',
         `welcome_text` TEXT NULL,
+        `welcome_enabled` TINYINT(1) NOT NULL DEFAULT 1,
         `last_error` TEXT NULL,
         `last_webhook_at` DATETIME NULL DEFAULT NULL,
         `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -167,6 +168,7 @@ function asr_tg_repository_ensure_schema(PDO $pdo): void {
     asr_tg_add_column_if_missing($pdo, 'oca_telegram_bots', 'vk_confirmation_code', "VARCHAR(190) NULL DEFAULT NULL AFTER `vk_screen_name`");
     asr_tg_add_column_if_missing($pdo, 'oca_telegram_bots', 'vk_secret_key', "VARCHAR(190) NULL DEFAULT NULL AFTER `vk_confirmation_code`");
     asr_tg_add_column_if_missing($pdo, 'oca_telegram_bots', 'vk_api_token_encrypted', "TEXT NULL AFTER `vk_secret_key`");
+    asr_tg_add_column_if_missing($pdo, 'oca_telegram_bots', 'welcome_enabled', "TINYINT(1) NOT NULL DEFAULT 1 AFTER `welcome_text`");
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS `oca_telegram_bot_subscribers` (
         `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -461,7 +463,7 @@ function asr_tg_bot_find(PDO $pdo, int $botId): ?array {
 
 function asr_tg_bot_create(PDO $pdo, array $data): int {
     asr_tg_repository_ensure_schema($pdo);
-    $stmt = $pdo->prepare('INSERT INTO oca_telegram_bots (created_by, channel_type, title, bot_username, bot_first_name, telegram_bot_id, vk_group_id, vk_screen_name, vk_confirmation_code, vk_secret_key, vk_api_token_encrypted, bot_token_encrypted, webhook_secret, webhook_secret_token, webhook_url, status, welcome_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
+    $stmt = $pdo->prepare('INSERT INTO oca_telegram_bots (created_by, channel_type, title, bot_username, bot_first_name, telegram_bot_id, vk_group_id, vk_screen_name, vk_confirmation_code, vk_secret_key, vk_api_token_encrypted, bot_token_encrypted, webhook_secret, webhook_secret_token, webhook_url, status, welcome_text, welcome_enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
     $stmt->execute([
         $data['created_by'] ?? null,
         $data['channel_type'] ?? 'telegram',
@@ -480,12 +482,13 @@ function asr_tg_bot_create(PDO $pdo, array $data): int {
         $data['webhook_url'] ?? null,
         $data['status'] ?? 'draft',
         $data['welcome_text'] ?? null,
+        !empty($data['welcome_enabled']) ? 1 : 0,
     ]);
     return (int)$pdo->lastInsertId();
 }
 
 function asr_tg_bot_update(PDO $pdo, int $botId, array $data): void {
-    $allowed = ['channel_type','title','bot_username','bot_first_name','telegram_bot_id','vk_group_id','vk_screen_name','vk_confirmation_code','vk_secret_key','vk_api_token_encrypted','bot_token_encrypted','webhook_secret','webhook_secret_token','webhook_url','status','welcome_text','last_error','last_webhook_at'];
+    $allowed = ['channel_type','title','bot_username','bot_first_name','telegram_bot_id','vk_group_id','vk_screen_name','vk_confirmation_code','vk_secret_key','vk_api_token_encrypted','bot_token_encrypted','webhook_secret','webhook_secret_token','webhook_url','status','welcome_text','welcome_enabled','last_error','last_webhook_at'];
     $sets = [];
     $values = [];
     foreach ($allowed as $key) {
@@ -2936,7 +2939,7 @@ function asr_tg_broadcast_recipients_next(PDO $pdo, int $limit = 30, int $broadc
         $orderExpr = 'r.scheduled_at';
     }
     if ($broadcastId > 0) { $where .= ' AND r.broadcast_id = ?'; $params[] = $broadcastId; }
-    $stmt = $pdo->prepare("SELECT r.*, br.message_text, br.parse_mode, br.media_type, br.media_url, br.media_file_path, br.media_file_name, br.payload_json, br.disable_web_page_preview, br.bot_id, r.id AS recipient_id, br.title AS broadcast_title, b.bot_token_encrypted
+    $stmt = $pdo->prepare("SELECT r.*, br.message_text, br.parse_mode, br.media_type, br.media_url, br.media_file_path, br.media_file_name, br.payload_json, br.disable_web_page_preview, br.bot_id, r.id AS recipient_id, br.title AS broadcast_title, b.channel_type, b.bot_token_encrypted, b.vk_api_token_encrypted
         FROM oca_telegram_bot_broadcast_recipients r
         JOIN oca_telegram_bot_broadcasts br ON br.id = r.broadcast_id
         JOIN oca_telegram_bots b ON b.id = r.bot_id
@@ -5526,6 +5529,73 @@ function asr_tg_scenario_formula_block_save(PDO $pdo, array $data): int {
     return $blockId;
 }
 
+function asr_tg_scenario_normalize_start_settings(array $data): array {
+    $keywordEnabled = !empty($data['keyword_triggers_enabled']);
+    $startCommandEnabled = !array_key_exists('start_command_enabled', $data) ? true : !empty($data['start_command_enabled']);
+
+    $mode = (string)($data['keyword_match_mode'] ?? 'contains');
+    if (!in_array($mode, ['exact','contains'], true)) $mode = 'contains';
+
+    $priority = max(1, min(100, (int)($data['keyword_priority'] ?? 50)));
+    $raw = (string)($data['keyword_phrases'] ?? '');
+    $raw = str_replace(["\r\n", "\r", ';'], "\n", $raw);
+    $parts = preg_split('~\n+~u', $raw) ?: [];
+    $phrases = [];
+    $seen = [];
+    foreach ($parts as $part) {
+        $phrase = trim(preg_replace('~\s+~u', ' ', (string)$part));
+        if ($phrase === '') continue;
+        $phrase = mb_substr($phrase, 0, 120, 'UTF-8');
+        $key = mb_strtolower($phrase, 'UTF-8');
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+        $phrases[] = $phrase;
+        if (count($phrases) >= 50) break;
+    }
+
+    return [
+        'version' => 2,
+        'start_mode' => 'bot_join',
+        'title' => 'Старт сценария',
+        'description' => 'Запуск сценария при подключении человека к каналу, по команде или ключевым словам.',
+        'start_command_enabled' => $startCommandEnabled,
+        'keyword_triggers_enabled' => $keywordEnabled,
+        'keyword_match_mode' => $mode,
+        'keyword_priority' => $priority,
+        'keyword_phrases' => $phrases,
+    ];
+}
+
+function asr_tg_scenario_start_block_save(PDO $pdo, array $data): int {
+    asr_tg_repository_ensure_scenario_schema($pdo);
+    $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
+    if ($scenarioId <= 0 || !asr_tg_scenario_find($pdo, $scenarioId)) {
+        throw new InvalidArgumentException('Сценарий не найден.');
+    }
+
+    $blockId = max(0, (int)($data['block_id'] ?? 0));
+    if ($blockId <= 0) {
+        $start = asr_tg_scenario_ensure_start_block($pdo, $scenarioId);
+        $blockId = (int)($start['id'] ?? 0);
+    }
+    if ($blockId <= 0) throw new RuntimeException('Не удалось найти стартовый блок.');
+
+    $block = asr_tg_scenario_block_find($pdo, $blockId, $scenarioId);
+    if (!$block || (string)($block['type'] ?? '') !== 'start') {
+        throw new InvalidArgumentException('Стартовый блок не найден.');
+    }
+
+    $settings = asr_tg_scenario_normalize_start_settings($data);
+    $settingsJson = json_encode($settings, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($settingsJson === false) throw new RuntimeException('Не удалось подготовить настройки старта.');
+
+    $stmt = $pdo->prepare("UPDATE oca_telegram_bot_scenario_blocks SET title = 'Старт', settings_json = ?, updated_at = NOW() WHERE id = ? AND scenario_id = ? AND type = 'start'");
+    $stmt->execute([$settingsJson, $blockId, $scenarioId]);
+    $pdo->prepare('UPDATE oca_telegram_bot_scenarios SET updated_at = NOW() WHERE id = ?')->execute([$scenarioId]);
+
+    return $blockId;
+}
+
 function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): int {
     asr_tg_repository_ensure_scenario_schema($pdo);
     $scenarioId = max(0, (int)($data['scenario_id'] ?? 0));
@@ -5556,7 +5626,10 @@ function asr_tg_scenario_block_save(PDO $pdo, array $data, array $files = []): i
     if ($type === 'actions') {
         return asr_tg_scenario_actions_block_save($pdo, $data);
     }
-    // Стартовый блок создаётся системой отдельно. Через эту форму сохраняются только сообщения.
+    if ($type === 'start') {
+        return asr_tg_scenario_start_block_save($pdo, $data);
+    }
+    // Стартовый блок создаётся системой отдельно, но его настройки могут сохраняться отдельной формой.
     if ($type !== 'message') $type = 'message';
     $title = trim((string)($data['block_title'] ?? ''));
     if ($title === '') $title = 'Сообщение';

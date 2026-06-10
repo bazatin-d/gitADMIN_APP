@@ -545,6 +545,7 @@ function asr_tg_create_bot_from_post(PDO $pdo, array $post): int {
     $channelType = asr_tg_normalize_channel_type((string)($post['channel_type'] ?? 'telegram'));
     $title = asr_tg_normalize_title((string)($post['title'] ?? ''));
     $welcomeText = asr_tg_normalize_welcome_text((string)($post['welcome_text'] ?? ''));
+    $welcomeEnabled = !empty($post['welcome_enabled']) ? 1 : 0;
     $secret = bin2hex(random_bytes(24));
     $secretToken = bin2hex(random_bytes(16));
 
@@ -577,6 +578,7 @@ function asr_tg_create_bot_from_post(PDO $pdo, array $post): int {
             'webhook_secret_token' => $secretToken,
             'status' => 'inactive',
             'welcome_text' => $welcomeText,
+            'welcome_enabled' => $welcomeEnabled,
         ]);
         asr_tg_log($pdo, $botId, 'info', 'vk_channel_created', 'ВК-канал сохранён как первичная настройка. Механика webhook будет подключена отдельным шагом.');
         return $botId;
@@ -600,6 +602,7 @@ function asr_tg_create_bot_from_post(PDO $pdo, array $post): int {
         'webhook_secret_token' => $secretToken,
         'status' => 'created',
         'welcome_text' => $welcomeText,
+        'welcome_enabled' => $welcomeEnabled,
     ]);
 
     $webhookUrl = asr_tg_public_webhook_url($botId, $secret);
@@ -627,6 +630,7 @@ function asr_tg_update_bot_from_post(PDO $pdo, array $post): int {
     $update = [
         'title' => asr_tg_normalize_title((string)($post['title'] ?? '')),
         'welcome_text' => asr_tg_normalize_welcome_text((string)($post['welcome_text'] ?? '')),
+        'welcome_enabled' => !empty($post['welcome_enabled']) ? 1 : 0,
     ];
 
     if ($channelType === 'vk') {
@@ -1003,6 +1007,452 @@ function asr_tg_broadcast_card_plain_text(string $html): string {
     return trim((string)$text);
 }
 
+
+
+function asr_tg_broadcast_card_vk_text(string $html): string {
+    $text = (string)$html;
+    $text = preg_replace_callback("~<a\\s+[^>]*href=([\"'])(.*?)\\1[^>]*>(.*?)</a>~isu", static function(array $m): string {
+        $url = html_entity_decode(trim((string)$m[2]), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $label = html_entity_decode(trim(strip_tags((string)$m[3])), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ($url === '') return $label;
+        if ($label === '' || $label === $url) return $url;
+        return $label . ' (' . $url . ')';
+    }, $text);
+    $text = preg_replace('/<br\s*\/?>(\s*)/iu', "\n", $text);
+    $text = preg_replace('/<\/(p|div|blockquote|pre|li|h[1-6])>/iu', "\n", (string)$text);
+    $text = preg_replace('/<li[^>]*>/iu', '• ', (string)$text);
+    $text = html_entity_decode(strip_tags((string)$text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = str_replace(["\r\n", "\r"], "\n", $text);
+    $text = preg_replace('/[\x{00A0}\t ]+/u', ' ', (string)$text);
+    $text = preg_replace('/ ?\n ?/u', "\n", (string)$text);
+    $text = preg_replace('/\n{3,}/u', "\n\n", (string)$text);
+    return trim((string)$text);
+}
+
+function asr_tg_broadcast_selected_platform(array $botsById): string {
+    $platforms = [];
+    foreach ($botsById as $bot) {
+        $platform = function_exists('asr_tg_channel_type_of') ? asr_tg_channel_type_of($bot) : strtolower((string)($bot['channel_type'] ?? 'telegram'));
+        $platforms[$platform === 'vk' ? 'vk' : 'telegram'] = true;
+    }
+    if (isset($platforms['vk']) && isset($platforms['telegram'])) return 'mixed';
+    return isset($platforms['vk']) ? 'vk' : 'telegram';
+}
+
+function asr_tg_broadcast_validate_cards_for_platform(array $cards, string $platform): void {
+    if ($platform !== 'vk') return;
+    foreach ($cards as $index => $card) {
+        $n = $index + 1;
+        $type = (string)($card['type'] ?? 'text');
+        if ($type === 'image') $type = 'photo';
+        if ($type === 'file') $type = 'document';
+        if ($type === 'video') {
+            throw new RuntimeException('VK-видео через прямую загрузку временно отключено: VK обрабатывает video-вложения нестабильно, из-за этого очередь может зависнуть. Используйте картинку/обложку + кнопку-ссылку на видео.');
+        }
+        if (!in_array($type, ['text', 'photo', 'document'], true)) {
+            throw new RuntimeException('VK-рассылка сейчас поддерживает текст, картинки и файлы. Удалите карточку #' . $n . ' или выберите Telegram-канал.');
+        }
+        if (in_array($type, ['photo', 'document'], true) && empty($card['media_url']) && empty($card['media_file_path']) && empty($card['local_file_path'])) {
+            throw new RuntimeException('В VK-карточке #' . $n . ' выберите файл или укажите ссылку.');
+        }
+        $buttons = $card['buttons'] ?? [];
+        if (is_array($buttons) && count($buttons) > 0) {
+            $vkButtonCount = 0;
+            foreach ($buttons as $row) {
+                if (!is_array($row)) continue;
+                foreach ($row as $btn) {
+                    if (!is_array($btn)) continue;
+                    $buttonText = trim((string)($btn['text'] ?? ''));
+                    if ($buttonText === '') continue;
+                    $vkButtonCount++;
+                    if ($vkButtonCount > 5) {
+                        throw new RuntimeException('В VK-рассылке можно добавить максимум 5 кнопок-ссылок. Уменьшите количество кнопок в карточке #' . $n . '.');
+                    }
+                    if (mb_strlen($buttonText, 'UTF-8') > 40) {
+                        throw new RuntimeException('Текст VK-кнопки «' . mb_substr($buttonText, 0, 40, 'UTF-8') . '…» слишком длинный. Лимит: 40 символов.');
+                    }
+                    $buttonType = (string)($btn['type'] ?? 'url');
+                    if ($buttonType !== 'url') {
+                        throw new RuntimeException('VK-рассылка сейчас поддерживает только кнопки-ссылки. Уберите кнопку-действие в карточке #' . $n . '.');
+                    }
+                    $buttonUrl = trim((string)($btn['url'] ?? ''));
+                    if ($buttonUrl === '') {
+                        throw new RuntimeException('У VK-кнопки «' . $buttonText . '» в карточке #' . $n . ' не указана ссылка.');
+                    }
+                    if (!preg_match('~^https?://~i', $buttonUrl)) {
+                        throw new RuntimeException('Ссылка VK-кнопки «' . $buttonText . '» должна начинаться с http:// или https://.');
+                    }
+                }
+            }
+        }
+        $text = asr_tg_broadcast_card_vk_text((string)($card['text'] ?? ''));
+        if ($type === 'text' && $text === '') {
+            throw new RuntimeException('Заполните текстовую карточку #' . $n . ' для VK-рассылки.');
+        }
+        if (mb_strlen($text, 'UTF-8') > 4096) {
+            throw new RuntimeException('Текст карточки #' . $n . ' слишком длинный для VK. Лимит: 4096 символов.');
+        }
+    }
+}
+
+
+function asr_tg_broadcast_vk_download_image_to_temp(string $url): string {
+    $url = asr_tg_validate_public_http_url($url, 'Ссылка на VK-картинку');
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('Для отправки VK-картинок по ссылке нужен cURL. Загрузите файл картинки напрямую.');
+    }
+    $tmp = tempnam(sys_get_temp_dir(), 'asr_vk_img_');
+    if ($tmp === false) throw new RuntimeException('Не удалось создать временный файл для VK-картинки.');
+    $fh = fopen($tmp, 'wb');
+    if (!$fh) throw new RuntimeException('Не удалось открыть временный файл для VK-картинки.');
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_FILE => $fh,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 35,
+        CURLOPT_USERAGENT => 'ExecBooster Admin App VK Broadcast/1.0',
+        CURLOPT_FAILONERROR => false,
+    ]);
+    $ok = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $contentType = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    $error = curl_error($ch);
+    curl_close($ch);
+    fclose($fh);
+    if ($ok === false || $httpCode < 200 || $httpCode >= 300) {
+        @unlink($tmp);
+        throw new RuntimeException('Не удалось скачать VK-картинку по ссылке. HTTP ' . $httpCode . ($error ? ': ' . $error : ''));
+    }
+    $size = is_file($tmp) ? filesize($tmp) : 0;
+    if ($size <= 0) {
+        @unlink($tmp);
+        throw new RuntimeException('VK-картинка по ссылке пустая.');
+    }
+    if ($size > 10 * 1024 * 1024) {
+        @unlink($tmp);
+        throw new RuntimeException('VK-картинка слишком большая. На этом шаге лимит: 10 МБ.');
+    }
+    $mime = function_exists('mime_content_type') ? (string)mime_content_type($tmp) : $contentType;
+    if ($mime === '' || !str_starts_with(strtolower($mime), 'image/')) {
+        @unlink($tmp);
+        throw new RuntimeException('Ссылка для VK должна вести прямо на изображение JPG, PNG, WEBP или GIF.');
+    }
+    return $tmp;
+}
+
+function asr_tg_broadcast_vk_photo_local_path(array $card): array {
+    $local = trim((string)($card['local_file_path'] ?? ''));
+    if ($local !== '' && is_file($local) && is_readable($local)) return [$local, false];
+
+    $relative = trim((string)($card['media_file_path'] ?? ''));
+    if ($relative !== '') {
+        $candidate = rtrim(asr_tg_project_root_dir(), '/') . '/' . ltrim($relative, '/');
+        if (is_file($candidate) && is_readable($candidate)) return [$candidate, false];
+    }
+
+    $url = trim((string)($card['media_url'] ?? ''));
+    if ($url !== '') return [asr_tg_broadcast_vk_download_image_to_temp($url), true];
+
+    throw new RuntimeException('Для VK-картинки не найден файл или ссылка.');
+}
+
+
+function asr_tg_broadcast_vk_download_file_to_temp(string $url): array {
+    $url = asr_tg_validate_public_http_url($url, 'Ссылка на VK-файл');
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('Для отправки VK-файлов по ссылке нужен cURL. Загрузите файл напрямую.');
+    }
+    $tmp = tempnam(sys_get_temp_dir(), 'asr_vk_doc_');
+    if ($tmp === false) throw new RuntimeException('Не удалось создать временный файл для VK-файла.');
+    $fh = fopen($tmp, 'wb');
+    if (!$fh) throw new RuntimeException('Не удалось открыть временный файл для VK-файла.');
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_FILE => $fh,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 60,
+        CURLOPT_USERAGENT => 'ExecBooster Admin App VK Broadcast/1.0',
+        CURLOPT_FAILONERROR => false,
+    ]);
+    $ok = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+    fclose($fh);
+    if ($ok === false || $httpCode < 200 || $httpCode >= 300) {
+        @unlink($tmp);
+        throw new RuntimeException('Не удалось скачать VK-файл по ссылке. HTTP ' . $httpCode . ($error ? ': ' . $error : ''));
+    }
+    $size = is_file($tmp) ? filesize($tmp) : 0;
+    if ($size <= 0) {
+        @unlink($tmp);
+        throw new RuntimeException('VK-файл по ссылке пустой.');
+    }
+    if ($size > 45 * 1024 * 1024) {
+        @unlink($tmp);
+        throw new RuntimeException('VK-файл слишком большой. На этом шаге лимит: 45 МБ.');
+    }
+    $path = parse_url($url, PHP_URL_PATH);
+    $name = $path ? basename((string)$path) : '';
+    $name = trim(rawurldecode($name));
+    if ($name === '' || $name === '/' || $name === '.') $name = 'file';
+    return [$tmp, true, $name];
+}
+
+function asr_tg_broadcast_vk_document_local_path(array $card): array {
+    $name = trim((string)($card['media_file_name'] ?? ''));
+    $local = trim((string)($card['local_file_path'] ?? ''));
+    if ($local !== '' && is_file($local) && is_readable($local)) return [$local, false, $name !== '' ? $name : basename($local)];
+
+    $relative = trim((string)($card['media_file_path'] ?? ''));
+    if ($relative !== '') {
+        $candidate = rtrim(asr_tg_project_root_dir(), '/') . '/' . ltrim($relative, '/');
+        if (is_file($candidate) && is_readable($candidate)) return [$candidate, false, $name !== '' ? $name : basename($candidate)];
+    }
+
+    $url = trim((string)($card['media_url'] ?? ''));
+    if ($url !== '') return asr_tg_broadcast_vk_download_file_to_temp($url);
+
+    throw new RuntimeException('Для VK-файла не найден файл или ссылка.');
+}
+
+
+function asr_tg_broadcast_vk_download_video_to_temp(string $url): array {
+    $url = asr_tg_validate_public_http_url($url, 'Ссылка на VK-видео');
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('Для отправки VK-видео по ссылке нужен cURL. Загрузите файл напрямую.');
+    }
+    $tmp = tempnam(sys_get_temp_dir(), 'asr_vk_video_');
+    if ($tmp === false) throw new RuntimeException('Не удалось создать временный файл для VK-видео.');
+    $fh = fopen($tmp, 'wb');
+    if (!$fh) throw new RuntimeException('Не удалось открыть временный файл для VK-видео.');
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_FILE => $fh,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 3,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 180,
+        CURLOPT_USERAGENT => 'ExecBooster Admin App VK Broadcast/1.0',
+        CURLOPT_FAILONERROR => false,
+    ]);
+    $ok = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+    fclose($fh);
+    if ($ok === false || $httpCode < 200 || $httpCode >= 300) {
+        @unlink($tmp);
+        throw new RuntimeException('Не удалось скачать VK-видео по ссылке. HTTP ' . $httpCode . ($error ? ': ' . $error : ''));
+    }
+    $size = is_file($tmp) ? filesize($tmp) : 0;
+    if ($size <= 0) {
+        @unlink($tmp);
+        throw new RuntimeException('VK-видео по ссылке пустое.');
+    }
+    if ($size > 200 * 1024 * 1024) {
+        @unlink($tmp);
+        throw new RuntimeException('VK-видео слишком большое. На этом шаге лимит: 200 МБ.');
+    }
+    $path = parse_url($url, PHP_URL_PATH);
+    $name = $path ? basename((string)$path) : '';
+    $name = trim(rawurldecode($name));
+    if ($name === '' || $name === '/' || $name === '.') $name = 'video.mp4';
+    return [$tmp, true, $name];
+}
+
+function asr_tg_broadcast_vk_video_local_path(array $card): array {
+    $name = trim((string)($card['media_file_name'] ?? ''));
+    $local = trim((string)($card['local_file_path'] ?? ''));
+    if ($local !== '' && is_file($local) && is_readable($local)) return [$local, false, $name !== '' ? $name : basename($local)];
+
+    $relative = trim((string)($card['media_file_path'] ?? ''));
+    if ($relative !== '') {
+        $candidate = rtrim(asr_tg_project_root_dir(), '/') . '/' . ltrim($relative, '/');
+        if (is_file($candidate) && is_readable($candidate)) return [$candidate, false, $name !== '' ? $name : basename($candidate)];
+    }
+
+    $url = trim((string)($card['media_url'] ?? ''));
+    if ($url !== '') return asr_tg_broadcast_vk_download_video_to_temp($url);
+
+    throw new RuntimeException('Для VK-видео не найден файл или ссылка.');
+}
+
+
+function asr_tg_broadcast_vk_persist_prepared_cards(PDO $pdo, int $broadcastId, array $cards): void {
+    if ($broadcastId <= 0) return;
+    $payload = json_encode(['cards' => $cards], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($payload === false || $payload === '') return;
+    try {
+        $stmt = $pdo->prepare('UPDATE oca_telegram_bot_broadcasts SET payload_json = ?, updated_at = NOW() WHERE id = ?');
+        $stmt->execute([$payload, $broadcastId]);
+    } catch (Throwable $e) {
+        // Кэш вложений — оптимизация. Если запись не удалась, отправку не блокируем.
+    }
+}
+
+function asr_tg_broadcast_vk_prepare_photo_attachments(PDO $pdo, int $broadcastId, string $token, int|string $peerId, array $cards): array {
+    if ($broadcastId <= 0 || $token === '' || (string)$peerId === '') return $cards;
+    $changed = false;
+    foreach ($cards as $idx => $card) {
+        if (!is_array($card)) continue;
+        $type = (string)($card['type'] ?? 'text');
+        if ($type === 'image') $type = 'photo';
+        if ($type !== 'photo') continue;
+        $cached = trim((string)($card['vk_prepared_attachment'] ?? ''));
+        if ($cached !== '' && preg_match('/^photo-?\d+_\d+(?:_[A-Za-z0-9]+)?$/', $cached)) {
+            continue;
+        }
+        [$path, $cleanup] = asr_tg_broadcast_vk_photo_local_path($card);
+        try {
+            $attachment = asr_tg_vk_upload_message_photo($token, $peerId, $path);
+        } finally {
+            if (!empty($cleanup)) @unlink($path);
+        }
+        if ($attachment === '') {
+            throw new RuntimeException('VK вернул пустой attachment для картинки рассылки.');
+        }
+        $cards[$idx]['vk_prepared_attachment'] = $attachment;
+        $cards[$idx]['vk_prepared_at'] = date('Y-m-d H:i:s');
+        $changed = true;
+    }
+    if ($changed) {
+        asr_tg_broadcast_vk_persist_prepared_cards($pdo, $broadcastId, $cards);
+        asr_tg_log($pdo, 0, 'info', 'vk_broadcast_attachments_prepared', 'VK-вложения рассылки подготовлены один раз и сохранены в рассылке.', ['broadcast_id' => $broadcastId]);
+    }
+    return $cards;
+}
+
+function asr_tg_broadcast_vk_prepare_document_attachments(PDO $pdo, int $broadcastId, string $token, int|string $peerId, array $cards): array {
+    if ($broadcastId <= 0 || $token === '' || (string)$peerId === '') return $cards;
+    $changed = false;
+    foreach ($cards as $idx => $card) {
+        if (!is_array($card)) continue;
+        $type = (string)($card['type'] ?? 'text');
+        if ($type === 'file') $type = 'document';
+        if ($type !== 'document') continue;
+        $cached = trim((string)($card['vk_prepared_attachment'] ?? ''));
+        if ($cached !== '' && preg_match('/^doc-?\d+_\d+(?:_[A-Za-z0-9]+)?$/', $cached)) {
+            continue;
+        }
+        [$path, $cleanup, $title] = asr_tg_broadcast_vk_document_local_path($card);
+        try {
+            $attachment = asr_tg_vk_upload_message_document($token, $peerId, $path, $title);
+        } finally {
+            if (!empty($cleanup)) @unlink($path);
+        }
+        if ($attachment === '') {
+            throw new RuntimeException('VK вернул пустой attachment для файла рассылки.');
+        }
+        $cards[$idx]['vk_prepared_attachment'] = $attachment;
+        $cards[$idx]['vk_prepared_at'] = date('Y-m-d H:i:s');
+        $changed = true;
+    }
+    if ($changed) {
+        asr_tg_broadcast_vk_persist_prepared_cards($pdo, $broadcastId, $cards);
+        asr_tg_log($pdo, 0, 'info', 'vk_broadcast_document_attachments_prepared', 'VK-файлы рассылки подготовлены один раз и сохранены в рассылке.', ['broadcast_id' => $broadcastId]);
+    }
+    return $cards;
+}
+
+
+function asr_tg_broadcast_vk_prepare_video_attachments(PDO $pdo, int $broadcastId, string $token, int|string $peerId, array $cards): array {
+    if ($broadcastId <= 0 || $token === '' || (string)$peerId === '') return $cards;
+    $changed = false;
+    foreach ($cards as $idx => $card) {
+        if (!is_array($card)) continue;
+        $type = (string)($card['type'] ?? 'text');
+        if ($type !== 'video') continue;
+        $cached = trim((string)($card['vk_prepared_attachment'] ?? ''));
+        if ($cached !== '' && preg_match('/^video-?\d+_\d+(?:_[A-Za-z0-9]+)?$/', $cached)) {
+            continue;
+        }
+        [$path, $cleanup, $title] = asr_tg_broadcast_vk_video_local_path($card);
+        try {
+            $attachment = asr_tg_vk_upload_message_video($token, $peerId, $path, $title);
+        } finally {
+            if (!empty($cleanup)) @unlink($path);
+        }
+        if ($attachment === '') {
+            throw new RuntimeException('VK вернул пустой attachment для видео рассылки.');
+        }
+        $cards[$idx]['vk_prepared_attachment'] = $attachment;
+        $cards[$idx]['vk_prepared_at'] = date('Y-m-d H:i:s');
+        $changed = true;
+    }
+    if ($changed) {
+        asr_tg_broadcast_vk_persist_prepared_cards($pdo, $broadcastId, $cards);
+        asr_tg_log($pdo, 0, 'info', 'vk_broadcast_video_attachments_prepared', 'VK-видео рассылки подготовлены один раз и сохранены в рассылке.', ['broadcast_id' => $broadcastId]);
+    }
+    return $cards;
+}
+
+function asr_tg_broadcast_vk_send_card(string $token, int|string $peerId, array $card): array {
+    $type = (string)($card['type'] ?? 'text');
+    if ($type === 'image') $type = 'photo';
+    if ($type === 'file') $type = 'document';
+    $vkText = asr_tg_broadcast_card_vk_text((string)($card['text'] ?? ''));
+    $extra = [];
+    $vkKeyboard = function_exists('asr_tg_vk_keyboard_from_buttons') ? asr_tg_vk_keyboard_from_buttons((array)($card['buttons'] ?? [])) : '';
+    if ($vkKeyboard !== '') $extra['keyboard'] = $vkKeyboard;
+
+    if ($type === 'photo') {
+        $preparedAttachment = trim((string)($card['vk_prepared_attachment'] ?? ''));
+        if ($preparedAttachment !== '') {
+            $extra['attachment'] = $preparedAttachment;
+        } else {
+            [$path, $cleanup] = asr_tg_broadcast_vk_photo_local_path($card);
+            try {
+                $extra['attachment'] = asr_tg_vk_upload_message_photo($token, $peerId, $path);
+            } finally {
+                if (!empty($cleanup)) @unlink($path);
+            }
+        }
+        $response = asr_tg_vk_send_message($token, $peerId, $vkText, $extra);
+        return ['response' => $response, 'text' => $vkText, 'type' => 'photo', 'keyboard' => $vkKeyboard !== '', 'attachment' => (string)($extra['attachment'] ?? '')];
+    }
+
+    if ($type === 'document') {
+        $preparedAttachment = trim((string)($card['vk_prepared_attachment'] ?? ''));
+        if ($preparedAttachment !== '') {
+            $extra['attachment'] = $preparedAttachment;
+        } else {
+            [$path, $cleanup, $title] = asr_tg_broadcast_vk_document_local_path($card);
+            try {
+                $extra['attachment'] = asr_tg_vk_upload_message_document($token, $peerId, $path, $title);
+            } finally {
+                if (!empty($cleanup)) @unlink($path);
+            }
+        }
+        $response = asr_tg_vk_send_message($token, $peerId, $vkText, $extra);
+        return ['response' => $response, 'text' => $vkText, 'type' => 'document', 'keyboard' => $vkKeyboard !== '', 'attachment' => (string)($extra['attachment'] ?? '')];
+    }
+
+    if ($type === 'video') {
+        $preparedAttachment = trim((string)($card['vk_prepared_attachment'] ?? ''));
+        if ($preparedAttachment !== '') {
+            $extra['attachment'] = $preparedAttachment;
+        } else {
+            [$path, $cleanup, $title] = asr_tg_broadcast_vk_video_local_path($card);
+            try {
+                $extra['attachment'] = asr_tg_vk_upload_message_video($token, $peerId, $path, $title);
+            } finally {
+                if (!empty($cleanup)) @unlink($path);
+            }
+        }
+        $response = asr_tg_vk_send_message($token, $peerId, $vkText, $extra);
+        return ['response' => $response, 'text' => $vkText, 'type' => 'video', 'keyboard' => $vkKeyboard !== '', 'attachment' => (string)($extra['attachment'] ?? '')];
+    }
+
+    if ($vkText === '') throw new RuntimeException('Пустой текст VK-рассылки.');
+    $response = asr_tg_vk_send_message($token, $peerId, $vkText, $extra);
+    return ['response' => $response, 'text' => $vkText, 'type' => 'text', 'keyboard' => $vkKeyboard !== '', 'attachment' => ''];
+}
+
 function asr_tg_build_broadcast_cards(array $post, array $files = []): array {
     $types = $post['card_type'] ?? [];
     if (!is_array($types) || !$types) {
@@ -1337,16 +1787,45 @@ function asr_tg_render_broadcast_test_macros(string $text, array $ctx): string {
     }, $text);
 }
 
+
+function asr_tg_broadcast_vk_test_target(PDO $pdo, array $botIds, string $vkPeerId): array {
+    $vkPeerId = trim($vkPeerId);
+    if ($vkPeerId === '') throw new RuntimeException('Укажите VK ID для тестовой отправки.');
+    if (!preg_match('/^-?\d{3,20}$/', $vkPeerId)) {
+        throw new RuntimeException('VK ID должен быть числовым. Вставьте VK User ID / Peer ID без ссылки и лишних символов.');
+    }
+    $botIds = array_values(array_unique(array_filter(array_map('intval', $botIds), static fn($id) => $id > 0)));
+    if (!$botIds) throw new RuntimeException('Выберите VK-канал для тестовой отправки.');
+
+    $placeholders = implode(',', array_fill(0, count($botIds), '?'));
+    $params = array_merge($botIds, [$vkPeerId, $vkPeerId, $vkPeerId]);
+    $sql = "SELECT s.*, b.title AS bot_title, b.bot_username, b.channel_type, b.vk_screen_name, b.vk_api_token_encrypted
+        FROM oca_telegram_bot_subscribers s
+        JOIN oca_telegram_bots b ON b.id = s.bot_id
+        WHERE s.bot_id IN ($placeholders)
+          AND COALESCE(s.status, 'active') = 'active'
+          AND (
+              CAST(COALESCE(s.external_chat_id, '') AS CHAR) = ?
+              OR CAST(COALESCE(s.external_user_id, '') AS CHAR) = ?
+              OR CAST(COALESCE(s.chat_id, '') AS CHAR) = ?
+          )
+        ORDER BY FIELD(s.bot_id, $placeholders)
+        LIMIT 1";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(array_merge($params, $botIds));
+    $subscriber = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$subscriber) {
+        throw new RuntimeException('VK-подписчик с таким ID не найден среди активных подписчиков выбранного VK-канала. Чтобы тест пришёл, пользователь должен быть подписан на выбранный VK-канал и хотя бы раз написать в сообщения сообщества.');
+    }
+    $peerId = trim((string)($subscriber['external_chat_id'] ?? ''));
+    if ($peerId === '') $peerId = trim((string)($subscriber['chat_id'] ?? ''));
+    if ($peerId === '') throw new RuntimeException('У найденного VK-подписчика нет Peer ID. Попросите пользователя написать в сообщения сообщества ещё раз.');
+    return [$subscriber, $peerId];
+}
+
 function asr_tg_send_broadcast_test_from_post(PDO $pdo, array $post, array $files = []): array {
     if (!asr_tg_can('broadcast')) throw new RuntimeException('Недостаточно прав для проверки рассылок.');
     asr_tg_repository_ensure_schema($pdo);
-
-    $cfg = asr_tg_broadcast_test_bot_config();
-    $token = trim((string)($cfg['bot_token'] ?? ''));
-    if ($token === '') throw new RuntimeException('В настройках не указан токен технического бота для проверки рассылок.');
-
-    $recipients = asr_tg_broadcast_test_recipients($pdo);
-    if (!$recipients) throw new RuntimeException('Нет сотрудников с подключённым тестовым ботом рассылок. Откройте карточку сотрудника в «Наша команда», скопируйте персональную ссылку из блока «Тестовый бот рассылок» и нажмите Start. Если бот уже открыт без ссылки, отправьте /start ещё раз по персональной ссылке.');
 
     [$botIds, $botsById] = asr_tg_broadcast_bot_ids_from_post($pdo, $post);
     $primaryBot = [];
@@ -1358,6 +1837,46 @@ function asr_tg_send_broadcast_test_from_post(PDO $pdo, array $post, array $file
     if ($title === '') $title = 'Тестовая рассылка';
     $cards = asr_tg_build_broadcast_cards($post, $files);
     if (!$cards) throw new RuntimeException('Добавьте хотя бы одну карточку сообщения.');
+    $platform = asr_tg_broadcast_selected_platform($botsById);
+    if ($platform === 'mixed') {
+        throw new RuntimeException('Тест смешанной Telegram+VK рассылки пока не поддерживается. Выберите каналы одной платформы.');
+    }
+    asr_tg_broadcast_validate_cards_for_platform($cards, $platform);
+
+    if ($platform === 'vk') {
+        $vkPeerId = trim((string)($post['vk_test_peer_id'] ?? ''));
+        [$subscriber, $peerId] = asr_tg_broadcast_vk_test_target($pdo, $botIds, $vkPeerId);
+        $vkBot = $botsById[(int)($subscriber['bot_id'] ?? 0)] ?? $primaryBot;
+        if (!$vkBot || asr_tg_channel_type_of($vkBot) !== 'vk') throw new RuntimeException('VK-канал для тестовой отправки не найден.');
+        $token = asr_tg_decrypt_token((string)($vkBot['vk_api_token_encrypted'] ?? ''));
+        if ($token === '') throw new RuntimeException('Не удалось расшифровать токен VK-канала. Проверьте ключ доступа сообщества.');
+
+        $sent = 0;
+        $errors = [];
+        try {
+            asr_tg_vk_send_message($token, $peerId, "🧪 Тестовая проверка VK-рассылки
+" . $title);
+            foreach ($cards as $card) {
+                $cardForVk = $card;
+                $cardForVk['text'] = asr_tg_render_subscriber_macros($pdo, (string)($card['text'] ?? ''), $subscriber);
+                asr_tg_broadcast_vk_send_card($token, $peerId, $cardForVk);
+                usleep(220000);
+            }
+            $sent = 1;
+            asr_tg_log($pdo, (int)($vkBot['id'] ?? 0), 'info', 'vk_broadcast_test_sent', 'Тестовая VK-рассылка отправлена.', ['subscriber_id' => (int)($subscriber['id'] ?? 0), 'vk_peer_id' => $peerId]);
+        } catch (Throwable $e) {
+            $errors[] = $e->getMessage();
+            throw new RuntimeException('Тестовая VK-рассылка не отправлена: ' . $e->getMessage());
+        }
+        return ['sent' => $sent, 'failed' => $sent ? 0 : 1, 'errors' => $errors, 'recipients' => 1, 'platform' => 'vk'];
+    }
+
+    $cfg = asr_tg_broadcast_test_bot_config();
+    $token = trim((string)($cfg['bot_token'] ?? ''));
+    if ($token === '') throw new RuntimeException('В настройках не указан токен технического бота для проверки рассылок.');
+
+    $recipients = asr_tg_broadcast_test_recipients($pdo);
+    if (!$recipients) throw new RuntimeException('Нет сотрудников с подключённым тестовым ботом рассылок. Откройте карточку сотрудника в «Наша команда», скопируйте персональную ссылку из блока «Тестовый бот рассылок» и нажмите Start. Если бот уже открыт без ссылки, отправьте /start ещё раз по персональной ссылке.');
 
     $sent = 0;
     $failed = 0;
@@ -1403,6 +1922,11 @@ function asr_tg_create_broadcasts_from_post(PDO $pdo, array $post, array $files 
     $title = mb_substr($title, 0, 190);
 
     $cards = asr_tg_build_broadcast_cards($post, $files);
+    $platform = asr_tg_broadcast_selected_platform($botsById);
+    if ($platform === 'mixed') {
+        throw new RuntimeException('Пока нельзя запускать одну рассылку одновременно по Telegram и VK. Выберите каналы одной платформы. Смешанные рассылки подключим отдельным шагом.');
+    }
+    asr_tg_broadcast_validate_cards_for_platform($cards, $platform);
     $segment = asr_tg_build_segment_from_array($post);
     $multiBot = count($botIds) > 1;
 
@@ -1468,6 +1992,7 @@ function asr_tg_create_broadcasts_from_post(PDO $pdo, array $post, array $files 
         'allow_duplicates' => $allowDuplicates,
         'scheduled' => $scheduledAt !== null,
         'scheduled_at' => $scheduledAt,
+        'platform' => $platform,
     ];
 }
 
@@ -1519,7 +2044,7 @@ function asr_tg_process_broadcast_queue(PDO $pdo, int $limit = 30, int $broadcas
     }
     $limit = max(1, min(200, $limit));
     asr_tg_broadcast_activate_due_scheduled($pdo, 200);
-    $staleReset = asr_tg_broadcast_reset_stale_processing($pdo, $broadcastId, 10);
+    $staleReset = asr_tg_broadcast_reset_stale_processing($pdo, $broadcastId, 3);
     $items = asr_tg_broadcast_recipients_next($pdo, $limit, $broadcastId);
     $sent = 0; $failed = 0; $processedBroadcasts = [];
     foreach ($items as $item) {
@@ -1527,10 +2052,20 @@ function asr_tg_process_broadcast_queue(PDO $pdo, int $limit = 30, int $broadcas
         $bid = (int)$item['broadcast_id'];
         $processedBroadcasts[$bid] = true;
         asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'processing', 'processing_at' => date('Y-m-d H:i:s'), 'next_attempt_at' => null, 'attempts' => ((int)$item['attempts']) + 1]);
-        $token = asr_tg_decrypt_token((string)$item['bot_token_encrypted']);
+        $channelType = function_exists('asr_tg_normalize_channel_type') ? asr_tg_normalize_channel_type((string)($item['channel_type'] ?? 'telegram')) : strtolower((string)($item['channel_type'] ?? 'telegram'));
+        $token = $channelType === 'vk'
+            ? asr_tg_decrypt_token((string)($item['vk_api_token_encrypted'] ?? ''))
+            : asr_tg_decrypt_token((string)$item['bot_token_encrypted']);
         try {
-            if ($token === '') throw new RuntimeException('Не удалось расшифровать токен бота.');
+            if ($token === '') {
+                throw new RuntimeException($channelType === 'vk' ? 'Не удалось расшифровать токен VK-сообщества.' : 'Не удалось расшифровать токен бота.');
+            }
             $cards = asr_tg_cards_from_broadcast_item($item);
+            asr_tg_broadcast_validate_cards_for_platform($cards, $channelType);
+            if ($channelType === 'vk') {
+                $cards = asr_tg_broadcast_vk_prepare_photo_attachments($pdo, $bid, $token, (string)$item['chat_id'], $cards);
+                $cards = asr_tg_broadcast_vk_prepare_document_attachments($pdo, $bid, $token, (string)$item['chat_id'], $cards);
+            }
             $subscriber = asr_tg_subscriber_find($pdo, (int)$item['subscriber_id'], (int)$item['bot_id']);
             if ($subscriber) {
                 foreach ($cards as &$cardForMacros) {
@@ -1542,35 +2077,64 @@ function asr_tg_process_broadcast_queue(PDO $pdo, int $limit = 30, int $broadcas
                 unset($cardForMacros);
             }
             $lastMessageId = null;
-            $sentTelegram = [];
             foreach ($cards as $cardIndex => $card) {
-                $response = asr_tg_api_send_broadcast_card($token, (string)$item['chat_id'], $card);
-                $sentMessage = is_array($response['result'] ?? null) ? $response['result'] : [];
-                $messageId = isset($sentMessage['message_id']) ? (int)$sentMessage['message_id'] : null;
-                $lastMessageId = $messageId ?: $lastMessageId;
-                $sentTelegram[] = $sentMessage;
-                $messagePayload = ['broadcast_id' => $bid, 'card_index' => $cardIndex, 'telegram' => $sentMessage];
-                if (isset($card['original_text']) && (string)$card['original_text'] !== (string)($card['text'] ?? '')) $messagePayload['original_text'] = (string)$card['original_text'];
-                asr_tg_message_add($pdo, (int)$item['bot_id'], (int)$item['subscriber_id'], 'out', (string)($card['type'] ?? 'text'), (string)($card['text'] ?? ''), $messageId, $messagePayload);
-                usleep(120000);
+                if ($channelType === 'vk') {
+                    $vkSent = asr_tg_broadcast_vk_send_card($token, (string)$item['chat_id'], $card);
+                    $response = (array)($vkSent['response'] ?? []);
+                    $messageId = isset($response['response']) && is_numeric($response['response']) ? (int)$response['response'] : null;
+                    $lastMessageId = $messageId ?: $lastMessageId;
+                    $vkText = (string)($vkSent['text'] ?? '');
+                    $vkType = (string)($vkSent['type'] ?? 'text');
+                    $messagePayload = ['broadcast_id' => $bid, 'card_index' => $cardIndex, 'platform' => 'vk', 'vk' => $response, 'vk_keyboard' => !empty($vkSent['keyboard']), 'vk_attachment' => (string)($vkSent['attachment'] ?? '')];
+                    if (isset($card['original_text']) && (string)$card['original_text'] !== (string)($card['text'] ?? '')) $messagePayload['original_text'] = (string)$card['original_text'];
+                    asr_tg_message_add($pdo, (int)$item['bot_id'], (int)$item['subscriber_id'], 'out', $vkType, $vkText, $messageId, $messagePayload);
+                } else {
+                    $response = asr_tg_api_send_broadcast_card($token, (string)$item['chat_id'], $card);
+                    $sentMessage = is_array($response['result'] ?? null) ? (array)$response['result'] : [];
+                    $messageId = isset($sentMessage['message_id']) ? (int)$sentMessage['message_id'] : null;
+                    $lastMessageId = $messageId ?: $lastMessageId;
+                    $messagePayload = ['broadcast_id' => $bid, 'card_index' => $cardIndex, 'telegram' => $sentMessage];
+                    if (isset($card['original_text']) && (string)$card['original_text'] !== (string)($card['text'] ?? '')) $messagePayload['original_text'] = (string)$card['original_text'];
+                    asr_tg_message_add($pdo, (int)$item['bot_id'], (int)$item['subscriber_id'], 'out', (string)($card['type'] ?? 'text'), (string)($card['text'] ?? ''), $messageId, $messagePayload);
+                }
+                usleep($channelType === 'vk' ? 180000 : 120000);
             }
             asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'sent', 'telegram_message_id' => $lastMessageId, 'last_error' => null, 'processing_at' => null, 'next_attempt_at' => null, 'sent_at' => date('Y-m-d H:i:s')]);
             $sent++;
         } catch (Throwable $e) {
-            $policy = asr_tg_classify_telegram_send_error($e);
-            $error = (string)($policy['message'] ?? $e->getMessage());
             $attempts = ((int)$item['attempts']) + 1;
-            if (!empty($policy['is_retryable']) && $attempts < 5) {
-                $delay = asr_tg_telegram_retry_delay_seconds($policy, $attempts);
-                asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'retry', 'last_error' => $error, 'next_attempt_at' => date('Y-m-d H:i:s', time() + $delay)]);
-            } else {
-                asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'failed', 'last_error' => $error]);
-                $failed++;
-                if (!empty($policy['mark_subscriber_blocked'])) {
-                    asr_tg_subscriber_mark_status($pdo, (int)$item['subscriber_id'], 'blocked');
+            if ($channelType === 'vk') {
+                $error = $e->getMessage();
+                $isPermanentVkError = str_contains($error, 'VK-видео через прямую загрузку временно отключено')
+                    || str_contains($error, 'VK-рассылка сейчас поддерживает текст, картинки и файлы')
+                    || str_contains($error, 'VK-рассылка сейчас поддерживает только кнопки-ссылки')
+                    || str_contains($error, 'можно добавить максимум 5 кнопок-ссылок');
+                if ($isPermanentVkError) {
+                    asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'failed', 'last_error' => $error, 'processing_at' => null, 'next_attempt_at' => null]);
+                    $failed++;
+                } elseif ($attempts < 4) {
+                    $delay = 60 * $attempts;
+                    asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'retry', 'last_error' => $error, 'processing_at' => null, 'next_attempt_at' => date('Y-m-d H:i:s', time() + $delay)]);
+                } else {
+                    asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'failed', 'last_error' => $error, 'processing_at' => null, 'next_attempt_at' => null]);
+                    $failed++;
                 }
+                asr_tg_log($pdo, (int)$item['bot_id'], 'error', 'vk_broadcast_queue_send_failed', $error, ['broadcast_id' => $bid, 'recipient_id' => $recipientId, 'attempts' => $attempts, 'permanent' => $isPermanentVkError]);
+            } else {
+                $policy = asr_tg_classify_telegram_send_error($e);
+                $error = (string)($policy['message'] ?? $e->getMessage());
+                if (!empty($policy['is_retryable']) && $attempts < 5) {
+                    $delay = asr_tg_telegram_retry_delay_seconds($policy, $attempts);
+                    asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'retry', 'last_error' => $error, 'next_attempt_at' => date('Y-m-d H:i:s', time() + $delay)]);
+                } else {
+                    asr_tg_broadcast_recipient_update($pdo, $recipientId, ['status' => 'failed', 'last_error' => $error]);
+                    $failed++;
+                    if (!empty($policy['mark_subscriber_blocked'])) {
+                        asr_tg_subscriber_mark_status($pdo, (int)$item['subscriber_id'], 'blocked');
+                    }
+                }
+                asr_tg_log($pdo, (int)$item['bot_id'], 'error', 'broadcast_queue_send_failed', $error, ['broadcast_id' => $bid, 'recipient_id' => $recipientId, 'error_policy' => $policy['kind'] ?? 'unknown']);
             }
-            asr_tg_log($pdo, (int)$item['bot_id'], 'error', 'broadcast_queue_send_failed', $error, ['broadcast_id' => $bid, 'recipient_id' => $recipientId, 'error_policy' => $policy['kind'] ?? 'unknown']);
         }
         usleep(50000);
     }
@@ -1686,7 +2250,7 @@ function asr_tg_notify_technical_bot_about_dialog(PDO $pdo, array $bot, int $bot
     if (!$recipients) return;
 
     try {
-        $stmt = $pdo->prepare('SELECT s.*, b.title AS bot_title, b.bot_username FROM oca_telegram_bot_subscribers s LEFT JOIN oca_telegram_bots b ON b.id = s.bot_id WHERE s.id = ? AND s.bot_id = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT s.*, b.title AS bot_title, b.bot_username, b.channel_type, b.vk_screen_name FROM oca_telegram_bot_subscribers s LEFT JOIN oca_telegram_bots b ON b.id = s.bot_id WHERE s.id = ? AND s.bot_id = ? LIMIT 1');
         $stmt->execute([$subscriberId, $botId]);
         $subscriber = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
     } catch (Throwable $e) { $subscriber = []; }
@@ -1696,6 +2260,12 @@ function asr_tg_notify_technical_bot_about_dialog(PDO $pdo, array $bot, int $bot
     if ($name === '') $name = 'Подписчик #' . $subscriberId;
     $username = trim((string)($subscriber['username'] ?? ''));
     if ($username !== '') $username = '@' . ltrim($username, '@');
+    $platform = strtolower(trim((string)($subscriber['platform'] ?? ($subscriber['channel_type'] ?? ($bot['channel_type'] ?? 'telegram')))));
+    if ($platform === '') $platform = strtolower(trim((string)($bot['channel_type'] ?? 'telegram')));
+    $platformLabel = $platform === 'vk' ? 'ВК' : 'Telegram';
+    $externalUserId = trim((string)($subscriber['external_user_id'] ?? ''));
+    $externalChatId = trim((string)($subscriber['external_chat_id'] ?? ''));
+    $vkScreenName = trim((string)($subscriber['vk_screen_name'] ?? ($bot['vk_screen_name'] ?? '')));
     $channel = trim((string)($subscriber['bot_title'] ?? ($bot['title'] ?? 'Канал')));
     $messageType = isset($message['text']) ? 'текст' : 'сообщение';
     $preview = trim((string)($text ?? ''));
@@ -1707,8 +2277,18 @@ function asr_tg_notify_technical_bot_about_dialog(PDO $pdo, array $bot, int $bot
     $body = "🔔 Новое сообщение в диалоге
 
 ";
+    $body .= "Источник: " . $platformLabel . "
+";
     $body .= "Канал: " . $channel . "
 ";
+    if ($platform === 'vk') {
+        if ($externalUserId !== '') $body .= "VK User ID: " . $externalUserId . "
+";
+        if ($externalChatId !== '' && $externalChatId !== $externalUserId) $body .= "VK Peer ID: " . $externalChatId . "
+";
+        if ($vkScreenName !== '') $body .= "Адрес: vk.com/" . ltrim($vkScreenName, '@/') . "
+";
+    }
     $body .= "Кто: " . $name . ($username !== '' ? ' (' . $username . ')' : '') . "
 
 ";
@@ -2626,6 +3206,52 @@ function asr_tg_runtime_target_scenario_for_block(PDO $pdo, int $targetBlockId):
     }
 }
 
+function asr_tg_runtime_callback_source(array $bot, string $callbackQueryId): string {
+    $channelType = function_exists('asr_tg_channel_type_of') ? asr_tg_channel_type_of($bot) : strtolower((string)($bot['channel_type'] ?? 'telegram'));
+    if ($channelType === 'vk' || $callbackQueryId === '') return 'vk_button';
+    return 'telegram_callback';
+}
+
+function asr_tg_runtime_vk_payload_callback_data($payload): string {
+    if (is_array($payload)) {
+        $candidates = [
+            $payload['callback_data'] ?? null,
+            $payload['callbackData'] ?? null,
+            $payload['data'] ?? null,
+            $payload['cmd'] ?? null,
+            $payload['command'] ?? null,
+        ];
+        foreach ($candidates as $candidate) {
+            $value = trim((string)$candidate);
+            if ($value !== '' && strncmp($value, 'scn_', 4) === 0) return $value;
+        }
+        return '';
+    }
+
+    $raw = trim((string)$payload);
+    if ($raw === '') return '';
+    if (strncmp($raw, 'scn_', 4) === 0) return $raw;
+
+    $decoded = json_decode($raw, true);
+    if (is_array($decoded)) {
+        return asr_tg_runtime_vk_payload_callback_data($decoded);
+    }
+
+    return '';
+}
+
+function asr_tg_runtime_try_vk_payload(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, $payload): bool {
+    $callbackData = asr_tg_runtime_vk_payload_callback_data($payload);
+    if ($callbackData === '') return false;
+    try {
+        asr_tg_log($pdo, $botId, 'info', 'vk_scenario_button_payload_received', 'Получено нажатие VK-кнопки сценария.', [
+            'subscriber_id' => $subscriberId,
+            'callback_data' => mb_substr($callbackData, 0, 120, 'UTF-8'),
+        ]);
+    } catch (Throwable $ignored) {}
+    return asr_tg_runtime_try_callback($pdo, $bot, $botId, $chatId, $subscriberId, '', $callbackData);
+}
+
 function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, string $callbackQueryId, string $callbackData): bool {
     $data = trim($callbackData);
     if ($data === '' || strncmp($data, 'scn_', 4) !== 0) return false;
@@ -2658,7 +3284,7 @@ function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|strin
         }
         asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $targetBlockId, 'runtime_callback_goto', 'Переход по кнопке сценария.', ['callback_data' => $data, 'source_block_id' => $sourceBlockId]);
-        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'telegram_callback', ['callback_data' => $data, 'from_block_id' => $sourceBlockId]);
+        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, asr_tg_runtime_callback_source($bot, $callbackQueryId), ['callback_data' => $data, 'from_block_id' => $sourceBlockId]);
     }
 
     if (preg_match('/^scn_goto_(\d+)$/', $data, $m)) {
@@ -2677,7 +3303,7 @@ function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|strin
         }
         asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $targetBlockId, 'runtime_callback_goto', 'Переход по кнопке сценария.', ['callback_data' => $data]);
-        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'telegram_callback', ['callback_data' => $data]);
+        return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, asr_tg_runtime_callback_source($bot, $callbackQueryId), ['callback_data' => $data]);
     }
 
     if (preg_match('/^scn_answer_(\d+)_(\d+)_(\d+)$/', $data, $m)) {
@@ -2710,7 +3336,7 @@ function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|strin
         asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'runtime_question_answer_received', 'Получен ответ на вопрос.', ['answer' => $answerText, 'saved' => !empty($saveResult['saved']), 'field_type' => (string)($saveResult['field_type'] ?? ''), 'target_block_id' => $targetBlockId, 'callback_data' => $data]);
         if ($targetBlockId > 0) {
             asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
-            return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, 'telegram_question_answer', ['callback_data' => $data, 'answer' => $answerText]);
+            return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $targetBlockId, asr_tg_runtime_callback_source($bot, $callbackQueryId) . '_question_answer', ['callback_data' => $data, 'answer' => $answerText]);
         }
         if ($scenarioId > 0 && $questionBlockId > 0) {
             asr_tg_runtime_remember_position($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'active');
@@ -2718,7 +3344,7 @@ function asr_tg_runtime_try_callback(PDO $pdo, array $bot, int $botId, int|strin
             if ($nextBlockId > 0 && $nextBlockId !== $questionBlockId) {
                 asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId);
                 asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $questionBlockId, 'runtime_question_next_auto', 'После ответа кнопкой запускаем следующий шаг.', ['next_block_id' => $nextBlockId, 'answer' => $answerText, 'callback_data' => $data]);
-                return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $nextBlockId, 'telegram_question_answer_next', ['from_block_id' => $questionBlockId, 'answer' => $answerText, 'callback_data' => $data]);
+                return asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $nextBlockId, asr_tg_runtime_callback_source($bot, $callbackQueryId) . '_question_answer_next', ['from_block_id' => $questionBlockId, 'answer' => $answerText, 'callback_data' => $data]);
             }
         }
         asr_tg_runtime_answer_callback($pdo, $bot, $botId, $callbackQueryId, 'Ответ принят.');
@@ -3476,7 +4102,147 @@ function asr_tg_runtime_process_due_questions(PDO $pdo, int $limit = 30): array 
     return $result;
 }
 
+function asr_tg_runtime_channel_type(array $bot): string {
+    $type = function_exists('asr_tg_channel_type_of') ? asr_tg_channel_type_of($bot) : strtolower(trim((string)($bot['channel_type'] ?? 'telegram')));
+    return $type === 'vk' ? 'vk' : 'telegram';
+}
+
+function asr_tg_runtime_vk_message_id(array $sent): ?int {
+    $response = $sent['response']['response'] ?? ($sent['response'] ?? null);
+    if (is_numeric($response)) return (int)$response;
+    if (is_array($response)) {
+        foreach (['message_id', 'id'] as $key) {
+            if (isset($response[$key]) && is_numeric($response[$key])) return (int)$response[$key];
+        }
+    }
+    return null;
+}
+
+function asr_tg_runtime_execute_message_block_vk(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block): bool {
+    $token = asr_tg_decrypt_token((string)($bot['vk_api_token_encrypted'] ?? ''));
+    if ($token === '') throw new RuntimeException('Не удалось расшифровать токен VK-канала. Проверьте ключ доступа сообщества.');
+
+    $subscriber = asr_tg_subscriber_find($pdo, $subscriberId, $botId);
+    if (!$subscriber) throw new RuntimeException('Подписчик не найден для выполнения VK-сценария.');
+
+    $peerId = trim((string)($subscriber['external_chat_id'] ?? ''));
+    if ($peerId === '') $peerId = trim((string)$chatId);
+    if ($peerId === '') $peerId = trim((string)($subscriber['chat_id'] ?? ''));
+    if ($peerId === '') throw new RuntimeException('У VK-подписчика нет peer_id. Попросите пользователя написать в сообщество ещё раз.');
+
+    $cards = asr_tg_runtime_cards_from_block($pdo, $scenarioId, $block);
+    $blockId = (int)$block['id'];
+    $GLOBALS['asr_tg_runtime_last_message_waiting_question'] = null;
+
+    if (!$cards) {
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_vk_message_empty', 'В VK-блоке сообщения нет карточек для отправки.', [
+            'has_settings_json' => trim((string)($block['settings_json'] ?? '')) !== '',
+            'has_message_text' => trim((string)($block['message_text'] ?? '')) !== '',
+        ]);
+        return false;
+    }
+
+    $sentAny = false;
+    foreach ($cards as $index => $card) {
+        if (!is_array($card)) continue;
+        $originalType = strtolower(trim((string)($card['type'] ?? 'text')));
+        if ($originalType === '') $originalType = 'text';
+
+        [$runtimeCard, $plainText, $buttons] = asr_tg_runtime_prepare_card_for_send($pdo, $card, $subscriber, $blockId, (int)$index);
+        $runtimeType = (string)($runtimeCard['type'] ?? 'text');
+        if ($runtimeType === 'image') $runtimeType = 'photo';
+        if ($runtimeType === 'file') $runtimeType = 'document';
+
+        if ($runtimeType === 'gallery') {
+            $items = (array)($runtimeCard['gallery_items'] ?? []);
+            $itemsCount = asr_tg_runtime_media_items_count($items);
+            if ($itemsCount <= 0) {
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_vk_card_skipped', 'VK-галерея пропущена: не найдены картинки.', ['card_index' => $index, 'card_type' => $originalType]);
+                continue;
+            }
+            if ($itemsCount > 1) {
+                asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_vk_gallery_limited', 'VK-сценарий на этом шаге отправляет из галереи только первую картинку.', ['card_index' => $index, 'items_count' => $itemsCount]);
+            }
+            $single = [];
+            foreach ($items as $item) { if (is_array($item)) { $single = $item; break; } }
+            $runtimeCard['type'] = 'photo';
+            $runtimeCard['media_url'] = (string)($single['media_url'] ?? $single['url'] ?? '');
+            $singleLocal = asr_tg_runtime_card_local_file_path($single);
+            if ($singleLocal !== '') $runtimeCard['local_file_path'] = $singleLocal;
+            $runtimeType = 'photo';
+        }
+
+        if (in_array($runtimeType, ['video', 'audio', 'voice'], true)) {
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_vk_card_skipped', 'VK-сценарий пропустил медиа, которое пока не поддерживается в VK-runtime. Для видео используйте картинку/файл + URL-кнопку.', ['card_index' => $index, 'card_type' => $originalType, 'runtime_type' => $runtimeType]);
+            continue;
+        }
+
+        if ($runtimeType === 'text' && mb_strlen(trim($plainText), 'UTF-8') === 0 && !$buttons) continue;
+
+        $vkCard = $runtimeCard;
+        $vkCard['type'] = $runtimeType;
+        $vkCard['buttons'] = (array)($runtimeCard['buttons'] ?? []);
+
+        $sent = asr_tg_broadcast_vk_send_card($token, $peerId, $vkCard);
+        $vkMessageId = asr_tg_runtime_vk_message_id($sent);
+        $sentText = (string)($sent['text'] ?? (function_exists('asr_tg_broadcast_card_vk_text') ? asr_tg_broadcast_card_vk_text((string)($runtimeCard['text'] ?? '')) : $plainText));
+        $messageType = (string)($sent['type'] ?? ($runtimeType === 'document' ? 'file' : $runtimeType));
+
+        asr_tg_message_add($pdo, $botId, $subscriberId, 'out', $messageType, $sentText, $vkMessageId, [
+            'platform' => 'vk',
+            'scenario_id' => $scenarioId,
+            'block_id' => $blockId,
+            'card_index' => $index,
+            'card_type' => $originalType,
+            'runtime_type' => $runtimeType,
+            'buttons_count' => count($buttons),
+            'vk_peer_id' => $peerId,
+            'vk_response' => $sent['response'] ?? null,
+            'vk_attachment' => (string)($sent['attachment'] ?? ''),
+            'vk_keyboard' => !empty($sent['keyboard']),
+        ]);
+
+        asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_vk_message_sent', 'Отправлена VK-карточка блока «Сообщение».', [
+            'card_index' => $index,
+            'card_type' => $originalType,
+            'runtime_type' => $runtimeType,
+            'buttons_count' => count($buttons),
+            'vk_keyboard' => !empty($sent['keyboard']),
+        ]);
+
+        if ($originalType === 'question') {
+            $questionDeadline = asr_tg_runtime_question_first_check_sql($card);
+            $waitDeadlineAt = asr_tg_runtime_question_wait_deadline_sql($card);
+            $reminderAt = !empty($card['remind_no_answer']) ? asr_tg_runtime_question_reminder_next_sql($card) : null;
+            $GLOBALS['asr_tg_runtime_last_message_waiting_question'] = [
+                'block_id' => $blockId,
+                'card_index' => (int)$index,
+                'save_field_code' => asr_tg_runtime_question_save_field_code($card),
+                'answers_count' => count((array)($card['answers'] ?? [])),
+                'no_answer_target_block_id' => asr_tg_runtime_question_no_answer_target_block_id($pdo, $scenarioId, $blockId, $card),
+                'enable_check' => !empty($card['enable_check']),
+                'remind_no_answer' => !empty($card['remind_no_answer']),
+                'reminder_at' => $reminderAt,
+                'wait_deadline_at' => $waitDeadlineAt,
+                'next_run_at' => $questionDeadline,
+            ];
+            asr_tg_runtime_log_event($pdo, $botId, $subscriberId, $scenarioId, $blockId, 'runtime_vk_question_waiting', 'VK-вопрос отправлен, ожидаем текстовый ответ подписчика.', $GLOBALS['asr_tg_runtime_last_message_waiting_question']);
+        }
+
+        $sentAny = true;
+    }
+
+    if ($sentAny) {
+        asr_tg_scenario_stats_increment_sent($pdo, $scenarioId, $blockId);
+    }
+    return $sentAny;
+}
+
 function asr_tg_runtime_execute_message_block(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, int $scenarioId, array $block): bool {
+    if (asr_tg_runtime_channel_type($bot) === 'vk') {
+        return asr_tg_runtime_execute_message_block_vk($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, $block);
+    }
+
     $token = asr_tg_decrypt_token((string)($bot['bot_token_encrypted'] ?? ''));
     if ($token === '') throw new RuntimeException('Не удалось расшифровать токен Telegram-канала.');
     $subscriber = asr_tg_subscriber_find($pdo, $subscriberId, $botId);
@@ -3773,6 +4539,240 @@ function asr_tg_runtime_default_start_scenario_for_bot(PDO $pdo, int $botId): ?a
     }
 }
 
+
+
+function asr_tg_runtime_keyword_normalize_text(?string $text): string {
+    $value = trim((string)$text);
+    if ($value === '') return '';
+    $value = html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $value = mb_strtolower($value, 'UTF-8');
+    $value = str_replace('ё', 'е', $value);
+    $value = preg_replace('/\s+/u', ' ', $value) ?: $value;
+    return trim($value);
+}
+
+function asr_tg_runtime_keyword_phrases_from_settings(array $settings): array {
+    $raw = $settings['keyword_phrases'] ?? [];
+    if (is_string($raw)) {
+        $raw = preg_split('/\R/u', $raw) ?: [];
+    }
+    if (!is_array($raw)) return [];
+    $phrases = [];
+    foreach ($raw as $phrase) {
+        $phrase = trim((string)$phrase);
+        if ($phrase === '') continue;
+        $normalized = asr_tg_runtime_keyword_normalize_text($phrase);
+        if ($normalized === '') continue;
+        $phrases[$normalized] = mb_substr($phrase, 0, 160, 'UTF-8');
+    }
+    return array_values($phrases);
+}
+
+function asr_tg_runtime_keyword_matches(string $text, array $phrases, string $mode): ?string {
+    $normalizedText = asr_tg_runtime_keyword_normalize_text($text);
+    if ($normalizedText === '') return null;
+    $mode = $mode === 'exact' ? 'exact' : 'contains';
+    foreach ($phrases as $phrase) {
+        $normalizedPhrase = asr_tg_runtime_keyword_normalize_text((string)$phrase);
+        if ($normalizedPhrase === '') continue;
+        if ($mode === 'exact') {
+            if ($normalizedText === $normalizedPhrase) return (string)$phrase;
+            continue;
+        }
+        if (mb_strpos($normalizedText, $normalizedPhrase, 0, 'UTF-8') !== false) {
+            return (string)$phrase;
+        }
+    }
+    return null;
+}
+
+function asr_tg_runtime_subscriber_has_active_scenario(PDO $pdo, int $botId, int $subscriberId): bool {
+    if ($botId <= 0 || $subscriberId <= 0) return false;
+    try {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_subscriber_scenarios')) return false;
+        $stmt = $pdo->prepare("SELECT scenario_id, current_block_id, status FROM oca_telegram_bot_subscriber_scenarios WHERE bot_id = ? AND subscriber_id = ? AND status IN ('active','waiting','delayed','queued','processing') ORDER BY updated_at DESC, id DESC LIMIT 1");
+        $stmt->execute([$botId, $subscriberId]);
+        return (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function asr_tg_runtime_keyword_trigger_candidates(PDO $pdo, int $botId): array {
+    if ($botId <= 0) return [];
+    try {
+        asr_tg_repository_ensure_scenario_schema($pdo);
+        if (!asr_tg_table_exists($pdo, 'oca_telegram_bot_scenarios') || !asr_tg_table_exists($pdo, 'oca_telegram_bot_scenario_bots') || !asr_tg_table_exists($pdo, 'oca_telegram_bot_scenario_blocks')) return [];
+        $stmt = $pdo->prepare("SELECT s.id AS scenario_id, s.title AS scenario_title, b.id AS start_block_id, b.settings_json
+            FROM oca_telegram_bot_scenarios s
+            JOIN oca_telegram_bot_scenario_bots sb ON sb.scenario_id = s.id
+            JOIN oca_telegram_bot_scenario_blocks b ON b.scenario_id = s.id AND b.type = 'start'
+            WHERE sb.bot_id = ?
+              AND COALESCE(sb.is_enabled, 1) = 1
+              AND s.status = 'active'
+              AND s.archived_at IS NULL
+            ORDER BY s.id ASC, b.id ASC");
+        $stmt->execute([$botId]);
+        $items = [];
+        foreach (($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) as $row) {
+            $settings = json_decode((string)($row['settings_json'] ?? ''), true);
+            if (!is_array($settings) || empty($settings['keyword_triggers_enabled'])) continue;
+            $phrases = asr_tg_runtime_keyword_phrases_from_settings($settings);
+            if (!$phrases) continue;
+            $priority = (int)($settings['keyword_priority'] ?? 50);
+            if ($priority < 1) $priority = 1;
+            if ($priority > 100) $priority = 100;
+            $items[] = [
+                'scenario_id' => (int)($row['scenario_id'] ?? 0),
+                'scenario_title' => (string)($row['scenario_title'] ?? ''),
+                'start_block_id' => (int)($row['start_block_id'] ?? 0),
+                'phrases' => $phrases,
+                'match_mode' => (string)($settings['keyword_match_mode'] ?? 'contains') === 'exact' ? 'exact' : 'contains',
+                'priority' => $priority,
+            ];
+        }
+        usort($items, static function(array $a, array $b): int {
+            $prio = ((int)($b['priority'] ?? 0)) <=> ((int)($a['priority'] ?? 0));
+            if ($prio !== 0) return $prio;
+            return ((int)($a['scenario_id'] ?? 0)) <=> ((int)($b['scenario_id'] ?? 0));
+        });
+        return $items;
+    } catch (Throwable $e) {
+        try { asr_tg_log($pdo, $botId, 'warning', 'scenario_keyword_candidates_failed', $e->getMessage()); } catch (Throwable $ignored) {}
+        return [];
+    }
+}
+
+function asr_tg_runtime_keyword_diagnostic_log(PDO $pdo, int $botId, string $platform, string $eventType, string $message, array $context = []): void {
+    $platform = $platform !== '' ? $platform : 'telegram';
+    $context['platform'] = $platform;
+    try { asr_tg_log($pdo, $botId, 'info', $eventType, $message, $context); } catch (Throwable $ignored) {}
+}
+
+function asr_tg_runtime_try_keyword_trigger(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, ?string $text, string $platform = ''): bool {
+    $text = trim((string)$text);
+    $platform = $platform !== '' ? $platform : (function_exists('asr_tg_channel_type_of') ? asr_tg_channel_type_of($bot) : (string)($bot['channel_type'] ?? 'telegram'));
+    if ($botId <= 0 || $subscriberId <= 0 || $text === '') return false;
+    if (function_exists('asr_tg_runtime_is_service_command_text') && asr_tg_runtime_is_service_command_text($text)) return false;
+
+    if (asr_tg_runtime_subscriber_has_active_scenario($pdo, $botId, $subscriberId)) {
+        asr_tg_runtime_keyword_diagnostic_log($pdo, $botId, $platform, 'scenario_keyword_skipped_active_state', 'Ключевые слова не проверяются: подписчик уже находится в активном сценарии.', [
+            'subscriber_id' => $subscriberId,
+            'reason' => 'subscriber_already_in_scenario',
+            'text_preview' => mb_substr($text, 0, 160, 'UTF-8'),
+        ]);
+        return false;
+    }
+
+    $candidates = asr_tg_runtime_keyword_trigger_candidates($pdo, $botId);
+    if (!$candidates) {
+        asr_tg_runtime_keyword_diagnostic_log($pdo, $botId, $platform, 'scenario_keyword_no_active_triggers', 'Для канала нет активных сценариев с включёнными ключевыми словами.', [
+            'subscriber_id' => $subscriberId,
+            'reason' => 'no_active_keyword_triggers',
+            'text_preview' => mb_substr($text, 0, 160, 'UTF-8'),
+        ]);
+        return false;
+    }
+
+    $matches = [];
+    foreach ($candidates as $candidate) {
+        $matchedPhrase = asr_tg_runtime_keyword_matches($text, (array)($candidate['phrases'] ?? []), (string)($candidate['match_mode'] ?? 'contains'));
+        if ($matchedPhrase === null) continue;
+        $candidate['matched_phrase'] = $matchedPhrase;
+        $candidate['matched_phrase_len'] = mb_strlen(asr_tg_runtime_keyword_normalize_text($matchedPhrase), 'UTF-8');
+        $matches[] = $candidate;
+    }
+    if (!$matches) {
+        asr_tg_runtime_keyword_diagnostic_log($pdo, $botId, $platform, 'scenario_keyword_no_match', 'Входящее сообщение не совпало с ключевыми словами активных сценариев.', [
+            'subscriber_id' => $subscriberId,
+            'reason' => 'keyword_not_matched',
+            'active_keyword_scenarios' => count($candidates),
+            'text_preview' => mb_substr($text, 0, 160, 'UTF-8'),
+        ]);
+        return false;
+    }
+
+    usort($matches, static function(array $a, array $b): int {
+        $prio = ((int)($b['priority'] ?? 0)) <=> ((int)($a['priority'] ?? 0));
+        if ($prio !== 0) return $prio;
+        $len = ((int)($b['matched_phrase_len'] ?? 0)) <=> ((int)($a['matched_phrase_len'] ?? 0));
+        if ($len !== 0) return $len;
+        return ((int)($a['scenario_id'] ?? 0)) <=> ((int)($b['scenario_id'] ?? 0));
+    });
+
+    $selected = $matches[0];
+    $scenarioId = (int)($selected['scenario_id'] ?? 0);
+    if ($scenarioId <= 0) {
+        asr_tg_runtime_keyword_diagnostic_log($pdo, $botId, $platform, 'scenario_keyword_start_failed', 'Ключевое слово совпало, но сценарий не определён.', [
+            'subscriber_id' => $subscriberId,
+            'reason' => 'scenario_id_empty',
+            'matches_count' => count($matches),
+            'text_preview' => mb_substr($text, 0, 160, 'UTF-8'),
+        ]);
+        return false;
+    }
+
+    try {
+        asr_tg_log($pdo, $botId, 'info', 'scenario_keyword_trigger_matched', 'Входящее сообщение совпало с ключевым словом сценария.', [
+            'subscriber_id' => $subscriberId,
+            'platform' => $platform,
+            'scenario_id' => $scenarioId,
+            'scenario_title' => (string)($selected['scenario_title'] ?? ''),
+            'matched_phrase' => (string)($selected['matched_phrase'] ?? ''),
+            'match_mode' => (string)($selected['match_mode'] ?? 'contains'),
+            'priority' => (int)($selected['priority'] ?? 50),
+            'matches_count' => count($matches),
+            'text_preview' => mb_substr($text, 0, 160, 'UTF-8'),
+        ]);
+    } catch (Throwable $ignored) {}
+
+    $started = asr_tg_runtime_start_scenario($pdo, $bot, $botId, $chatId, $subscriberId, $scenarioId, 0, $platform . '_keyword_trigger', [
+        'matched_phrase' => (string)($selected['matched_phrase'] ?? ''),
+        'match_mode' => (string)($selected['match_mode'] ?? 'contains'),
+        'priority' => (int)($selected['priority'] ?? 50),
+        'matches_count' => count($matches),
+    ]);
+    if (!$started) {
+        asr_tg_runtime_keyword_diagnostic_log($pdo, $botId, $platform, 'scenario_keyword_start_failed', 'Ключевое слово совпало, но runtime не запустил сценарий.', [
+            'subscriber_id' => $subscriberId,
+            'reason' => 'runtime_start_returned_false',
+            'scenario_id' => $scenarioId,
+            'matched_phrase' => (string)($selected['matched_phrase'] ?? ''),
+            'text_preview' => mb_substr($text, 0, 160, 'UTF-8'),
+        ]);
+    }
+    return $started;
+}
+
+function asr_tg_send_welcome_message_if_enabled(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, string $source = 'manual'): bool {
+    if ($botId <= 0 || $subscriberId <= 0 || (string)$chatId === '') return false;
+    if (empty($bot['welcome_enabled'])) return false;
+    $welcomeText = trim((string)($bot['welcome_text'] ?? ''));
+    if ($welcomeText === '') return false;
+    try {
+        $channelType = function_exists('asr_tg_channel_type_of') ? asr_tg_channel_type_of($bot) : (string)($bot['channel_type'] ?? 'telegram');
+        if ($channelType === 'vk') {
+            $token = asr_tg_decrypt_token((string)($bot['vk_api_token_encrypted'] ?? ''));
+            if ($token === '') throw new RuntimeException('Не удалось расшифровать токен VK-канала.');
+            asr_tg_vk_send_message($token, $chatId, $welcomeText);
+        } else {
+            $token = asr_tg_decrypt_token((string)($bot['bot_token_encrypted'] ?? ''));
+            if ($token === '') throw new RuntimeException('Не удалось расшифровать токен Telegram-канала.');
+            asr_tg_api_send_message($token, $chatId, $welcomeText);
+        }
+        asr_tg_message_add($pdo, $botId, $subscriberId, 'out', 'text', $welcomeText, null, ['welcome_message' => true, 'source' => $source]);
+        asr_tg_log($pdo, $botId, 'info', 'channel_welcome_sent', 'Стартовое сообщение канала отправлено.', ['subscriber_id' => $subscriberId, 'source' => $source]);
+        return true;
+    } catch (Throwable $e) {
+        try {
+            asr_tg_bot_update($pdo, $botId, ['last_error' => 'Стартовое сообщение: ' . $e->getMessage()]);
+            asr_tg_log($pdo, $botId, 'warning', 'channel_welcome_failed', $e->getMessage(), ['subscriber_id' => $subscriberId, 'source' => $source]);
+        } catch (Throwable $ignored) {}
+        return false;
+    }
+}
+
 function asr_tg_runtime_try_command(PDO $pdo, array $bot, int $botId, int|string $chatId, int $subscriberId, ?string $text): bool {
     $command = asr_tg_runtime_extract_command($text);
     if ($command === '') return false;
@@ -3786,6 +4786,9 @@ function asr_tg_runtime_try_command(PDO $pdo, array $bot, int $botId, int|string
         $defaultScenario = asr_tg_runtime_default_start_scenario_for_bot($pdo, $botId);
         $scenarioId = (int)($defaultScenario['id'] ?? 0);
         if ($scenarioId <= 0) {
+            if (asr_tg_send_welcome_message_if_enabled($pdo, $bot, $botId, $chatId, $subscriberId, 'telegram_start_without_scenario')) {
+                return true;
+            }
             try { asr_tg_log($pdo, $botId, 'warning', 'scenario_plain_start_without_active_scenario', 'Получен обычный /start, но у канала нет активного сценария для запуска.', ['subscriber_id' => $subscriberId]); } catch (Throwable $ignored) {}
             return true;
         }
@@ -3966,6 +4969,9 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
             }
             if (!$scenarioRuntimeHandled) {
                 $scenarioRuntimeHandled = asr_tg_runtime_try_command($pdo, $bot, $botId, $chatId, (int)$subscriberId, $text);
+            }
+            if (!$scenarioRuntimeHandled && !$isServiceCommand && function_exists('asr_tg_runtime_try_keyword_trigger')) {
+                $scenarioRuntimeHandled = asr_tg_runtime_try_keyword_trigger($pdo, $bot, $botId, $chatId, (int)$subscriberId, $text, 'telegram');
             }
         } catch (Throwable $e) {
             asr_tg_bot_update($pdo, $botId, ['last_error' => $e->getMessage()]);
