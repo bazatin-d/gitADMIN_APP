@@ -34,6 +34,7 @@ function asr_users_repository_ensure_schema(PDO $pdo): void {
             'telegram_broadcast_test_bound_at' => "ALTER TABLE `oca_users` ADD COLUMN `telegram_broadcast_test_bound_at` DATETIME NULL DEFAULT NULL",
             'telegram_broadcast_test_receive_broadcasts' => "ALTER TABLE `oca_users` ADD COLUMN `telegram_broadcast_test_receive_broadcasts` TINYINT(1) NOT NULL DEFAULT 1",
             'telegram_broadcast_test_notify_dialogs' => "ALTER TABLE `oca_users` ADD COLUMN `telegram_broadcast_test_notify_dialogs` TINYINT(1) NOT NULL DEFAULT 0",
+            'pwa_dialog_notify_enabled' => "ALTER TABLE `oca_users` ADD COLUMN `pwa_dialog_notify_enabled` TINYINT(1) NOT NULL DEFAULT 0",
         ];
         foreach ($telegramColumns as $column => $sql) {
             $exists = function_exists('asr_table_column_exists_fresh')
@@ -160,7 +161,7 @@ function asr_users_repository_create(PDO $pdo, string $fullName, string $usernam
     return (int)$pdo->lastInsertId();
 }
 
-function asr_users_repository_update(PDO $pdo, int $userId, string $fullName, string $username, string $role, string $plainPassword = '', int $remember365Days = 0, string $telegramChatId = '', string $telegramUsername = '', int $connectToDialogs = 0, int $broadcastTestReceiveBroadcasts = 1, int $broadcastTestNotifyDialogs = 0): void {
+function asr_users_repository_update(PDO $pdo, int $userId, string $fullName, string $username, string $role, string $plainPassword = '', int $remember365Days = 0, string $telegramChatId = '', string $telegramUsername = '', int $connectToDialogs = 0, int $broadcastTestReceiveBroadcasts = 1, int $broadcastTestNotifyDialogs = 0, int $pwaDialogNotifyEnabled = 0): void {
     asr_users_repository_ensure_schema($pdo);
     $hasPlainColumn = asr_users_repository_has_plain_password_column($pdo);
     $hasRememberColumn = asr_users_repository_has_remember_column($pdo);
@@ -187,6 +188,7 @@ function asr_users_repository_update(PDO $pdo, int $userId, string $fullName, st
         if (asr_users_repository_column_exists($pdo, 'telegram_username')) { $sets[] = 'telegram_username = ?'; $values[] = $telegramUsername !== '' ? ltrim($telegramUsername, '@') : null; }
         if (asr_users_repository_column_exists($pdo, 'telegram_broadcast_test_receive_broadcasts')) { $sets[] = 'telegram_broadcast_test_receive_broadcasts = ?'; $values[] = $broadcastTestReceiveBroadcasts === 1 ? 1 : 0; }
         if (asr_users_repository_column_exists($pdo, 'telegram_broadcast_test_notify_dialogs')) { $sets[] = 'telegram_broadcast_test_notify_dialogs = ?'; $values[] = $broadcastTestNotifyDialogs === 1 ? 1 : 0; }
+        if (asr_users_repository_column_exists($pdo, 'pwa_dialog_notify_enabled')) { $sets[] = 'pwa_dialog_notify_enabled = ?'; $values[] = $pwaDialogNotifyEnabled === 1 ? 1 : 0; }
         $values[] = $userId;
         $stmt = $pdo->prepare('UPDATE oca_users SET ' . implode(', ', $sets) . ' WHERE id = ?');
         $stmt->execute($values);
@@ -204,9 +206,28 @@ function asr_users_repository_update(PDO $pdo, int $userId, string $fullName, st
     if (asr_users_repository_column_exists($pdo, 'telegram_username')) { $sets[] = 'telegram_username = ?'; $values[] = $telegramUsername !== '' ? ltrim($telegramUsername, '@') : null; }
     if (asr_users_repository_column_exists($pdo, 'telegram_broadcast_test_receive_broadcasts')) { $sets[] = 'telegram_broadcast_test_receive_broadcasts = ?'; $values[] = $broadcastTestReceiveBroadcasts === 1 ? 1 : 0; }
     if (asr_users_repository_column_exists($pdo, 'telegram_broadcast_test_notify_dialogs')) { $sets[] = 'telegram_broadcast_test_notify_dialogs = ?'; $values[] = $broadcastTestNotifyDialogs === 1 ? 1 : 0; }
+    if (asr_users_repository_column_exists($pdo, 'pwa_dialog_notify_enabled')) { $sets[] = 'pwa_dialog_notify_enabled = ?'; $values[] = $pwaDialogNotifyEnabled === 1 ? 1 : 0; }
     $values[] = $userId;
     $stmt = $pdo->prepare('UPDATE oca_users SET ' . implode(', ', $sets) . ' WHERE id = ?');
     $stmt->execute($values);
+}
+
+
+function asr_users_repository_set_pwa_dialog_notify_enabled(PDO $pdo, int $userId, int $enabled): void {
+    if ($userId <= 0) return;
+    asr_users_repository_ensure_schema($pdo);
+    if (!asr_users_repository_column_exists($pdo, 'pwa_dialog_notify_enabled')) return;
+    $stmt = $pdo->prepare('UPDATE oca_users SET pwa_dialog_notify_enabled = ? WHERE id = ?');
+    $stmt->execute([$enabled === 1 ? 1 : 0, $userId]);
+}
+
+function asr_users_repository_get_pwa_dialog_notify_enabled(PDO $pdo, int $userId): int {
+    if ($userId <= 0) return 0;
+    asr_users_repository_ensure_schema($pdo);
+    if (!asr_users_repository_column_exists($pdo, 'pwa_dialog_notify_enabled')) return 0;
+    $stmt = $pdo->prepare('SELECT pwa_dialog_notify_enabled FROM oca_users WHERE id = ? LIMIT 1');
+    $stmt->execute([$userId]);
+    return (int)$stmt->fetchColumn() === 1 ? 1 : 0;
 }
 
 function asr_users_repository_set_active(PDO $pdo, int $userId, int $state): void {

@@ -16,7 +16,7 @@ function asr_users_redirect(string $message = '', string $error = ''): void {
 }
 
 function asr_users_known_actions(): array {
-    return ['add_user', 'edit_user', 'toggle_user_active', 'delete_user', 'restore_user', 'purge_user'];
+    return ['add_user', 'edit_user', 'toggle_user_active', 'delete_user', 'restore_user', 'purge_user', 'update_my_pwa_dialog_notifications'];
 }
 
 function asr_users_validate_name(string $fullName): string {
@@ -120,6 +120,7 @@ function asr_users_update(PDO $pdo, array $data): void {
     $connectToDialogs = isset($data['connect_to_dialogs']) ? 1 : 0;
     $broadcastTestReceiveBroadcasts = isset($data['telegram_broadcast_test_receive_broadcasts']) ? 1 : 0;
     $broadcastTestNotifyDialogs = isset($data['telegram_broadcast_test_notify_dialogs']) ? 1 : 0;
+    $pwaDialogNotifyEnabled = isset($data['pwa_dialog_notify_enabled']) ? 1 : 0;
 
     if ($isProtectedUser) {
         $role = (string)($editedUser['role'] ?? 'admin');
@@ -129,7 +130,7 @@ function asr_users_update(PDO $pdo, array $data): void {
         throw new RuntimeException('Пользователь с таким логином уже есть.');
     }
 
-    asr_users_repository_update($pdo, $userId, $fullName, $username, $role, $password, $remember365Days, $telegramChatId, $telegramUsername, $connectToDialogs, $broadcastTestReceiveBroadcasts, $broadcastTestNotifyDialogs);
+    asr_users_repository_update($pdo, $userId, $fullName, $username, $role, $password, $remember365Days, $telegramChatId, $telegramUsername, $connectToDialogs, $broadcastTestReceiveBroadcasts, $broadcastTestNotifyDialogs, $pwaDialogNotifyEnabled);
 
     // Если пользователь включил/выключил «не выходить из системы» для самого себя,
     // применяем это сразу, без обязательного перелогина.
@@ -150,6 +151,21 @@ function asr_users_update(PDO $pdo, array $data): void {
     if (function_exists('asr_save_user_permissions')) {
         asr_save_user_permissions($pdo, $userId, asr_users_permissions_from_post($data, $role));
     }
+}
+
+
+function asr_users_update_my_pwa_dialog_notifications(PDO $pdo, int $currentUserId, array $data): array {
+    if ($currentUserId <= 0) {
+        throw new RuntimeException('Пользователь не найден.');
+    }
+    asr_users_repository_ensure_schema($pdo);
+    $enabled = (int)($data['enabled'] ?? 0) === 1 ? 1 : 0;
+    asr_users_repository_set_pwa_dialog_notify_enabled($pdo, $currentUserId, $enabled);
+    return [
+        'ok' => true,
+        'enabled' => $enabled === 1,
+        'message' => $enabled === 1 ? 'PWA-уведомления о диалогах включены.' : 'PWA-уведомления о диалогах отключены.',
+    ];
 }
 
 function asr_users_toggle_active(PDO $pdo, array $data, int $currentUserId): void {

@@ -164,6 +164,7 @@ function asr_users_build_payload(PDO $pdo, array $u): array {
         'broadcast_test_receive_broadcasts' => (int)($u['telegram_broadcast_test_receive_broadcasts'] ?? 1) === 1,
         'broadcast_test_notify_dialogs' => (int)($u['telegram_broadcast_test_notify_dialogs'] ?? 0) === 1,
         'connect_to_dialogs' => (int)($u['connect_to_dialogs'] ?? 0) === 1,
+        'pwa_dialog_notify_enabled' => (int)($u['pwa_dialog_notify_enabled'] ?? 0) === 1,
     ];
 }
 
@@ -222,6 +223,150 @@ $archivedUsers = asr_users_repository_archived_all($pdo);
     .users-action-icon-btn{width:40px;height:40px;min-width:40px;}
 }
 </style>
+
+<style>
+/* v3.6.61 — dark theme: users modals and checkbox cards */
+html.asr-dark #addUserModal .modal-panel,
+html.asr-dark #editUserModal .modal-panel,
+html.asr-dark #userIssuedAccessModal .modal-panel {
+    background: #191D23 !important;
+    border: 1px solid #2B313A !important;
+    color: #E5E7EB !important;
+    box-shadow: 0 28px 90px rgba(0,0,0,.50) !important;
+}
+html.asr-dark #addUserModal .modal-panel > div:first-child,
+html.asr-dark #editUserModal .modal-panel > div:first-child,
+html.asr-dark #userIssuedAccessModal .modal-panel > div:first-child {
+    background: #222832 !important;
+    border-color: #2B313A !important;
+}
+html.asr-dark #addUserModal h3,
+html.asr-dark #editUserModal h3,
+html.asr-dark #userIssuedAccessModal h3 {
+    color: #F3F4F6 !important;
+}
+html.asr-dark #addUserModal label,
+html.asr-dark #editUserModal label,
+html.asr-dark #userIssuedAccessModal label {
+    color: #A9B4C2 !important;
+}
+html.asr-dark #addUserModal input[type="text"],
+html.asr-dark #addUserModal input[type="password"],
+html.asr-dark #addUserModal select,
+html.asr-dark #editUserModal input[type="text"],
+html.asr-dark #editUserModal input[type="password"],
+html.asr-dark #editUserModal select,
+html.asr-dark #userIssuedAccessModal input[type="text"],
+html.asr-dark #userIssuedAccessModal input[type="password"],
+html.asr-dark #userIssuedAccessModal select {
+    background: #11161D !important;
+    border-color: #303844 !important;
+    color: #EEF2F7 !important;
+    box-shadow: none !important;
+}
+html.asr-dark #addUserModal input:-webkit-autofill,
+html.asr-dark #addUserModal input:-webkit-autofill:hover,
+html.asr-dark #addUserModal input:-webkit-autofill:focus,
+html.asr-dark #editUserModal input:-webkit-autofill,
+html.asr-dark #editUserModal input:-webkit-autofill:hover,
+html.asr-dark #editUserModal input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #EEF2F7 !important;
+    -webkit-box-shadow: 0 0 0 1000px #11161D inset !important;
+    caret-color: #FFA048 !important;
+}
+html.asr-dark #addUserModal input::placeholder,
+html.asr-dark #editUserModal input::placeholder {
+    color: #6F7A88 !important;
+}
+html.asr-dark #editUserTelegramWrap,
+html.asr-dark #editUserBroadcastTestTelegramWrap,
+html.asr-dark #editUserRememberWrap,
+html.asr-dark #editUserDialogsWrap,
+html.asr-dark #editUserPwaNotifyWrap,
+html.asr-dark #editUserPermissionsWrap,
+html.asr-dark #addUserModal label:has(input[name="new_connect_to_dialogs"]) {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #D7DEE8 !important;
+}
+html.asr-dark #editUserBroadcastTestOptions label,
+html.asr-dark #editUserPermissionsWrap label,
+html.asr-dark #userIssuedAccessList .bg-white {
+    background: #171C23 !important;
+    border-color: #303844 !important;
+    color: #D7DEE8 !important;
+}
+html.asr-dark #addUserModal label span .block,
+html.asr-dark #editUserModal label span .block,
+html.asr-dark #editUserBroadcastTestOptions label span .block,
+html.asr-dark #editUserPermissionsWrap label span,
+html.asr-dark #editUserTelegramStatus,
+html.asr-dark #editUserBroadcastTestTelegramStatus {
+    color: #E5E7EB !important;
+}
+html.asr-dark #addUserModal label span .text-xs,
+html.asr-dark #editUserModal label span .text-\[11px\],
+html.asr-dark #editUserModal p,
+html.asr-dark #editUserBroadcastTestTelegramWrap p,
+html.asr-dark #editUserTelegramWrap p,
+html.asr-dark #userIssuedAccessSubtitle {
+    color: #A9B4C2 !important;
+}
+html.asr-dark #editUserBroadcastTestTelegramWrap .text-\[\#c96f2b\],
+html.asr-dark #editUserTelegramWrap .text-\[\#c96f2b\],
+html.asr-dark #editUserPermissionsWrap .text-\[\#FFA048\] {
+    color: #FFA048 !important;
+}
+html.asr-dark #editUserModal .bg-orange-50\/30,
+html.asr-dark #editUserModal .bg-orange-50\/40,
+html.asr-dark #addUserModal .bg-orange-50\/40 {
+    background: #222832 !important;
+}
+html.asr-dark #editUserModal .border-orange-100,
+html.asr-dark #addUserModal .border-orange-100 {
+    border-color: #303844 !important;
+}
+html.asr-dark #editUserModal .bg-white,
+html.asr-dark #addUserModal .bg-white {
+    background-color: #11161D !important;
+}
+html.asr-dark #editUserModal .text-gray-800,
+html.asr-dark #editUserModal .text-gray-700,
+html.asr-dark #editUserModal .text-gray-600,
+html.asr-dark #addUserModal .text-gray-800,
+html.asr-dark #addUserModal .text-gray-700,
+html.asr-dark #addUserModal .text-gray-600 {
+    color: #E5E7EB !important;
+}
+html.asr-dark #editUserModal .text-gray-500,
+html.asr-dark #editUserModal .text-gray-400,
+html.asr-dark #addUserModal .text-gray-500,
+html.asr-dark #addUserModal .text-gray-400 {
+    color: #A9B4C2 !important;
+}
+html.asr-dark #editUserModal input[type="checkbox"],
+html.asr-dark #addUserModal input[type="checkbox"] {
+    background-color: #11161D !important;
+    border-color: #536071 !important;
+}
+html.asr-dark #editUserModal input[type="checkbox"]:checked,
+html.asr-dark #addUserModal input[type="checkbox"]:checked {
+    background-color: #FFA048 !important;
+    border-color: #FFA048 !important;
+}
+html.asr-dark #editUserModal .users-modal-close,
+html.asr-dark #addUserModal .users-modal-close {
+    background: #171C23 !important;
+    border: 1px solid #303844 !important;
+    color: #C8D0DA !important;
+}
+html.asr-dark #userIssuedAccessList .bg-gray-50 {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #A9B4C2 !important;
+}
+</style>
+
 
 <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden text-left">
     <div class="px-6 py-5 border-b border-gray-100 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -314,6 +459,7 @@ $archivedUsers = asr_users_repository_archived_all($pdo);
                                 <div class="mt-2"><span class="px-2 py-1 rounded-lg text-[10px] font-semibold uppercase <?php echo $tgConnected ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-400'; ?>"><?php echo $tgConnected ? 'Telegram подключён' : 'Telegram не подключён'; ?></span></div>
                                 <?php if ((int)($u['connect_to_dialogs'] ?? 0) === 1): ?><div class="mt-2"><span class="px-2 py-1 rounded-lg text-[10px] font-semibold uppercase bg-orange-50 text-[#c96f2b]">Диалоги подключены</span></div><?php endif; ?>
                                 <?php if (asr_users_broadcast_test_telegram_connected($u)): ?><div class="mt-2"><span class="px-2 py-1 rounded-lg text-[10px] font-semibold uppercase bg-orange-50 text-[#c96f2b]">Тест-бот рассылок</span></div><?php if ((int)($u['telegram_broadcast_test_notify_dialogs'] ?? 0) === 1): ?><div class="mt-2"><span class="px-2 py-1 rounded-lg text-[10px] font-semibold uppercase bg-green-50 text-green-700">Уведомления о диалогах</span></div><?php endif; ?><?php endif; ?>
+                                <?php if ((int)($u['pwa_dialog_notify_enabled'] ?? 0) === 1): ?><div class="mt-2"><span class="px-2 py-1 rounded-lg text-[10px] font-semibold uppercase bg-green-50 text-green-700">PWA-уведомления</span></div><?php endif; ?>
                             </td>
                             <td class="p-5 align-top">
                                 <div class="flex flex-col items-start gap-2">

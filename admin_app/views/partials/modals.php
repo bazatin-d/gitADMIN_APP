@@ -128,6 +128,13 @@ $asrHelpVideo = trim((string)asr_get_setting($asrHelpVideoKey, ''));
                         <span class="block mt-1 text-[11px] text-gray-400 font-semibold">Сотрудник будет доступен в списке назначения диалогов.</span>
                     </span>
                 </label>
+                <label id="editUserPwaNotifyWrap" class="flex items-start gap-3 rounded-2xl border border-orange-100 bg-orange-50/40 px-4 py-3 text-sm font-bold text-gray-700">
+                    <input type="checkbox" name="pwa_dialog_notify_enabled" id="edit_user_pwa_dialog_notify_enabled" value="1" class="mt-1 w-4 h-4 rounded border-gray-300 text-[#FFA048]">
+                    <span>
+                        <span class="block text-gray-800">PWA-уведомления о новых диалогах</span>
+                        <span class="block mt-1 text-[11px] text-gray-400 font-semibold">Если браузер разрешил уведомления, сотрудник будет получать уведомления о новых диалогах в PWA/браузере.</span>
+                    </span>
+                </label>
                 <div id="editUserPermissionsWrap" class="hidden rounded-2xl border border-orange-100 bg-orange-50/40 p-4 space-y-3">
                     <div class="text-[10px] font-black text-[#FFA048] uppercase tracking-widest">Права доступа к модулям</div>
                     <?php if (function_exists('asr_known_module_permissions')): ?>

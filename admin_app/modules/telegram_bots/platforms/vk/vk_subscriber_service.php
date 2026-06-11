@@ -243,6 +243,19 @@ if (!function_exists('asr_tg_vk_message_new_handle')) {
                 }
             }
 
+            if (function_exists('asr_pwa_push_notify_dialog')) {
+                try {
+                    asr_pwa_push_notify_dialog($pdo, $channel, $botId, $subscriberId, $text);
+                } catch (Throwable $e) {
+                    try {
+                        asr_tg_log($pdo, $botId, 'warning', 'vk_dialog_pwa_push_failed', $e->getMessage(), [
+                            'subscriber_id' => $subscriberId,
+                            'vk_user_id' => $vkMessage['user_id'],
+                        ]);
+                    } catch (Throwable $ignored) {}
+                }
+            }
+
             try {
                 asr_tg_log($pdo, $botId, 'info', 'vk_message_new_received', 'Входящее сообщение VK добавлено в диалоги.', [
                     'subscriber_id' => $subscriberId,

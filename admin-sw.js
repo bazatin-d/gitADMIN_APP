@@ -1,4 +1,4 @@
-const ASR_ADMIN_CACHE = 'asr-admin-static-v1';
+const ASR_ADMIN_CACHE = 'asr-admin-static-v3';
 const ASR_STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/pwa/offline.html',
@@ -87,4 +87,63 @@ self.addEventListener('fetch', (event) => {
       })
     );
   }
+});
+
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification && event.notification.data ? event.notification.data : {};
+  const targetUrl = data.url || '/admin.php?tab=telegram_bots&page=messages&dialog_view=new';
+  const absoluteUrl = new URL(targetUrl, self.location.origin).href;
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        try {
+          const clientUrl = new URL(client.url);
+          if (clientUrl.origin === self.location.origin && clientUrl.pathname.endsWith('/admin.php')) {
+            if ('navigate' in client) client.navigate(absoluteUrl);
+            if ('focus' in client) return client.focus();
+            return client;
+          }
+        } catch (e) {}
+      }
+      if (clients.openWindow) return clients.openWindow(absoluteUrl);
+      return null;
+    })
+  );
+});
+
+self.addEventListener('push', (event) => {
+  const dialogsUrl = '/admin.php?tab=telegram_bots&page=messages&dialog_view=new';
+  const fallbackTitle = 'Новый диалог';
+  const fallbackOptions = {
+    body: 'В админке есть новое сообщение. Откройте диалоги, чтобы ответить.',
+    tag: 'asr-dialogs-server-push',
+    renotify: true,
+    icon: '/pwa/icons/icon-192.png',
+    badge: '/pwa/icons/icon-192.png',
+    data: { url: dialogsUrl }
+  };
+
+  event.waitUntil((async () => {
+    try {
+      const response = await fetch('/admin.php?tab=telegram_bots&tg_ajax=dialog_badges&_=' + Date.now(), {
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+      });
+      if (response && response.ok) {
+        const payload = await response.json();
+        const count = parseInt((payload && payload.attention_total) || 0, 10) || 0;
+        const title = count > 1 ? 'Новые диалоги' : fallbackTitle;
+        const body = count > 0
+          ? (count === 1 ? 'Есть 1 диалог без ответа.' : 'Диалогов без ответа: ' + (count > 99 ? '99+' : count) + '.')
+          : fallbackOptions.body;
+        await self.registration.showNotification(title, Object.assign({}, fallbackOptions, { body }));
+        return;
+      }
+    } catch (e) {}
+    await self.registration.showNotification(fallbackTitle, fallbackOptions);
+  })());
 });

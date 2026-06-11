@@ -15,6 +15,7 @@ if (!function_exists('asr_menu_icon')) {
             'link' => 'link',
             'key' => 'lock',
             'telegram' => 'telegram',
+            'org' => 'marketing',
             'dot' => 'chevron-right',
         ];
         $name = $map[$iconKey] ?? 'link';
@@ -104,6 +105,22 @@ if (!function_exists('asr_menu_href_is_active')) {
     }
 }
 
+
+if (!function_exists('asr_menu_is_footer_settings_item')) {
+    function asr_menu_is_footer_settings_item(array $item): bool {
+        $title = trim(mb_strtolower((string)($item['title'] ?? ''), 'UTF-8'));
+        $href = trim(mb_strtolower((string)($item['href'] ?? ''), 'UTF-8'));
+        $type = (string)($item['item_type'] ?? '');
+
+        if ($type === 'group' && in_array($title, ['настройки', 'настройки системы'], true)) {
+            return true;
+        }
+
+        return in_array($href, ['admin.php?tab=settings', '/admin.php?tab=settings', 'admin.php?tab=users', '/admin.php?tab=users'], true)
+            || in_array($title, ['настройки системы', 'пользователи', 'сотрудники'], true);
+    }
+}
+
 if (!function_exists('asr_render_admin_drawer_menu')) {
     function asr_render_admin_drawer_menu(PDO $pdo): string {
         if (!function_exists('asr_get_admin_menu_items')) {
@@ -126,6 +143,10 @@ if (!function_exists('asr_render_admin_drawer_menu')) {
                     continue;
                 }
             } catch (Throwable $e) {
+                continue;
+            }
+
+            if (function_exists('asr_menu_is_footer_settings_item') && asr_menu_is_footer_settings_item($item)) {
                 continue;
             }
 

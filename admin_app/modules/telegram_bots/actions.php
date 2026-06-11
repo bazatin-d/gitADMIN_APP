@@ -214,6 +214,46 @@ function asr_tg_dialog_after_action_ajax_payload(PDO $pdo, array $source, int $s
     return $payload;
 }
 
+
+function asr_tg_dialog_badges_payload(PDO $pdo): array {
+    if (!asr_tg_can('manage')) throw new RuntimeException('Недостаточно прав для просмотра диалогов.');
+    asr_tg_repository_ensure_schema($pdo);
+
+    $counts = asr_tg_dialogs_counts($pdo, 0, [
+        'view' => 'new',
+        'q' => '',
+        'unread_only' => false,
+        'channel_ids' => [],
+        'tag_ids' => [],
+    ]);
+
+    $attentionTotal = (int)($counts['needs_reply_total'] ?? 0);
+    if ($attentionTotal <= 0) {
+        $attentionTotal = (int)($counts['unread_dialogs'] ?? 0);
+    }
+
+    return [
+        'ok' => true,
+        'attention_total' => $attentionTotal,
+        'new_total' => (int)($counts['new'] ?? 0),
+        'new_needs_reply' => (int)($counts['needs_reply_new'] ?? 0),
+        'my_needs_reply' => (int)($counts['needs_reply_my'] ?? 0),
+        'assigned_needs_reply' => (int)($counts['needs_reply_assigned'] ?? 0),
+        'unread_dialogs' => (int)($counts['unread_dialogs'] ?? 0),
+        'unread_messages' => (int)($counts['unread_messages'] ?? 0),
+        'counts' => $counts,
+        'server_time' => date('Y-m-d H:i:s'),
+    ];
+}
+
+function asr_tg_handle_dialog_badges_ajax(PDO $pdo): void {
+    try {
+        asr_tg_json_response(asr_tg_dialog_badges_payload($pdo));
+    } catch (Throwable $e) {
+        asr_tg_json_response(['ok' => false, 'error' => $e->getMessage()], 400);
+    }
+}
+
 function asr_tg_handle_dialog_ajax(PDO $pdo, array $source): void {
     try {
         $ajax = (string)($source['tg_ajax'] ?? '');
@@ -370,6 +410,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_b
     asr_tg_handle_segment_count($pdo, $_GET);
 }
 
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_bots' && (string)($_GET['tg_ajax'] ?? '') === 'dialog_badges') {
+    asr_tg_handle_dialog_badges_ajax($pdo);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['tab'] ?? '') === 'telegram_bots' && ($_GET['page'] ?? '') === 'messages' && in_array((string)($_GET['tg_ajax'] ?? ''), ['dialogs_state','dialog_messages','dialog_panel'], true)) {
     asr_tg_handle_dialog_ajax($pdo, $_GET);

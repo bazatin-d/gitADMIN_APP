@@ -52,6 +52,7 @@ function openEditUserModal(data) {
     const passwordInput = document.getElementById('edit_user_new_password');
     const rememberInput = document.getElementById('edit_user_remember_365_days');
     const dialogsInput = document.getElementById('edit_user_connect_to_dialogs');
+    const pwaNotifyInput = document.getElementById('edit_user_pwa_dialog_notify_enabled');
     const dialogsWrap = document.getElementById('editUserDialogsWrap');
     const rememberWrap = document.getElementById('editUserRememberWrap');
     const roleSelect = document.getElementById('edit_user_role');
@@ -65,6 +66,7 @@ function openEditUserModal(data) {
     if (passwordInput) passwordInput.value = '';
     if (rememberInput) rememberInput.checked = !!data.remember_365_days;
     if (dialogsInput) dialogsInput.checked = !!data.connect_to_dialogs;
+    if (pwaNotifyInput) pwaNotifyInput.checked = !!data.pwa_dialog_notify_enabled;
     if (roleSelect) roleSelect.value = data.role || 'operator';
 
     document.querySelectorAll('.edit-user-permission').forEach(function(cb) {
@@ -353,18 +355,59 @@ drawerGroups.forEach(function(group) {
 
 
         let deferredAdminInstallPrompt = null;
+
+        function isAdminAppStandalone() {
+            return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+                || window.navigator.standalone === true;
+        }
+
+        function isAdminAppIosInstallCandidate() {
+            const ua = navigator.userAgent || '';
+            const isIos = /iphone|ipad|ipod/i.test(ua);
+            const isSafari = /safari/i.test(ua) && !/crios|fxios|edgios/i.test(ua);
+            return isIos && isSafari && !isAdminAppStandalone();
+        }
+
+        function syncAdminInstallButton() {
+            const button = document.getElementById('pwaInstallButton');
+            if (!button) return;
+            const canShow = !isAdminAppStandalone() && (deferredAdminInstallPrompt || isAdminAppIosInstallCandidate());
+            button.classList.toggle('is-install-hidden', !canShow);
+            button.setAttribute('aria-hidden', canShow ? 'false' : 'true');
+        }
+
         window.addEventListener('beforeinstallprompt', function(e) {
             e.preventDefault();
             deferredAdminInstallPrompt = e;
+            syncAdminInstallButton();
         });
 
+        window.addEventListener('appinstalled', function() {
+            deferredAdminInstallPrompt = null;
+            syncAdminInstallButton();
+        });
+
+        window.addEventListener('DOMContentLoaded', syncAdminInstallButton);
+        window.addEventListener('load', syncAdminInstallButton);
+        if (window.matchMedia) {
+            const standaloneQuery = window.matchMedia('(display-mode: standalone)');
+            if (standaloneQuery && standaloneQuery.addEventListener) {
+                standaloneQuery.addEventListener('change', syncAdminInstallButton);
+            }
+        }
+
         async function installAdminApp() {
+            if (isAdminAppStandalone()) {
+                syncAdminInstallButton();
+                return;
+            }
             if (deferredAdminInstallPrompt) {
                 deferredAdminInstallPrompt.prompt();
                 try {
                     await deferredAdminInstallPrompt.userChoice;
                 } finally {
                     deferredAdminInstallPrompt = null;
+                    syncAdminInstallButton();
                 }
                 return;
             }

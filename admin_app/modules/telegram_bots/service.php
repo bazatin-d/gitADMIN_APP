@@ -12,6 +12,8 @@ require_once __DIR__ . '/scenario_condition_runtime.php';
 require_once __DIR__ . '/scenario_action_runtime.php';
 require_once __DIR__ . '/scenario_formula_runtime.php';
 require_once __DIR__ . '/platforms/vk/vk_client.php';
+$asrPwaPushLib = __DIR__ . '/../../lib/pwa_push.php';
+if (is_file($asrPwaPushLib)) { require_once $asrPwaPushLib; }
 
 function asr_tg_can(string $permission): bool {
     $key = 'telegram_bots.' . $permission;
@@ -4998,6 +5000,9 @@ function asr_tg_handle_webhook(PDO $pdo, int $botId, string $urlSecret, string $
 
     if (!$isServiceCommand && !$scenarioRuntimeHandled && $subscriberId > 0) {
         asr_tg_notify_technical_bot_about_dialog($pdo, $bot, $botId, (int)$subscriberId, $message, $text);
+        if (function_exists('asr_pwa_push_notify_dialog')) {
+            try { asr_pwa_push_notify_dialog($pdo, $bot, $botId, (int)$subscriberId, $text); } catch (Throwable $ignore) {}
+        }
     }
 
     if (!$scenarioRuntimeHandled && !$isServiceCommand && $subscriberId > 0) {
