@@ -465,6 +465,45 @@ $safeFormatDate = static function($value): string {
 .tg-filter-mainline{position:relative;z-index:5}.tg-bulk-actions{margin-left:auto;position:relative;display:inline-flex;align-items:center;z-index:20}.tg-bulk-actions-btn{height:42px;border:1px solid #e5e7eb;background:#f3f4f6;color:#374151;border-radius:14px;padding:0 14px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:8px;cursor:pointer}.tg-bulk-actions-btn:disabled{opacity:.55;cursor:not-allowed}.tg-bulk-actions-btn:after{content:'▾';font-size:11px;color:#9ca3af}.tg-bulk-menu{display:none;position:absolute;right:0;top:48px;z-index:120;width:300px;background:#fff;border:1px solid #e5e7eb;border-radius:18px;box-shadow:0 18px 48px rgba(15,23,42,.16);padding:10px}.tg-bulk-actions.is-open .tg-bulk-menu{display:block}.tg-bulk-menu-title{font-size:12px;font-weight:700;color:#9ca3af;padding:6px 8px 10px}.tg-bulk-menu-item{width:100%;min-height:38px;border:0;background:#fff;color:#374151;border-radius:12px;padding:9px 10px;font-size:13px;font-weight:600;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer}.tg-bulk-menu-item:hover{background:#fff7ed;color:#c2410c}.tg-bulk-menu-item[disabled]{color:#9ca3af;background:#f9fafb;cursor:not-allowed}.tg-bulk-start-note{font-size:11px;font-weight:600;color:#9ca3af;line-height:1.35}.tg-bulk-menu-item.danger{color:#b91c1c}.tg-bulk-panel{display:none;border-top:1px solid #edf0f2;margin-top:8px;padding:10px 8px 4px}.tg-bulk-panel.is-open{display:grid;gap:8px}.tg-bulk-panel label{font-size:11px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em}.tg-bulk-panel select{height:40px;border:1px solid #e5e7eb;border-radius:12px;padding:0 10px;color:#374151;font-size:13px;font-weight:600;background:#fff}.tg-bulk-panel button{height:38px;border:0;border-radius:12px;background:#e98222;color:#fff;font-size:12px;font-weight:700;cursor:pointer}.tg-row-check{display:flex;align-items:center;justify-content:center}.tg-row-check input{width:18px;height:18px;accent-color:#e98222;cursor:pointer}.tg-delete-confirm-card{width:min(780px,100%)}.tg-delete-alert{margin:16px 22px 0;border:1px solid #fed7aa;background:#fff7ed;color:#1f2937;border-radius:8px;padding:16px 20px;display:flex;gap:14px;align-items:flex-start;font-size:15px;font-weight:500;line-height:1.55}.tg-delete-alert-icon{width:28px;height:28px;border:2px solid #f59e0b;color:#f59e0b;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-weight:800;flex:0 0 auto}.tg-delete-confirm-body{padding:22px}.tg-delete-confirm-body input{width:100%;height:72px;border:1px solid #d1d5db;border-radius:6px;padding:0 22px;font-size:18px;font-weight:500;color:#111827;outline:none}.tg-delete-confirm-body input:focus{border-color:#e98222;box-shadow:0 0 0 3px rgba(233,130,34,.12)}.tg-delete-confirm-actions{display:flex;justify-content:flex-end;gap:12px;padding:0 22px 20px}.tg-delete-confirm-actions button{height:54px;border:0;border-radius:6px;padding:0 22px;font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;cursor:pointer}.tg-delete-cancel{background:#fff;color:#1a73e8}.tg-delete-ok{background:#e5e7eb;color:#9ca3af}.tg-delete-ok.is-ready{background:#e98222;color:#fff}@media(max-width:820px){.tg-bulk-actions{margin-left:0;width:100%}.tg-bulk-actions-btn{width:100%;justify-content:center}.tg-bulk-menu{position:static;width:100%;margin-top:8px;box-shadow:none}.tg-delete-confirm-actions{flex-direction:column-reverse}.tg-delete-confirm-actions button{width:100%}}
 
 </style>
+
+<style>
+html.asr-dark .tg-subs-emergency,
+html.asr-dark .tg-subs-modal-card{background:#191D23!important;border-color:#2B313A!important;box-shadow:0 18px 48px rgba(0,0,0,.28)!important}
+html.asr-dark .tg-subs-emergency-head,
+html.asr-dark .tg-subs-emergency-filter,
+html.asr-dark .tg-subs-vars,
+html.asr-dark .tg-subs-modal-head,
+html.asr-dark .tg-subs-field-form{border-color:#2B313A!important}
+html.asr-dark .tg-subs-emergency-filter,
+html.asr-dark .tg-subs-field-form{background:#222832!important}
+html.asr-dark .tg-subs-emergency-row,
+html.asr-dark .tg-subs-field-row{border-color:#2B313A!important}
+html.asr-dark .tg-subs-emergency-head h3,
+html.asr-dark .tg-subs-emergency-name,
+html.asr-dark .tg-subs-field-name,
+html.asr-dark .tg-subs-modal-head h4{color:#F3F4F6!important}
+html.asr-dark .tg-subs-emergency-meta,
+html.asr-dark .tg-subs-emergency-note,
+html.asr-dark .tg-subs-emergency-date,
+html.asr-dark .tg-subs-emergency-date span,
+html.asr-dark .tg-subs-field-type,
+html.asr-dark .tg-subs-modal-head p{color:#A9B4C2!important}
+html.asr-dark .tg-subs-emergency-tag,
+html.asr-dark .tg-subs-emergency-pill,
+html.asr-dark .tg-subs-btn,
+html.asr-dark .tg-subs-field-actions button:not(.danger):not(.restore),
+html.asr-dark .tg-subs-page-size select,
+html.asr-dark .tg-subs-emergency-pager a{background:#222832!important;border-color:#303844!important;color:#D7DEE8!important}
+html.asr-dark .tg-subs-vars{background:rgba(255,160,72,.10)!important}
+html.asr-dark .tg-subs-vars-title,
+html.asr-dark .tg-subs-field-code,
+html.asr-dark .tg-subs-var-token{color:#FDBA74!important}
+html.asr-dark .tg-subs-var-token,
+html.asr-dark .tg-subs-field-code{background:rgba(255,160,72,.12)!important;border-color:rgba(255,160,72,.24)!important}
+html.asr-dark .tg-subs-modal-close{background:#222832!important;color:#D7DEE8!important}
+html.asr-dark .tg-subs-field-actions .edit{background:#222832!important;color:#D7DEE8!important;border-color:#303844!important}
+</style>
+
 <section class="tg-subs-emergency">
     <div class="tg-subs-emergency-head">
         <div><h3>Подписчики <span style="color:#9ca3af"><?php echo (int)$safeTotal; ?></span></h3></div>
@@ -1022,4 +1061,99 @@ $safeFormatDate = static function($value): string {
     });
 })();
 </script>
+<style>
+/* v3.6.57 Dark Audit fixes: subscribers exact selectors */
+html.asr-dark form.tg-filter-builder{
+    background:#191D23!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-filter-builder select,
+html.asr-dark .tg-filter-builder input,
+html.asr-dark .tg-filter-channel{
+    background:#111820!important;
+    border-color:#303844!important;
+    color:#EEF2F7!important;
+}
+html.asr-dark .tg-filter-add,
+html.asr-dark .tg-filter-chip,
+html.asr-dark .tg-filter-popover,
+html.asr-dark .tg-filter-logic-wrap,
+html.asr-dark .tg-filter-logic.is-active{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+    box-shadow:none!important;
+}
+html.asr-dark .tg-filter-add:hover,
+html.asr-dark .tg-filter-chip:hover,
+html.asr-dark .tg-filter-joiner:hover{
+    background:rgba(255,160,72,.12)!important;
+    border-color:rgba(255,160,72,.32)!important;
+    color:#FFA048!important;
+}
+html.asr-dark .tg-filter-reset,
+html.asr-dark .tg-bulk-actions-btn,
+html.asr-dark .tg-filter-remove,
+html.asr-dark .tg-filter-joiner{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#C8D0DA!important;
+}
+html.asr-dark .tg-bulk-actions-btn:disabled,
+html.asr-dark .tg-filter-apply:disabled{
+    background:#1C222B!important;
+    border-color:#303844!important;
+    color:#6F7A88!important;
+}
+html.asr-dark .tg-subs-emergency-avatar{
+    background:#222832!important;
+    border:1px solid #303844!important;
+}
+html.asr-dark .tg-subs-emergency-avatar img{filter:none!important;opacity:.92!important;}
+</style>
+
+
+<style>
+/* v3.6.58 dark audit precise fixes: subscribers filter strip */
+html.asr-dark .tg-filter-builder {
+    background:#191D23!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-filter-mainline,
+html.asr-dark .tg-filter-row,
+html.asr-dark .tg-filter-condition {
+    background:transparent!important;
+    border-color:#2B313A!important;
+}
+html.asr-dark .tg-filter-add,
+html.asr-dark .tg-filter-reset,
+html.asr-dark .tg-bulk-actions-btn,
+html.asr-dark .tg-bulk-actions-menu {
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-filter-add {
+    background:rgba(255,160,72,.13)!important;
+    border-color:rgba(255,160,72,.32)!important;
+    color:#FDBA74!important;
+}
+html.asr-dark .tg-filter-apply {
+    background:#FFA048!important;
+    border-color:#FFA048!important;
+    color:#fff!important;
+}
+html.asr-dark .tg-subs-emergency-avatar {
+    background:#222832!important;
+    border:1px solid #303844!important;
+}
+html.asr-dark .tg-subs-emergency-avatar img {
+    opacity:.9!important;
+    filter:none!important;
+}
+</style>
+
 <?php return;
+

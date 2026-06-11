@@ -1402,3 +1402,358 @@ console.error('Scenario Flow script file not found');
 <?php endif; ?>
 </script>
 <script nomodule>document.getElementById('tg-scenario-flow-error').style.display='block';</script>
+<style>
+/* v3.6.57 Dark Audit fixes: scenario flow exact selectors */
+html.asr-dark body.asr-flow-fullscreen{
+    background:#111317!important;
+}
+html.asr-dark .tg-flow-app{
+    background:#111317!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-topbar{
+    background:#191D23!important;
+    border-color:#2B313A!important;
+    box-shadow:none!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-title{
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-flow-canvas-wrap,
+html.asr-dark .tg-flow-root,
+html.asr-dark .react-flow,
+html.asr-dark .react-flow__renderer,
+html.asr-dark .react-flow__pane{
+    background-color:#111317!important;
+}
+html.asr-dark .react-flow__background{
+    background-color:#111317!important;
+}
+html.asr-dark .tg-flow-root .react-flow__background-pattern dots,
+html.asr-dark .react-flow__background-pattern{
+    color:#303844!important;
+}
+html.asr-dark .tg-flow-node{
+    background:#191D23!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+    box-shadow:0 16px 34px rgba(0,0,0,.28)!important;
+}
+html.asr-dark .tg-flow-node-head{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-node.is-start .tg-flow-node-head{
+    background:#22A758!important;
+    border-color:#22A758!important;
+}
+html.asr-dark .tg-flow-node-title,
+html.asr-dark .tg-flow-card-title{
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-flow-node-id,
+html.asr-dark .tg-flow-card-sub,
+html.asr-dark .tg-flow-node-card,
+html.asr-dark .tg-flow-preview-card{
+    color:#A9B4C2!important;
+}
+html.asr-dark .tg-flow-node-card,
+html.asr-dark .tg-flow-preview-card,
+html.asr-dark .tg-flow-preview-card.is-text{
+    background:#222832!important;
+    border-color:#303844!important;
+}
+html.asr-dark .tg-flow-node-action,
+html.asr-dark .tg-flow-node-edit,
+html.asr-dark .tg-flow-menu-btn,
+html.asr-dark .tg-flow-top-btn:not(.is-primary),
+html.asr-dark .tg-flow-tech-link{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#C8D0DA!important;
+}
+html.asr-dark .tg-flow-node-action:hover,
+html.asr-dark .tg-flow-node-edit:hover,
+html.asr-dark .tg-flow-menu-btn:hover,
+html.asr-dark .tg-flow-top-btn:not(.is-primary):hover{
+    background:rgba(255,160,72,.12)!important;
+    border-color:rgba(255,160,72,.32)!important;
+    color:#FFA048!important;
+}
+html.asr-dark .tg-flow-top-btn.is-muted,
+html.asr-dark button#tg-flow-stop-btn.tg-flow-top-btn.is-muted{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#C8D0DA!important;
+}
+html.asr-dark .tg-flow-block-counter{
+    background:rgba(25,29,35,.88)!important;
+    border-color:#303844!important;
+    color:#A9B4C2!important;
+}
+html.asr-dark .react-flow__controls button{
+    background:#191D23!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-block-drawer .tg-flow-clean-drawer,
+html.asr-dark .tg-flow-block-drawer .tg-flow-clean-form,
+html.asr-dark .tg-flow-block-drawer .tg-flow-clean-head,
+html.asr-dark .tg-flow-block-drawer .tg-flow-clean-body,
+html.asr-dark .tg-flow-block-drawer .tg-flow-clean-footer,
+html.asr-dark .tg-flow-block-drawer .tg-flow-panel,
+html.asr-dark .tg-flow-panel-head,
+html.asr-dark .tg-flow-panel-body,
+html.asr-dark .tg-flow-panel-footer{
+    background:#191D23!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-panel-title,
+html.asr-dark .tg-flow-block-drawer .tg-flow-clean-title{
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-flow-panel-subtitle,
+html.asr-dark .tg-flow-block-drawer .tg-flow-clean-subtitle,
+html.asr-dark .tg-flow-panel-label{
+    color:#A9B4C2!important;
+}
+html.asr-dark .tg-flow-panel-input,
+html.asr-dark .tg-flow-panel-select,
+html.asr-dark .tg-flow-panel-url,
+html.asr-dark .tg-flow-card,
+html.asr-dark .tg-flow-editor,
+html.asr-dark .tg-flow-editor-toolbar,
+html.asr-dark .tg-flow-editor-area,
+html.asr-dark .tg-flow-upload-box,
+html.asr-dark .tg-flow-drawer-close,
+html.asr-dark .tg-flow-panel-close{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+}
+</style>
+
+<style>
+/* v3.6.58 dark audit precise fixes: scenario flow */
+html.asr-dark .tg-flow-app,
+html.asr-dark .tg-flow-root,
+html.asr-dark .tg-flow-canvas-wrap,
+html.asr-dark .react-flow,
+html.asr-dark .react-flow__renderer,
+html.asr-dark .react-flow__pane,
+html.asr-dark .react-flow__viewport {
+    background-color:#111317!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-app {
+    background-image:radial-gradient(circle at 1px 1px, rgba(148,163,184,.20) 1px, transparent 0)!important;
+    background-size:24px 24px!important;
+}
+html.asr-dark .tg-flow-topbar {
+    background:#191D23!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-title,
+html.asr-dark .tg-flow-scenario-title,
+html.asr-dark .tg-flow-node-title,
+html.asr-dark .tg-flow-node-name {
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-flow-subtitle,
+html.asr-dark .tg-flow-node-sub,
+html.asr-dark .tg-flow-node-meta,
+html.asr-dark .tg-flow-muted {
+    color:#A9B4C2!important;
+}
+html.asr-dark .tg-flow-node,
+html.asr-dark .tg-flow-node.is-start {
+    background:#191D23!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+    box-shadow:0 18px 46px rgba(0,0,0,.30)!important;
+}
+html.asr-dark .tg-flow-node-head {
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-node-body {
+    background:#191D23!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-flow-preview-card,
+html.asr-dark .tg-flow-preview-card.is-text,
+html.asr-dark .tg-flow-node-card,
+html.asr-dark .tg-flow-stat-card,
+html.asr-dark .tg-flow-output-row,
+html.asr-dark .tg-flow-start-keyword,
+html.asr-dark .tg-flow-start-chip {
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-flow-preview-card *:not(.tg-flow-preview-kind),
+html.asr-dark .tg-flow-node-card * {
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-flow-preview-kind,
+html.asr-dark .tg-flow-node-card-label {
+    color:#A9B4C2!important;
+}
+html.asr-dark .tg-flow-block-counter {
+    background:rgba(25,29,35,.88)!important;
+    border-color:#303844!important;
+    color:#A9B4C2!important;
+    backdrop-filter:blur(10px)!important;
+}
+html.asr-dark .tg-flow-top-btn,
+html.asr-dark .tg-flow-top-btn.is-muted,
+html.asr-dark .tg-flow-icon-btn,
+html.asr-dark .react-flow__controls button {
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-flow-top-btn.is-primary,
+html.asr-dark .tg-flow-add-btn {
+    background:#FFA048!important;
+    border-color:#FFA048!important;
+    color:#fff!important;
+}
+html.asr-dark .react-flow__controls,
+html.asr-dark .react-flow__minimap {
+    background:#191D23!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .react-flow__handle {
+    background:#191D23!important;
+    border-color:#A9B4C2!important;
+}
+html.asr-dark .react-flow__edge-path,
+html.asr-dark .react-flow__connection-path {
+    stroke:#7D8794!important;
+}
+html.asr-dark .tg-flow-add-menu,
+html.asr-dark .tg-flow-confirm,
+html.asr-dark .tg-flow-help,
+html.asr-dark .tg-flow-diagnostics,
+html.asr-dark .tg-flow-toast {
+    background:#191D23!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+}
+</style>
+
+
+<style>
+/* v3.6.59 Dark Audit targeted fixes: scenario_flow residuals */
+html.asr-dark .tg-flow-node.is-random .tg-flow-node-head,
+html.asr-dark .tg-flow-node.is-actions .tg-flow-node-head,
+html.asr-dark .tg-flow-node.is-delay .tg-flow-node-head,
+html.asr-dark .tg-flow-node.is-condition .tg-flow-node-head,
+html.asr-dark .tg-flow-node.is-schedule .tg-flow-node-head,
+html.asr-dark .tg-flow-node.is-formula .tg-flow-node-head,
+html.asr-dark .tg-flow-node.is-question .tg-flow-node-head,
+html.asr-dark .tg-flow-node-head {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #F3F4F6 !important;
+}
+html.asr-dark .tg-flow-node.is-random .tg-flow-node-head {
+    background: linear-gradient(135deg, rgba(255,193,7,.20), rgba(34,40,50,1)) !important;
+}
+html.asr-dark .tg-flow-node.is-actions .tg-flow-node-head {
+    background: linear-gradient(135deg, rgba(167,139,250,.22), rgba(34,40,50,1)) !important;
+}
+html.asr-dark .tg-flow-node.is-delay .tg-flow-node-head {
+    background: linear-gradient(135deg, rgba(251,191,36,.18), rgba(34,40,50,1)) !important;
+}
+html.asr-dark .tg-flow-node.is-condition .tg-flow-node-head {
+    background: linear-gradient(135deg, rgba(132,204,22,.18), rgba(34,40,50,1)) !important;
+}
+html.asr-dark .tg-flow-node.is-schedule .tg-flow-node-head {
+    background: linear-gradient(135deg, rgba(244,114,182,.16), rgba(34,40,50,1)) !important;
+}
+html.asr-dark .tg-flow-node.is-formula .tg-flow-node-head {
+    background: linear-gradient(135deg, rgba(139,92,246,.20), rgba(34,40,50,1)) !important;
+}
+html.asr-dark .tg-flow-formula-empty,
+html.asr-dark .tg-flow-condition-empty,
+html.asr-dark .tg-flow-actions-empty,
+html.asr-dark .tg-flow-random-branch,
+html.asr-dark .tg-flow-condition-branch,
+html.asr-dark .tg-flow-schedule-branch,
+html.asr-dark .tg-flow-node-stat {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #D7DEE8 !important;
+    box-shadow: none !important;
+}
+html.asr-dark .tg-flow-condition-empty,
+html.asr-dark .tg-flow-actions-empty,
+html.asr-dark .tg-flow-node.is-invalid .tg-flow-node-card,
+html.asr-dark .tg-flow-node.is-actions-invalid .tg-flow-actions-empty,
+html.asr-dark .tg-flow-node.is-condition-invalid .tg-flow-condition-empty,
+html.asr-dark .tg-flow-node.is-schedule-invalid .tg-flow-schedule-branch {
+    background: rgba(248,113,113,.12) !important;
+    border-color: rgba(248,113,113,.36) !important;
+    color: #FCA5A5 !important;
+}
+html.asr-dark .tg-flow-condition-branch.is-yes {
+    background: rgba(34,197,94,.12) !important;
+    border-color: rgba(74,222,128,.32) !important;
+    color: #86EFAC !important;
+}
+html.asr-dark .tg-flow-condition-branch.is-no {
+    background: rgba(248,113,113,.10) !important;
+    border-color: rgba(248,113,113,.30) !important;
+    color: #FCA5A5 !important;
+}
+html.asr-dark .tg-flow-random-branch b,
+html.asr-dark .tg-flow-random-branch strong,
+html.asr-dark .tg-flow-node-stat b,
+html.asr-dark .tg-flow-node-stat strong {
+    color: #FDBA74 !important;
+}
+html.asr-dark #tg-flow-gear-btn,
+html.asr-dark .tg-flow-gear-btn,
+html.asr-dark .tg-flow-top-btn.is-muted,
+html.asr-dark .tg-flow-top-btn:not(.is-primary) {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #D7DEE8 !important;
+}
+html.asr-dark #tg-flow-gear-btn:hover,
+html.asr-dark .tg-flow-gear-btn:hover,
+html.asr-dark .tg-flow-top-btn.is-muted:hover {
+    background: rgba(255,160,72,.12) !important;
+    border-color: rgba(255,160,72,.32) !important;
+    color: #FFA048 !important;
+}
+html.asr-dark .tg-flow-add-menu,
+html.asr-dark .tg-flow-block-menu,
+html.asr-dark .tg-flow-context-menu {
+    background: #191D23 !important;
+    border-color: #303844 !important;
+    color: #E5E7EB !important;
+}
+html.asr-dark .tg-flow-add-menu button,
+html.asr-dark .tg-flow-add-menu .tg-flow-add-type,
+html.asr-dark .tg-flow-block-menu button,
+html.asr-dark .tg-flow-context-menu button {
+    background: transparent !important;
+    color: #D7DEE8 !important;
+}
+html.asr-dark .tg-flow-add-menu button:hover,
+html.asr-dark .tg-flow-add-menu .tg-flow-add-type:hover,
+html.asr-dark .tg-flow-block-menu button:hover,
+html.asr-dark .tg-flow-context-menu button:hover {
+    background: #222832 !important;
+    color: #FFA048 !important;
+}
+</style>

@@ -27,6 +27,36 @@ $shortDate = static function($value): string {
 <style>
 .tg-system-page{display:grid;gap:18px}.tg-system-head{background:#fff;border:1px solid #edf0f2;border-radius:24px;padding:22px;box-shadow:0 10px 28px rgba(15,23,42,.04);display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.tg-system-title{font-size:22px;font-weight:600;color:#1f2937;margin:0}.tg-system-sub{margin-top:6px;font-size:13px;font-weight:500;color:#8a94a6;line-height:1.45}.tg-system-refresh{height:42px;border:1px solid #fed7aa;background:#fff7ed;color:#c2410c;border-radius:14px;padding:0 15px;font-size:12px;font-weight:600;text-decoration:none;display:inline-flex;align-items:center;justify-content:center}.tg-system-tabs{display:inline-flex;gap:8px;background:#f9fafb;border:1px solid #edf0f2;border-radius:18px;padding:6px;align-items:center}.tg-system-tab{height:38px;border:0;background:transparent;color:#6b7280;border-radius:13px;padding:0 15px;font-size:12px;font-weight:600;cursor:pointer}.tg-system-tab.is-active{background:#fff7ed;color:#c2410c;box-shadow:0 7px 18px rgba(194,65,12,.10)}.tg-system-panel{display:grid;gap:16px}.tg-system-platform-head{background:#fff;border:1px solid #edf0f2;border-radius:22px;padding:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:14px;box-shadow:0 10px 28px rgba(15,23,42,.025)}.tg-system-platform-head h4{margin:0;font-size:17px;font-weight:600;color:#1f2937}.tg-system-platform-head p{margin:5px 0 0;font-size:12px;font-weight:500;color:#8a94a6;line-height:1.45}.tg-system-platform-pill{border-radius:999px;border:1px solid #fed7aa;background:#fff7ed;color:#c2410c;font-size:11px;font-weight:700;padding:8px 11px;white-space:nowrap}.tg-system-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.tg-system-card{background:#fff;border:1px solid #edf0f2;border-radius:24px;padding:18px;box-shadow:0 10px 28px rgba(15,23,42,.035);min-width:0}.tg-system-card--wide{grid-column:1/-1}.tg-system-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.tg-system-card h4{margin:0;font-size:16px;font-weight:600;color:#1f2937}.tg-system-card p{margin:5px 0 0;font-size:12px;font-weight:500;color:#9ca3af;line-height:1.45}.tg-system-badge{border-radius:999px;padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}.tg-system-badge--ok{background:#ecfdf5;color:#047857;border:1px solid #bbf7d0}.tg-system-badge--warning{background:#fff7ed;color:#c2410c;border:1px solid #fed7aa}.tg-system-badge--danger{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.tg-system-badge--neutral{background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb}.tg-system-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}.tg-system-metric{background:#f9fafb;border:1px solid #f1f3f5;border-radius:16px;padding:12px}.tg-system-metric-value{font-size:20px;font-weight:600;color:#111827}.tg-system-metric-label{margin-top:4px;font-size:11px;font-weight:600;color:#9ca3af}.tg-system-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.tg-system-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid #edf0f2;background:#f9fafb;color:#6b7280;border-radius:999px;padding:7px 10px;font-size:11px;font-weight:600}.tg-system-chip b{color:#374151;font-weight:600}.tg-system-list{display:grid;gap:8px;margin-top:13px}.tg-system-row{border:1px solid #f1f3f5;background:#fbfbfc;border-radius:16px;padding:11px 12px}.tg-system-row-top{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;font-weight:700;color:#9ca3af}.tg-system-row-text{margin-top:6px;font-size:12px;font-weight:500;color:#4b5563;line-height:1.45;word-break:break-word}.tg-system-muted{font-size:12px;font-weight:600;color:#9ca3af}.tg-system-note{border:1px solid #fed7aa;background:#fff7ed;color:#7c2d12;border-radius:18px;padding:13px 15px;font-size:12px;font-weight:600;line-height:1.45}.tg-system-loading{border:1px dashed #fed7aa;background:#fff7ed;color:#9a3412;border-radius:18px;padding:18px;font-size:13px;font-weight:600}@media(max-width:980px){.tg-system-grid{grid-template-columns:1fr}.tg-system-head{flex-direction:column}.tg-system-metrics{grid-template-columns:1fr 1fr}}@media(max-width:560px){.tg-system-metrics{grid-template-columns:1fr}.tg-system-tabs{width:100%;display:grid;grid-template-columns:1fr 1fr}.tg-system-tab{width:100%}}
 </style>
+
+<style>
+html.asr-dark .tg-system-head,
+html.asr-dark .tg-system-platform-head,
+html.asr-dark .tg-system-card{background:#191D23!important;border-color:#2B313A!important;box-shadow:0 18px 48px rgba(0,0,0,.22)!important}
+html.asr-dark .tg-system-title,
+html.asr-dark .tg-system-platform-head h4,
+html.asr-dark .tg-system-card h4,
+html.asr-dark .tg-system-metric-value{color:#F3F4F6!important}
+html.asr-dark .tg-system-sub,
+html.asr-dark .tg-system-platform-head p,
+html.asr-dark .tg-system-card p,
+html.asr-dark .tg-system-muted,
+html.asr-dark .tg-system-metric-label,
+html.asr-dark .tg-system-row-top,
+html.asr-dark .tg-system-row-text,
+html.asr-dark .tg-system-chip{color:#A9B4C2!important}
+html.asr-dark .tg-system-tabs,
+html.asr-dark .tg-system-metric,
+html.asr-dark .tg-system-chip,
+html.asr-dark .tg-system-row{background:#222832!important;border-color:#303844!important}
+html.asr-dark .tg-system-tab{color:#C8D0DA!important}
+html.asr-dark .tg-system-tab.is-active{background:rgba(255,160,72,.12)!important;color:#FFA048!important;box-shadow:none!important}
+html.asr-dark .tg-system-refresh,
+html.asr-dark .tg-system-platform-pill,
+html.asr-dark .tg-system-note,
+html.asr-dark .tg-system-loading{background:rgba(255,160,72,.10)!important;border-color:rgba(255,160,72,.24)!important;color:#FDBA74!important}
+html.asr-dark .tg-system-chip b{color:#F3F4F6!important}
+</style>
+
 <section class="tg-system-page" data-system-status-root data-platform="<?php echo $h($initialPlatform); ?>">
     <div class="tg-system-head">
         <div>
@@ -81,3 +111,14 @@ $shortDate = static function($value): string {
   });
 })();
 </script>
+
+<style>
+/* v3.6.55 dark residual fix: system status nested metric cards */
+html.asr-dark .tg-system-page .tg-system-metric,
+html.asr-dark .tg-system-page .tg-system-chip,
+html.asr-dark .tg-system-page .tg-system-row { background: #222832 !important; border-color: #303844 !important; }
+html.asr-dark .tg-system-page .tg-system-card,
+html.asr-dark .tg-system-page .tg-system-platform-head,
+html.asr-dark .tg-system-page .tg-system-tabs { background: #191D23 !important; border-color: #2B313A !important; }
+</style>
+

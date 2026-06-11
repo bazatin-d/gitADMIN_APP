@@ -1,0 +1,1653 @@
+.org-page{display:grid;gap:18px}.org-page h1{margin:0;color:#1f2937;font-size:28px;font-weight:750;letter-spacing:-.03em}.org-page p{margin:6px 0 0;color:#6b7280;font-size:13px;font-weight:600;line-height:1.45}.org-list-head,.org-scheme-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;background:rgba(255,255,255,.92);border:1px solid #f1f5f9;border-radius:28px;padding:22px;box-shadow:0 16px 38px rgba(15,23,42,.06)}.org-toolbar-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.org-btn{border:0;border-radius:16px;padding:11px 15px;font-size:12px;font-weight:750;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;cursor:pointer;text-decoration:none;transition:transform .15s ease,box-shadow .15s ease,background .15s ease}.org-btn:hover{transform:translateY(-1px)}.org-btn.is-primary{background:#FFA048;color:#fff;box-shadow:0 12px 24px rgba(255,160,72,.22)}.org-btn.is-secondary{background:#f3f4f6;color:#4b5563}.org-btn.is-danger{background:#fef2f2;color:#b91c1c}.org-back{display:inline-flex;margin-bottom:6px;color:#C96F2B;font-size:12px;font-weight:800;text-decoration:none}.org-alert{border-radius:18px;padding:13px 15px;font-size:13px;font-weight:700}.org-alert.is-error{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}.org-schemes-panel{display:grid;gap:10px;background:rgba(255,255,255,.92);border:1px solid #f1f5f9;border-radius:28px;padding:14px;box-shadow:0 16px 38px rgba(15,23,42,.06)}.org-scheme-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;align-items:center;gap:12px;padding:10px 12px 10px calc(12px + var(--org-indent,0px));border:1px solid #f3f4f6;border-radius:20px;background:#fff}.org-scheme-main{display:flex;align-items:center;gap:10px;min-width:0;text-decoration:none}.org-scheme-branch{width:16px;color:#d1d5db;font-weight:800}.org-scheme-icon{width:38px;height:38px;border-radius:14px;background:#fff7ed;color:#C96F2B;display:inline-flex;align-items:center;justify-content:center;font-weight:900}.org-scheme-info{display:grid;gap:3px;min-width:0}.org-scheme-title{color:#1f2937;font-size:14px;font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.org-scheme-meta{color:#9ca3af;font-size:11px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.org-scheme-stats{display:flex;gap:6px;flex-wrap:wrap}.org-scheme-stats span{background:#f9fafb;border:1px solid #f3f4f6;border-radius:999px;color:#6b7280;font-size:10px;font-weight:800;padding:6px 9px}.org-status{border-radius:999px;padding:7px 10px;font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.06em}.org-status.is-active{background:#ecfdf5;color:#047857}.org-status.is-draft{background:#fff7ed;color:#C96F2B}.org-status.is-archived{background:#f3f4f6;color:#6b7280}.org-row-menu{position:relative}.org-row-menu summary{list-style:none;width:34px;height:34px;border-radius:14px;background:#f9fafb;color:#9ca3af;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:900}.org-row-menu summary::-webkit-details-marker{display:none}.org-row-menu>div{position:absolute;right:0;top:40px;z-index:10;display:grid;gap:4px;min-width:180px;padding:8px;border-radius:16px;border:1px solid #f3f4f6;background:#fff;box-shadow:0 18px 40px rgba(15,23,42,.13)}.org-row-menu button{width:100%;border:0;background:transparent;text-align:left;border-radius:12px;padding:9px 10px;color:#4b5563;font-size:12px;font-weight:700;cursor:pointer}.org-row-menu button:hover{background:#fff7ed;color:#C96F2B}.org-empty-state{display:grid;place-items:center;text-align:center;gap:10px;padding:44px 20px;color:#6b7280}.org-empty-state>div{width:64px;height:64px;border-radius:24px;background:#fff7ed;color:#C96F2B;display:flex;align-items:center;justify-content:center;font-size:28px}.org-empty-state h2{margin:0;color:#1f2937;font-size:18px;font-weight:750}.org-canvas-shell{height:calc(100dvh - 190px);min-height:560px;overflow:hidden;border-radius:30px;border:1px solid #e5e7eb;background:radial-gradient(circle at 1px 1px,rgba(148,163,184,.28) 1px,transparent 0);background-size:22px 22px;background-color:#f8fafc;box-shadow:inset 0 0 0 1px rgba(255,255,255,.7);cursor:grab;touch-action:none}.org-canvas-shell.is-dragging{cursor:grabbing}.org-canvas{transform-origin:0 0;min-width:max-content;padding:46px;transition:transform .05s linear}.org-topline{display:flex;justify-content:center;gap:16px;margin-bottom:34px}.org-top-card{border:1px solid #fed7aa;background:#fff7ed;color:#9a4f12;border-radius:22px;padding:15px 22px;font-size:14px;font-weight:800;box-shadow:0 14px 30px rgba(255,160,72,.12);cursor:pointer}.org-top-card.is-empty{border-style:dashed;background:#fff}.org-division-row{display:flex;align-items:flex-start;gap:24px}.org-division-card{min-width:560px;max-width:760px;background:#fff;border:1px solid #e5e7eb;border-radius:28px;box-shadow:0 20px 48px rgba(15,23,42,.1);overflow:hidden}.org-division-head{display:grid;gap:10px;padding:16px;border-bottom:1px solid #f3f4f6;background:linear-gradient(135deg,#fff7ed,#fff)}.org-division-head>button{display:flex;align-items:center;gap:10px;border:0;background:transparent;text-align:left;color:#1f2937;font-size:15px;font-weight:850;cursor:pointer}.org-division-head span{width:34px;height:34px;border-radius:14px;background:#FFA048;color:#fff;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}.org-card-actions{display:flex;gap:8px;flex-wrap:wrap}.org-card-actions button,.org-add-mini{border:0;border-radius:12px;background:#f3f4f6;color:#6b7280;padding:8px 10px;font-size:11px;font-weight:750;cursor:pointer}.org-departments-row{display:flex;align-items:stretch;min-height:250px;overflow-x:auto}.org-department-col{min-width:180px;flex:1;border-right:1px solid #f3f4f6;padding:14px;display:flex;flex-direction:column;gap:8px}.org-department-col:last-child{border-right:0}.org-department-head,.org-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.org-department-head button:first-child,.org-section-head button:first-child{border:0;background:transparent;color:#374151;font-size:13px;font-weight:850;text-align:left;cursor:pointer;padding:0}.org-department-head button:last-child,.org-section-head button:last-child{border:0;border-radius:10px;background:#fff7ed;color:#C96F2B;width:26px;height:26px;font-weight:900;cursor:pointer}.org-section-box{display:grid;gap:7px;border:1px solid #fde7cf;background:#fffaf5;border-radius:16px;padding:10px}.org-position{display:block;width:100%;border:1px solid #f3f4f6;background:#f9fafb;color:#4b5563;border-radius:13px;padding:9px 10px;text-align:left;font-size:12px;font-weight:700;cursor:pointer}.org-position:hover{border-color:#fed7aa;background:#fff7ed;color:#9a4f12}.org-position.is-direct{margin:14px;align-self:flex-start;width:auto;min-width:170px}.org-empty-inside,.org-empty-division{margin:18px;border:1px dashed #fdba74;background:#fff7ed;color:#9a4f12;border-radius:20px;padding:18px;font-size:13px;font-weight:750}.org-empty-division{min-width:280px;cursor:pointer}.org-mobile-view{display:none}.org-modal{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;padding:18px}.org-modal.is-open{display:flex}.org-modal-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(6px)}.org-modal-panel{position:relative;z-index:1;width:min(560px,100%);max-height:calc(100dvh - 36px);overflow-y:auto;background:#fff;border:1px solid #f3f4f6;border-radius:28px;box-shadow:0 24px 70px rgba(15,23,42,.25);padding:20px;display:grid;gap:13px}.org-modal-head{display:flex;justify-content:space-between;gap:14px;align-items:center;border-bottom:1px solid #f3f4f6;padding-bottom:13px}.org-modal-head h2{margin:0;color:#1f2937;font-size:18px;font-weight:800}.org-modal-head button{border:0;background:#f3f4f6;color:#6b7280;border-radius:14px;width:38px;height:38px;font-size:22px;cursor:pointer}.org-modal label{display:grid;gap:7px;color:#4b5563;font-size:12px;font-weight:800}.org-modal input,.org-modal textarea,.org-modal select{width:100%;border:1px solid #e5e7eb;background:#fff;color:#1f2937;border-radius:15px;padding:11px 12px;font-size:14px;font-weight:650;outline:none}.org-modal input:focus,.org-modal textarea:focus,.org-modal select:focus{border-color:#FFA048;box-shadow:0 0 0 4px rgba(255,160,72,.14)}.org-check{display:flex!important;grid-template-columns:auto 1fr!important;align-items:center;gap:10px}.org-check input{width:18px;height:18px;accent-color:#FFA048}.org-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.org-modal-actions{display:flex;justify-content:flex-end;gap:10px;padding-top:4px}.org-delete-form{display:none}
+html.asr-dark .org-page h1,html.asr-dark .org-empty-state h2,html.asr-dark .org-scheme-title,html.asr-dark .org-division-head>button,html.asr-dark .org-modal-head h2{color:#F3F4F6!important}html.asr-dark .org-page p,html.asr-dark .org-scheme-meta{color:#A7B0BE!important}html.asr-dark .org-list-head,html.asr-dark .org-scheme-toolbar,html.asr-dark .org-schemes-panel,html.asr-dark .org-scheme-row,html.asr-dark .org-division-card,html.asr-dark .org-modal-panel{background:#191D23!important;border-color:#2B313A!important;box-shadow:0 18px 42px rgba(0,0,0,.22)}html.asr-dark .org-canvas-shell{background-color:#12161D;border-color:#2B313A;background-image:radial-gradient(circle at 1px 1px,rgba(148,163,184,.18) 1px,transparent 0)}html.asr-dark .org-division-head{background:linear-gradient(135deg,rgba(255,160,72,.13),#191D23);border-color:#2B313A}html.asr-dark .org-scheme-icon,html.asr-dark .org-top-card,html.asr-dark .org-section-box{background:rgba(255,160,72,.1);border-color:rgba(255,160,72,.28);color:#FDBA74}html.asr-dark .org-btn.is-danger{background:rgba(127,29,29,.3);color:#fecaca}html.asr-dark .org-btn.is-secondary,html.asr-dark .org-card-actions button,html.asr-dark .org-add-mini,html.asr-dark .org-row-menu summary,html.asr-dark .org-modal-head button{background:#222832;color:#C8D0DA}html.asr-dark .org-scheme-stats span,html.asr-dark .org-position{background:#222832;border-color:#303844;color:#D7DEE8}html.asr-dark .org-department-col,html.asr-dark .org-modal-head{border-color:#2B313A}html.asr-dark .org-department-head button:first-child,html.asr-dark .org-section-head button:first-child{color:#F3F4F6}html.asr-dark .org-row-menu>div{background:#191D23;border-color:#2B313A}html.asr-dark .org-row-menu button,html.asr-dark .org-modal label{color:#C8D0DA}html.asr-dark .org-modal input,html.asr-dark .org-modal textarea,html.asr-dark .org-modal select{background:#111827;border-color:#303844;color:#F3F4F6}html.asr-dark .org-alert.is-error{background:rgba(127,29,29,.35);border-color:rgba(248,113,113,.35);color:#fecaca}
+@media(max-width:900px){.org-list-head,.org-scheme-toolbar{flex-direction:column}.org-toolbar-actions{justify-content:flex-start}.org-scheme-row{grid-template-columns:minmax(0,1fr) auto;align-items:flex-start}.org-scheme-stats{display:none}.org-status{justify-self:start}.org-desktop-view{display:none}.org-mobile-view{display:block;background:#fff;border:1px solid #f3f4f6;border-radius:26px;overflow:hidden}.org-mobile-top{position:sticky;top:0;z-index:2;background:#fff7ed;border-bottom:1px solid #fed7aa;padding:12px}.org-mobile-top-title{color:#9a4f12;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.08em}.org-mobile-top-list{display:flex;gap:8px;overflow-x:auto;margin-top:8px}.org-mobile-top-list button{border:1px solid #fed7aa;background:#fff;color:#9a4f12;border-radius:14px;padding:8px 10px;font-size:11px;font-weight:800;white-space:nowrap}.org-mobile-nav{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #f3f4f6}.org-mobile-nav button{width:38px;height:38px;border:0;border-radius:14px;background:#FFA048;color:#fff;font-size:24px}.org-mobile-nav span{font-size:12px;font-weight:850;color:#6b7280}.org-mobile-slides{touch-action:pan-y}.org-mobile-division{display:none;padding:14px;max-height:calc(100dvh - 220px);overflow-y:auto}.org-mobile-division.is-active{display:block}.org-mobile-division h2{font-size:18px!important;margin:0 0 12px;color:#1f2937!important}.org-mobile-department{border:1px solid #f3f4f6;border-radius:18px;margin-bottom:10px;background:#fff}.org-mobile-department summary{padding:13px;color:#374151;font-size:14px;font-weight:850;cursor:pointer}.org-mobile-department button,.org-mobile-position{display:block;width:calc(100% - 22px);margin:0 11px 8px;border:1px solid #f3f4f6;background:#f9fafb;color:#4b5563;border-radius:14px;padding:10px;text-align:left;font-size:13px;font-weight:700}.org-mobile-section{margin:0 11px 10px;border:1px solid #fde7cf;background:#fffaf5;border-radius:16px;padding:10px;display:grid;gap:8px}.org-mobile-section strong{font-size:12px;color:#9a4f12}.org-modal-grid{grid-template-columns:1fr}.org-modal-actions{display:grid;grid-template-columns:1fr 1fr}html.asr-dark .org-mobile-view,html.asr-dark .org-mobile-department{background:#191D23;border-color:#2B313A}html.asr-dark .org-mobile-top{background:#211914;border-color:rgba(255,160,72,.25)}html.asr-dark .org-mobile-division h2{color:#F3F4F6!important}html.asr-dark .org-mobile-department summary{color:#F3F4F6}html.asr-dark .org-mobile-nav{border-color:#2B313A}html.asr-dark .org-mobile-department button,html.asr-dark .org-mobile-position{background:#222832;border-color:#303844;color:#D7DEE8}html.asr-dark .org-mobile-section{background:rgba(255,160,72,.08);border-color:rgba(255,160,72,.22)}}@media print{body{background:#fff!important}.no-print,.admin-header,.drawer-edge-zone{display:none!important}.admin-shell{max-width:none!important;margin:0!important}.org-desktop-view{display:block!important}.org-mobile-view{display:none!important}.org-canvas-shell{height:auto!important;overflow:visible!important;border:0!important;background:#fff!important}.org-canvas{transform:none!important;padding:0!important}.org-division-row{gap:12px;flex-wrap:wrap}.org-division-card{box-shadow:none!important;break-inside:avoid;min-width:360px;max-width:100%;border-color:#ddd!important}}
+.org-modal small{display:block;color:#9ca3af;font-size:11px;font-weight:650;line-height:1.35;margin-top:3px}html.dark .org-modal small{color:#94a3b8}
+
+/* v3.7.2: схема открывается как полноэкранная рабочая область, по модели редактора сценариев */
+.org-scheme-page{
+  position:fixed!important;
+  inset:0!important;
+  margin:0!important;
+  padding:0!important;
+  max-width:none!important;
+  width:100vw!important;
+  height:100dvh!important;
+  z-index:90;
+  background:#f1f3f5;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.org-scheme-page .org-alert{position:absolute;left:16px;right:16px;top:68px;z-index:20}
+.org-scheme-page .org-scheme-toolbar{
+  height:58px;
+  min-height:58px;
+  border-radius:0;
+  border-width:0 0 1px 0;
+  margin:0;
+  padding:0 14px;
+  box-shadow:0 8px 22px rgba(15,23,42,.06);
+  gap:12px;
+}
+.org-scheme-page .org-scheme-toolbar>div:first-child{display:flex;align-items:center;gap:10px;min-width:0}
+.org-scheme-page .org-back{
+  height:38px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 12px;
+  border:1px solid #e5e7eb;
+  background:#fff;
+  border-radius:14px;
+  color:#6b7280;
+  text-decoration:none;
+  font-size:12px;
+  font-weight:650;
+  white-space:nowrap;
+}
+.org-scheme-page .org-back:hover{background:#fff7ed;border-color:#fed7aa;color:#9a5a1f}
+.org-scheme-page .org-scheme-toolbar h1{
+  margin:0;
+  font-size:14px;
+  font-weight:750;
+  color:#1f2937;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  max-width:38vw;
+}
+.org-scheme-page .org-toolbar-actions{flex-wrap:nowrap;gap:8px;overflow-x:auto;justify-content:flex-end}
+.org-scheme-page .org-toolbar-actions .org-btn{height:38px;padding:0 12px;white-space:nowrap}
+.org-scheme-page .org-desktop-view{display:block;flex:1;min-height:0;overflow:hidden}
+.org-scheme-page .org-canvas-shell{
+  height:100%;
+  border:0;
+  border-radius:0;
+  margin:0;
+}
+.org-scheme-page .org-canvas{padding:46px}
+html.asr-dark .org-scheme-page{background:#11161d}
+html.asr-dark .org-scheme-page .org-scheme-toolbar{background:#191D23!important;border-color:#2B313A!important}
+html.asr-dark .org-scheme-page .org-back{background:#222832;border-color:#303844;color:#C8D0DA}
+html.asr-dark .org-scheme-page .org-back:hover{background:rgba(255,160,72,.12);border-color:rgba(255,160,72,.35);color:#FDBA74}
+@media(max-width:900px){
+  .org-scheme-page .org-scheme-toolbar{height:auto;min-height:58px;padding:10px 12px;align-items:stretch}
+  .org-scheme-page .org-scheme-toolbar>div:first-child{width:100%}
+  .org-scheme-page .org-scheme-toolbar h1{max-width:calc(100vw - 136px)}
+  .org-scheme-page .org-toolbar-actions{justify-content:flex-start;padding-bottom:2px}
+  .org-scheme-page .org-desktop-view{display:none}
+  .org-scheme-page .org-mobile-view{display:flex;flex-direction:column;flex:1;min-height:0;border:0;border-radius:0;margin:0}
+  .org-scheme-page .org-mobile-division{max-height:none;flex:1;min-height:0;overflow-y:auto}
+}
+
+/* v3.7.3: компактная шапка холста и облегчение тяжёлого текста */
+.org-scheme-page{
+  padding-top:10px!important;
+  box-sizing:border-box;
+}
+.org-scheme-page .org-scheme-toolbar{
+  height:54px;
+  min-height:54px;
+  padding:0 12px;
+}
+.org-scheme-page .org-toolbar-actions{
+  align-items:center;
+}
+.org-stats-btn{
+  min-width:104px;
+}
+.org-icon-btn{
+  width:38px;
+  height:38px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:0;
+  border-radius:15px;
+  background:#f3f4f6;
+  color:#5f6875;
+  cursor:pointer;
+  transition:background .16s ease,color .16s ease,transform .16s ease;
+}
+.org-icon-btn:hover{
+  background:#fff7ed;
+  color:#c56b1a;
+  transform:translateY(-1px);
+}
+.org-icon-btn svg{
+  width:19px;
+  height:19px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.org-btn,
+.org-back,
+.org-card-actions button,
+.org-add-mini,
+.org-position,
+.org-section-head button,
+.org-section-box strong,
+.org-status,
+.org-scheme-meta,
+.org-scheme-stats span,
+.org-mobile-nav span,
+.org-mobile-department button,
+.org-mobile-position,
+.org-modal label,
+.org-modal input,
+.org-modal textarea,
+.org-modal select{
+  font-weight:600!important;
+}
+.org-page p,
+.org-empty-state p,
+.org-scheme-meta{
+  font-weight:400!important;
+}
+.org-modal-head h2,
+.org-scheme-title,
+.org-mobile-division h2{
+  font-weight:700!important;
+}
+.org-division-head>button,
+.org-department-head button:first-child,
+.org-mobile-department summary{
+  font-weight:800!important;
+}
+html.asr-dark .org-icon-btn{
+  background:#222832;
+  color:#C8D0DA;
+}
+html.asr-dark .org-icon-btn:hover{
+  background:rgba(255,160,72,.12);
+  color:#FDBA74;
+}
+@media(max-width:900px){
+  .org-scheme-page{padding-top:8px!important;}
+  .org-scheme-page .org-scheme-toolbar{padding:8px 12px;}
+}
+
+/* v3.7.4: режим просмотра/редактирования и чистая шапка холста */
+.org-scheme-page{
+  gap:0!important;
+  padding-top:0!important;
+}
+.org-scheme-page .org-scheme-toolbar{
+  border:0!important;
+  box-shadow:none!important;
+  border-radius:0!important;
+  background:#fff!important;
+}
+.org-scheme-page .org-desktop-view,
+.org-scheme-page .org-mobile-view{
+  border-top:0!important;
+}
+.org-scheme-page .org-canvas-shell{
+  box-shadow:none!important;
+}
+.org-scheme-page[data-org-mode="view"] .org-card-actions,
+.org-scheme-page[data-org-mode="view"] .org-add-mini,
+.org-scheme-page[data-org-mode="view"] .org-department-head button:last-child,
+.org-scheme-page[data-org-mode="view"] .org-section-head button:last-child,
+.org-scheme-page[data-org-mode="view"] .org-empty-inside,
+.org-scheme-page[data-org-mode="view"] .org-empty-division{
+  display:none!important;
+}
+.org-scheme-page[data-org-mode="view"] .org-top-card,
+.org-scheme-page[data-org-mode="view"] .org-division-head>button,
+.org-scheme-page[data-org-mode="view"] .org-department-head button:first-child,
+.org-scheme-page[data-org-mode="view"] .org-section-head button:first-child,
+.org-scheme-page[data-org-mode="view"] .org-position,
+.org-scheme-page[data-org-mode="view"] .org-mobile-top-list button,
+.org-scheme-page[data-org-mode="view"] .org-mobile-department button,
+.org-scheme-page[data-org-mode="view"] .org-mobile-position{
+  cursor:default;
+}
+.org-scheme-page[data-org-mode="edit"] .org-edit-toggle{
+  background:#FFA048;
+  color:#fff;
+}
+.org-floating-save{
+  position:fixed;
+  right:24px;
+  bottom:24px;
+  z-index:130;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  min-width:132px;
+  height:46px;
+  border:0;
+  border-radius:18px;
+  background:#FFA048;
+  color:#fff;
+  font-size:13px;
+  font-weight:700;
+  box-shadow:0 18px 36px rgba(255,160,72,.32);
+  cursor:pointer;
+}
+.org-scheme-page[data-org-mode="edit"] .org-floating-save{
+  display:inline-flex;
+}
+html.asr-dark .org-scheme-page .org-scheme-toolbar{
+  background:#191D23!important;
+  border-color:transparent!important;
+  box-shadow:none!important;
+}
+html.asr-dark .org-scheme-page[data-org-mode="edit"] .org-edit-toggle{
+  background:#FFA048;
+  color:#fff;
+}
+@media(max-width:900px){
+  .org-scheme-page{padding-top:0!important;}
+  .org-floating-save{right:16px;bottom:16px;min-width:122px;height:44px;}
+}
+.org-scheme-page[data-org-mode="view"] .org-top-card.is-empty{display:none!important;}
+
+/* v3.7.5: внутренний верхний отступ шапки холста */
+.org-scheme-page .org-scheme-toolbar{
+  height:64px!important;
+  min-height:64px!important;
+  padding:10px 14px 8px!important;
+  align-items:center!important;
+  box-sizing:border-box;
+}
+.org-scheme-page .org-scheme-toolbar>div:first-child,
+.org-scheme-page .org-toolbar-actions{
+  align-items:center!important;
+}
+@media(max-width:900px){
+  .org-scheme-page .org-scheme-toolbar{
+    min-height:64px!important;
+    padding:10px 12px 8px!important;
+  }
+}
+
+/* v3.7.6: ЦКП-плашки организации, отделений и отделов */
+.org-ckp-bar{
+  width:100%;
+  border:1px solid #cfd5dd;
+  background:#d8d8d8;
+  color:#111827;
+  border-radius:0;
+  padding:10px 12px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:3px;
+  text-align:center;
+  cursor:pointer;
+  line-height:1.25;
+  min-height:48px;
+}
+.org-ckp-bar span{
+  display:block;
+  font-size:10px;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:#4b5563;
+  font-weight:650;
+}
+.org-ckp-bar strong{
+  display:block;
+  font-size:12px;
+  font-weight:750;
+  color:#111827;
+}
+.org-ckp-bar.is-empty{
+  background:#f4f4f5;
+  border-style:dashed;
+  color:#6b7280;
+}
+.org-division-ckp{
+  border-width:1px 0 0;
+  border-radius:0 0 24px 24px;
+  margin-top:auto;
+}
+.org-department-ckp{
+  margin-top:auto;
+  border-width:1px 0 0;
+  min-height:44px;
+  padding:9px 8px;
+}
+.org-scheme-ckp{
+  margin:22px auto 0;
+  max-width:calc(100% - 64px);
+  min-width:680px;
+  border-radius:0;
+  min-height:54px;
+}
+.org-mobile-ckp{
+  margin:10px 0 0;
+  border-radius:14px;
+}
+.org-mobile-department .org-mobile-ckp{
+  width:calc(100% - 22px);
+  margin:2px 11px 10px;
+}
+html.asr-dark .org-ckp-bar{
+  background:#343a43;
+  border-color:#596170;
+  color:#f3f4f6;
+}
+html.asr-dark .org-ckp-bar span{color:#cbd5e1;}
+html.asr-dark .org-ckp-bar strong{color:#f8fafc;}
+html.asr-dark .org-ckp-bar.is-empty{
+  background:#222832;
+  border-color:#475569;
+  color:#cbd5e1;
+}
+
+/* v3.7.8: ЦКП-плашки теперь видны и в режиме просмотра, чтобы шаблон не выглядел пустым.
+   Редактирование открывается только после нажатия карандаша. */
+.org-scheme-page[data-org-mode="view"] .org-ckp-bar{
+  cursor:default;
+}
+.org-scheme-page[data-org-mode="view"] .org-ckp-bar.is-empty{
+  opacity:.68;
+}
+.org-scheme-page[data-org-mode="edit"] .org-ckp-bar{
+  cursor:pointer;
+}
+.org-scheme-page[data-org-mode="edit"] .org-ckp-bar.is-empty{
+  background:#fff7ed;
+  border-color:#fdba74;
+  color:#9a4f12;
+}
+.org-scheme-page[data-org-mode="edit"] .org-ckp-bar.is-empty strong{
+  color:#9a4f12;
+}
+html.asr-dark .org-scheme-page[data-org-mode="edit"] .org-ckp-bar.is-empty{
+  background:rgba(255,160,72,.12);
+  border-color:rgba(255,160,72,.45);
+}
+html.asr-dark .org-scheme-page[data-org-mode="edit"] .org-ckp-bar.is-empty strong{
+  color:#FDBA74;
+}
+
+@media(max-width:900px){
+  .org-scheme-ckp{display:none!important;}
+}
+@media print{
+  .org-ckp-bar.is-empty{display:none!important;}
+  .org-ckp-bar{break-inside:avoid;}
+}
+
+/* v3.7.10: верхний управленческий слой, учредители, заместители, ФИО в блоках */
+.org-node-title,
+.org-node-person{display:block;line-height:1.18;}
+.org-node-title{font-weight:780;}
+.org-node-person{margin-top:4px;font-size:10px;font-weight:560;color:#6b7280;text-transform:none;letter-spacing:0;}
+.org-node-person.is-empty{color:#a8b1bf;font-style:italic;}
+.org-management-layer{position:relative;display:grid;grid-template-columns:260px minmax(520px,1fr) 260px;gap:22px;align-items:start;min-width:1080px;margin:0 0 34px;}
+.org-management-layer:before{content:"";position:absolute;left:170px;right:170px;top:116px;border-top:2px solid #111827;opacity:.9;pointer-events:none;}
+.org-founder-zone{position:relative;display:flex;justify-content:flex-start;align-items:flex-start;padding-top:6px;}
+.org-founder-zone:after{content:"";position:absolute;left:130px;top:58px;height:90px;border-left:2px solid #111827;opacity:.9;}
+.org-top-zone{position:relative;grid-column:2;display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:center;gap:22px;padding-top:42px;}
+.org-top-zone:before{content:"";position:absolute;top:0;left:50%;height:42px;border-left:2px solid #111827;transform:translateX(-50%);opacity:.9;}
+.org-top-group{position:relative;display:grid;gap:0;justify-items:center;min-width:260px;}
+.org-top-group:after{content:"";position:absolute;left:50%;bottom:-34px;height:34px;border-left:2px solid #111827;transform:translateX(-50%);opacity:.9;}
+.org-management-card{border:1px solid #1f2a44;background:#fff;color:#111827;border-radius:0;padding:10px 14px;min-width:220px;min-height:46px;text-align:center;box-shadow:none;cursor:pointer;}
+.org-founder-card{background:#f8fafc;}
+.org-top-card{background:#0b4a91!important;color:#fff!important;border-color:#083b73!important;border-radius:0!important;padding:10px 16px!important;box-shadow:none!important;}
+.org-top-card .org-node-person{color:rgba(255,255,255,.78);}
+.org-deputy-row{display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));width:100%;border:1px solid #083b73;border-top:0;}
+.org-deputy-card{border:0;border-right:1px solid #083b73;background:#0b4a91;color:#fff;min-height:28px;padding:5px 8px;font-size:10px;text-align:center;cursor:pointer;}
+.org-deputy-card:last-child{border-right:0;}
+.org-deputy-card .org-node-title{font-weight:660;}
+.org-deputy-card .org-node-person{font-size:9px;color:rgba(255,255,255,.74);margin-top:2px;}
+.org-deputy-card.is-empty{background:#eef2f7;color:#64748b;border-left:1px dashed #cbd5e1;}
+.org-management-add{align-self:center;border:1px dashed #fdba74;background:#fff7ed;color:#9a4f12;border-radius:14px;padding:9px 12px;font-size:11px;font-weight:650;cursor:pointer;}
+.org-management-division-link{position:relative;height:28px;min-width:1080px;margin-top:-24px;}
+.org-management-division-link:before{content:"";position:absolute;left:50%;top:0;height:28px;border-left:2px solid #111827;transform:translateX(-50%);opacity:.9;}
+.org-scheme-page[data-org-mode="view"] .org-management-add,
+.org-scheme-page[data-org-mode="view"] .org-deputy-card.is-empty{display:none!important;}
+.org-division-head>button,.org-department-head button:first-child,.org-section-head button:first-child,.org-position{text-align:left;}
+.org-division-head>button .org-node-title,.org-department-head .org-node-title{font-weight:850;}
+.org-position .org-node-title{font-weight:650;}
+.org-position .org-node-person{font-size:9px;}
+html.asr-dark .org-management-layer:before,
+html.asr-dark .org-founder-zone:after,
+html.asr-dark .org-top-zone:before,
+html.asr-dark .org-top-group:after,
+html.asr-dark .org-management-division-link:before{border-color:#cbd5e1;opacity:.72;}
+html.asr-dark .org-management-card{background:#191D23;color:#f8fafc;border-color:#475569;}
+html.asr-dark .org-founder-card{background:#202733;}
+html.asr-dark .org-node-person{color:#a7b0be;}
+html.asr-dark .org-node-person.is-empty{color:#64748b;}
+html.asr-dark .org-deputy-card.is-empty{background:#202733;color:#a7b0be;border-color:#475569;}
+@media(max-width:900px){
+  .org-management-layer,.org-management-division-link{display:none!important;}
+  .org-node-person{font-size:10px;}
+}
+
+
+/* v3.7.11: стабилизация холста после добавления управленческого слоя.
+   В старом правиле .org-division-head span стили номера отделения применялись
+   ко всем span внутри заголовка: к названию и ФИО. Из-за этого появлялись
+   несколько оранжевых кружков и ломалась карточка отделения. */
+.org-division-head>button{
+  display:grid!important;
+  grid-template-columns:34px minmax(0,1fr)!important;
+  column-gap:10px!important;
+  row-gap:2px!important;
+  align-items:center!important;
+}
+.org-division-head>button>.org-division-number,
+.org-division-head>button>span:first-child:not(.org-node-title):not(.org-node-person){
+  grid-column:1!important;
+  grid-row:1 / span 2!important;
+  width:34px!important;
+  height:34px!important;
+  min-width:34px!important;
+  border-radius:14px!important;
+  background:#FFA048!important;
+  color:#fff!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  flex:0 0 auto!important;
+  font-weight:760!important;
+  line-height:1!important;
+}
+.org-division-head>button>.org-node-title,
+.org-division-head>button>.org-node-person{
+  grid-column:2!important;
+  width:auto!important;
+  height:auto!important;
+  min-width:0!important;
+  min-height:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+  display:block!important;
+  justify-content:flex-start!important;
+  align-items:flex-start!important;
+  color:inherit!important;
+  text-align:left!important;
+  line-height:1.18!important;
+}
+.org-division-head>button>.org-node-title{
+  grid-row:1!important;
+  font-weight:850!important;
+}
+.org-division-head>button>.org-node-person{
+  grid-row:2!important;
+  margin-top:0!important;
+  font-size:10px!important;
+  font-weight:560!important;
+  color:#8a94a6!important;
+}
+.org-scheme-page[data-org-mode="view"] .org-division-head>button>.org-node-person.is-empty,
+.org-scheme-page[data-org-mode="view"] .org-department-head .org-node-person.is-empty,
+.org-scheme-page[data-org-mode="view"] .org-section-head .org-node-person.is-empty,
+.org-scheme-page[data-org-mode="view"] .org-position .org-node-person.is-empty{
+  opacity:.45;
+}
+
+/* Управленческие линии не должны залезать на карточки отделений. */
+.org-management-layer{
+  margin-bottom:18px!important;
+}
+.org-management-division-link{
+  height:36px!important;
+  margin-top:0!important;
+  margin-bottom:8px!important;
+}
+.org-management-division-link:before{
+  height:36px!important;
+}
+.org-division-row{
+  position:relative!important;
+  z-index:2!important;
+}
+.org-management-layer:before,
+.org-founder-zone:after,
+.org-top-zone:before,
+.org-top-group:after,
+.org-management-division-link:before{
+  z-index:1!important;
+  pointer-events:none!important;
+}
+
+/* Чуть возвращаем рабочие размеры после fit/масштаба: карточки не схлопываются,
+   отделы внутри отделения остаются читаемыми колонками. */
+.org-division-card{
+  min-width:600px!important;
+}
+.org-department-col{
+  min-width:190px!important;
+}
+
+html.asr-dark .org-division-head>button>.org-node-title{
+  color:#F3F4F6!important;
+}
+html.asr-dark .org-division-head>button>.org-node-person{
+  color:#a7b0be!important;
+}
+
+/* v3.7.12: линии связей рисуются JS по реальным координатам блоков.
+   Старые pseudo-линии были декоративными и не попадали в элементы при изменении масштаба/ширины. */
+.org-canvas{
+  position:relative!important;
+}
+.org-connector-svg{
+  position:absolute;
+  left:0;
+  top:0;
+  width:100%;
+  height:100%;
+  overflow:visible;
+  pointer-events:none;
+  z-index:0;
+}
+.org-connector-line{
+  fill:none;
+  stroke:#111827;
+  stroke-width:2;
+  stroke-linecap:square;
+  stroke-linejoin:miter;
+  vector-effect:non-scaling-stroke;
+  opacity:.92;
+}
+.org-management-layer,
+.org-management-division-link,
+.org-division-row,
+.org-scheme-ckp{
+  position:relative!important;
+  z-index:2!important;
+}
+.org-management-layer:before,
+.org-founder-zone:after,
+.org-top-zone:before,
+.org-top-group:after,
+.org-management-division-link:before{
+  display:none!important;
+}
+.org-management-layer{
+  margin-bottom:38px!important;
+}
+.org-management-division-link{
+  height:0!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+}
+.org-division-row{
+  padding-top:34px!important;
+}
+html.asr-dark .org-connector-line{
+  stroke:#cbd5e1;
+  opacity:.76;
+}
+@media(max-width:900px){
+  .org-connector-svg{display:none!important;}
+  .org-division-row{padding-top:0!important;}
+}
+@media print{
+  .org-connector-line{stroke:#111827!important;opacity:1!important;}
+}
+
+
+/* v3.7.13: стабилизация управленческого слоя.
+   Пустая строка заместителей в режиме просмотра больше не рисует нижнюю рамку
+   под директором, а линии учредителей строятся через SVG к левому блоку. */
+.org-scheme-page[data-org-mode="view"] .org-deputy-row.is-empty{
+  display:none!important;
+}
+.org-scheme-page[data-org-mode="view"] .org-top-group{
+  gap:0!important;
+}
+.org-connector-svg{
+  z-index:1!important;
+}
+.org-management-layer,
+.org-division-row,
+.org-scheme-ckp{
+  z-index:2!important;
+}
+.org-top-card{
+  position:relative!important;
+  z-index:3!important;
+}
+.org-connector-line{
+  stroke-width:2!important;
+}
+
+
+/* v3.7.15: базовая голубая заливка для верхних блоков и ЦКП компании */
+.org-founder-card,
+.org-top-card,
+.org-deputy-card,
+.org-scheme-ckp{
+  background:#9FC5E8!important;
+  border-color:#6f9fca!important;
+  color:#0f172a!important;
+}
+.org-top-card .org-node-title,
+.org-top-card .org-node-person,
+.org-founder-card .org-node-title,
+.org-founder-card .org-node-person,
+.org-deputy-card .org-node-title,
+.org-deputy-card .org-node-person,
+.org-scheme-ckp span,
+.org-scheme-ckp strong{
+  color:#0f172a!important;
+}
+.org-scheme-ckp.is-empty{
+  background:#9FC5E8!important;
+  border-color:#6f9fca!important;
+  color:#0f172a!important;
+  opacity:1!important;
+}
+.org-deputy-row{
+  border-color:#6f9fca!important;
+}
+.org-deputy-card{
+  border-right-color:#6f9fca!important;
+}
+.org-deputy-card.is-empty{
+  background:rgba(159,197,232,.55)!important;
+  color:#0f172a!important;
+  border-color:#6f9fca!important;
+}
+.org-scheme-page[data-org-mode="edit"] .org-scheme-ckp.is-empty,
+html.asr-dark .org-scheme-page[data-org-mode="edit"] .org-scheme-ckp.is-empty{
+  background:#9FC5E8!important;
+  border-color:#6f9fca!important;
+  color:#0f172a!important;
+}
+html.asr-dark .org-founder-card,
+html.asr-dark .org-top-card,
+html.asr-dark .org-deputy-card,
+html.asr-dark .org-scheme-ckp{
+  background:#9FC5E8!important;
+  border-color:#6f9fca!important;
+  color:#0f172a!important;
+}
+html.asr-dark .org-top-card .org-node-person,
+html.asr-dark .org-founder-card .org-node-person,
+html.asr-dark .org-deputy-card .org-node-person,
+html.asr-dark .org-scheme-ckp span,
+html.asr-dark .org-scheme-ckp strong{
+  color:#0f172a!important;
+}
+
+
+/* v3.7.16: мягкое скругление верхних управленческих блоков и главного ЦКП */
+.org-founder-card,
+.org-top-card,
+.org-scheme-ckp{
+  border-radius:12px!important;
+}
+.org-deputy-row{
+  border-radius:0 0 10px 10px!important;
+  overflow:hidden!important;
+}
+.org-deputy-card{
+  border-radius:0!important;
+}
+.org-deputy-row .org-deputy-card:only-child{
+  border-radius:0 0 10px 10px!important;
+}
+.org-scheme-ckp{
+  overflow:hidden!important;
+}
+@media(max-width:900px){
+  .org-mobile-top-list button{border-radius:12px!important;}
+}
+
+
+/* v3.7.17: аккуратный блок топ-менеджера с заместителями */
+.org-top-group{
+  min-width:420px!important;
+}
+.org-top-group>.org-management-card,
+.org-top-group>.org-top-card{
+  width:100%!important;
+  min-width:420px!important;
+  box-sizing:border-box!important;
+}
+.org-top-card{
+  padding:14px 22px!important;
+}
+.org-deputy-row{
+  display:flex!important;
+  width:100%!important;
+  min-width:420px!important;
+  box-sizing:border-box!important;
+  align-items:stretch!important;
+  border-top:0!important;
+  background:#B7D7F0!important;
+}
+.org-deputy-card{
+  flex:1 1 0!important;
+  min-width:0!important;
+  box-sizing:border-box!important;
+  background:#B7D7F0!important;
+  border-right:1px solid #6f9fca!important;
+  color:#0f172a!important;
+  padding:9px 12px!important;
+  min-height:44px!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  line-height:1.18!important;
+}
+.org-deputy-card:last-child{
+  border-right:0!important;
+}
+.org-deputy-card .org-node-title{
+  font-weight:650!important;
+}
+.org-deputy-card .org-node-person{
+  font-size:10px!important;
+  color:#334155!important;
+  margin-top:3px!important;
+}
+.org-deputy-card.is-empty{
+  background:rgba(183,215,240,.65)!important;
+}
+html.asr-dark .org-deputy-row,
+html.asr-dark .org-deputy-card{
+  background:#B7D7F0!important;
+  color:#0f172a!important;
+}
+html.asr-dark .org-deputy-card .org-node-person{
+  color:#334155!important;
+}
+@media(max-width:900px){
+  .org-top-group,
+  .org-top-group>.org-management-card,
+  .org-top-group>.org-top-card,
+  .org-deputy-row{
+    min-width:0!important;
+    width:100%!important;
+  }
+}
+
+
+/* v3.7.19: если у топ-менеджера есть заместители, верхняя карточка стыкуется с нижним блоком без нижнего скругления */
+.org-top-group:has(.org-deputy-row:not(.is-empty)) > .org-top-card,
+.org-top-group:has(.org-deputy-row:not(.is-empty)) > .org-management-card{
+  border-bottom-left-radius:0!important;
+  border-bottom-right-radius:0!important;
+}
+.org-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-row{
+  border-top-left-radius:0!important;
+  border-top-right-radius:0!important;
+}
+.org-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-card:first-child{
+  border-bottom-left-radius:10px!important;
+}
+.org-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-card:last-child{
+  border-bottom-right-radius:10px!important;
+}
+
+
+/* v3.7.20: ЦКП отделов без внутренних отступов, единая нижняя сетка */
+.org-division-card .org-departments-row{
+  border-bottom:1px solid #d7dce3;
+}
+.org-division-card .org-department-col{
+  padding:14px 14px 0!important;
+  border-right-color:#d7dce3!important;
+}
+.org-division-card .org-department-col:last-child{
+  border-right:0!important;
+}
+.org-division-card .org-department-ckp{
+  margin:auto -14px 0!important;
+  width:calc(100% + 28px)!important;
+  min-height:48px!important;
+  border-width:1px 0 0 0!important;
+  border-style:solid!important;
+  border-color:#c7ced8!important;
+  border-radius:0!important;
+  background:#f3f4f6!important;
+  box-sizing:border-box!important;
+}
+.org-division-card .org-department-col:not(:last-child) .org-department-ckp{
+  border-right:1px solid #c7ced8!important;
+}
+.org-division-card .org-division-ckp{
+  margin-top:0!important;
+  border-top:1px solid #c7ced8!important;
+}
+html.asr-dark .org-division-card .org-departments-row{
+  border-bottom-color:#3a4350!important;
+}
+html.asr-dark .org-division-card .org-department-col{
+  border-right-color:#3a4350!important;
+}
+html.asr-dark .org-division-card .org-department-ckp{
+  background:#222832!important;
+  border-color:#465160!important;
+}
+html.asr-dark .org-division-card .org-division-ckp{
+  border-top-color:#465160!important;
+}
+@media(max-width:900px){
+  .org-mobile-department .org-department-ckp{
+    width:100%!important;
+    margin:0!important;
+    border-radius:0!important;
+  }
+}
+
+/* v3.7.21: иконки добавления/редактирования в режиме редактирования оргсхемы */
+.org-action-icon,
+.org-ckp-edit-icon{
+  display:none!important;
+  align-items:center;
+  justify-content:center;
+  width:27px;
+  height:27px;
+  min-width:27px;
+  border-radius:999px;
+  border:2px solid #F59E0B;
+  background:#fff;
+  color:#64748b;
+  box-shadow:0 6px 16px rgba(15,23,42,.10);
+  z-index:12;
+  box-sizing:border-box;
+}
+.org-action-icon{
+  position:absolute;
+  cursor:pointer;
+  padding:0;
+  transition:transform .14s ease,background .14s ease,color .14s ease,box-shadow .14s ease;
+}
+.org-action-icon:hover{
+  transform:translateY(-1px) scale(1.03);
+  background:#fff7ed;
+  color:#9a4f12;
+  box-shadow:0 10px 22px rgba(245,158,11,.20);
+}
+.org-action-icon svg,
+.org-ckp-edit-icon svg{
+  width:17px;
+  height:17px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.org-action-icon.is-add svg{width:19px;height:19px;stroke-width:2.2;}
+.org-scheme-page[data-org-mode="edit"] .org-action-icon,
+.org-scheme-page[data-org-mode="edit"] .org-ckp-edit-icon{
+  display:inline-flex!important;
+}
+.org-founder-item,
+.org-top-group,
+.org-division-head,
+.org-department-col,
+.org-department-head,
+.org-section-box,
+.org-ckp-bar{
+  position:relative!important;
+}
+.org-founder-edit{
+  right:-14px;
+  top:50%;
+  transform:translateY(-50%);
+}
+.org-top-add{
+  left:-16px;
+  top:38px;
+  transform:translateY(-50%);
+}
+.org-top-edit{
+  right:-14px;
+  top:38px;
+  transform:translateY(-50%);
+}
+.org-deputy-row{
+  overflow:visible!important;
+}
+.org-deputy-item{
+  position:relative;
+  flex:1 1 0;
+  min-width:0;
+  display:flex;
+}
+.org-deputy-item .org-deputy-card{
+  width:100%!important;
+  min-width:0!important;
+  height:100%!important;
+}
+.org-deputy-item:not(:last-child) .org-deputy-card{
+  border-right:1px solid #6f9fca!important;
+}
+.org-deputy-item:last-child .org-deputy-card{
+  border-right:0!important;
+}
+.org-deputy-edit{
+  right:8px;
+  top:50%;
+  transform:translateY(-50%);
+}
+.org-division-edit{
+  right:-14px;
+  top:32px;
+}
+.org-department-edit{
+  right:-11px;
+  top:-6px;
+}
+.org-section-edit{
+  right:-10px;
+  top:-10px;
+}
+.org-department-add{
+  left:50%;
+  bottom:66px;
+  transform:translateX(-50%);
+}
+.org-section-add{
+  position:relative!important;
+  left:auto;
+  top:auto;
+  margin:6px auto 0;
+}
+.org-ckp-edit-icon{
+  position:absolute;
+  top:50%;
+  right:-14px;
+  transform:translateY(-50%);
+}
+.org-scheme-ckp .org-ckp-edit-icon{
+  left:-14px;
+  right:auto;
+}
+.org-department-ckp .org-ckp-edit-icon{
+  right:-14px;
+}
+.org-division-ckp .org-ckp-edit-icon{
+  right:-14px;
+}
+html.asr-dark .org-action-icon,
+html.asr-dark .org-ckp-edit-icon{
+  background:#1f2937;
+  color:#cbd5e1;
+  border-color:#FDBA74;
+  box-shadow:0 8px 18px rgba(0,0,0,.24);
+}
+html.asr-dark .org-action-icon:hover{
+  background:#2b2117;
+  color:#FDBA74;
+}
+@media print{
+  .org-action-icon,
+  .org-ckp-edit-icon{display:none!important;}
+}
+@media(max-width:900px){
+  .org-action-icon,
+  .org-ckp-edit-icon{display:none!important;}
+}
+
+/* v3.7.22: стабилизация иконок редактирования и блока добавления заместителя */
+.org-scheme-page:not([data-org-mode="edit"]) [data-org-edit-only],
+.org-scheme-page[data-org-mode="view"] [data-org-edit-only]{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+.org-scheme-page[data-org-mode="edit"] [data-org-edit-only]{
+  visibility:visible!important;
+}
+.org-scheme-page[data-org-mode="edit"] .org-action-icon,
+.org-scheme-page[data-org-mode="edit"] .org-ckp-edit-icon{
+  display:inline-flex!important;
+}
+.org-division-card{
+  overflow:hidden!important;
+}
+.org-division-head{
+  overflow:visible!important;
+}
+.org-division-edit{
+  right:14px!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+}
+.org-department-edit{
+  right:14px!important;
+  top:14px!important;
+  transform:none!important;
+}
+.org-section-edit{
+  right:10px!important;
+  top:10px!important;
+  transform:none!important;
+}
+.org-department-add{
+  left:50%!important;
+  bottom:72px!important;
+  transform:translateX(-50%)!important;
+}
+.org-department-ckp .org-ckp-edit-icon,
+.org-division-ckp .org-ckp-edit-icon{
+  right:12px!important;
+}
+.org-scheme-ckp .org-ckp-edit-icon{
+  left:12px!important;
+  right:auto!important;
+}
+.org-founder-edit{
+  right:-14px!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+}
+.org-top-add{
+  left:-16px!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+}
+.org-top-edit{
+  right:-16px!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+}
+.org-deputy-add-item{
+  display:none!important;
+}
+.org-scheme-page[data-org-mode="edit"] .org-deputy-add-item{
+  display:flex!important;
+}
+.org-deputy-add-card{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  color:#38556f!important;
+  font-weight:650!important;
+  background:#c5e0f4!important;
+  border-left:1px dashed #7eadd1!important;
+}
+.org-scheme-page[data-org-mode="view"] .org-deputy-add-card,
+.org-scheme-page:not([data-org-mode="edit"]) .org-deputy-add-card{
+  display:none!important;
+}
+html.asr-dark .org-deputy-add-card{
+  background:#273849!important;
+  color:#d6e5f2!important;
+  border-left-color:#55748e!important;
+}
+@media(max-width:900px){
+  .org-department-edit,
+  .org-division-edit,
+  .org-department-add,
+  .org-ckp-edit-icon{display:none!important;}
+}
+
+/* v3.7.23: контекстные окна верхнего уровня и палитра цветов */
+.org-context-modal .org-modal-actions{
+  display:flex;
+  justify-content:flex-end;
+}
+.org-color-picker{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:4px;
+}
+.org-color-dot{
+  width:34px!important;
+  height:34px!important;
+  min-width:34px!important;
+  padding:0!important;
+  border-radius:999px!important;
+  border:1px solid rgba(15,23,42,.10)!important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.65),0 6px 14px rgba(15,23,42,.08)!important;
+  cursor:pointer;
+  position:relative;
+}
+.org-color-dot.is-selected{
+  outline:3px solid #A855F7!important;
+  outline-offset:2px;
+}
+.org-color-dot.is-selected:after{
+  content:'✓';
+  position:absolute;
+  right:-4px;
+  top:-7px;
+  width:18px;
+  height:18px;
+  border-radius:999px;
+  background:#A855F7;
+  color:#fff;
+  font-size:12px;
+  line-height:18px;
+  text-align:center;
+  font-weight:800;
+}
+.org-color-dot.is-custom{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  background:#fff!important;
+  color:#475569!important;
+}
+.org-color-dot.is-custom svg{
+  width:17px;
+  height:17px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.org-custom-color{
+  display:none;
+  flex:1 1 132px;
+  min-width:132px;
+}
+.org-color-picker.is-custom-open .org-custom-color{
+  display:block;
+}
+.org-custom-color input{
+  height:34px!important;
+  padding:7px 10px!important;
+  border-radius:12px!important;
+  font-size:12px!important;
+}
+.org-dynamic-section{
+  display:grid;
+  gap:13px;
+}
+.org-dynamic-section[hidden]{
+  display:none!important;
+}
+.org-managed-top-row{
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+  gap:18px;
+  min-width:1080px;
+  margin:-16px 0 8px;
+  position:relative;
+  z-index:3;
+}
+.org-managed-top-item{
+  position:relative;
+}
+.org-managed-top-card{
+  background:#9FC5E8!important;
+  border-color:#6f9fca!important;
+  color:#0f172a!important;
+  border-radius:10px!important;
+  min-width:280px!important;
+  padding:10px 16px!important;
+}
+.org-managed-top-card .org-node-title,
+.org-managed-top-card .org-node-person{
+  color:#0f172a!important;
+}
+.org-managed-top-edit{
+  right:-13px;
+  top:50%;
+  transform:translateY(-50%);
+}
+.org-scheme-page[data-org-mode="view"] .org-managed-top-edit{
+  display:none!important;
+}
+.org-division-head[style] .org-node-title,
+.org-division-head[style] .org-node-person{
+  color:#0f172a!important;
+}
+html.asr-dark .org-color-dot.is-custom{
+  background:#222832!important;
+  color:#C8D0DA!important;
+}
+html.asr-dark .org-managed-top-card{
+  background:#9FC5E8!important;
+  border-color:#6f9fca!important;
+  color:#0f172a!important;
+}
+@media(max-width:900px){
+  .org-managed-top-row{display:none!important;}
+  .org-color-dot{width:32px!important;height:32px!important;min-width:32px!important;}
+}
+
+/* v3.7.24: топ-руководители выравниваются над закреплёнными отделениями */
+.org-managed-top-row,
+.org-division-row{
+  display:grid!important;
+  grid-template-columns:repeat(var(--org-division-count, 1), minmax(600px, 1fr))!important;
+  gap:24px!important;
+  align-items:start!important;
+  min-width:max-content!important;
+}
+.org-managed-top-row{
+  justify-content:start!important;
+  margin:-12px 0 8px!important;
+  padding-top:0!important;
+}
+.org-managed-top-item{
+  justify-self:center!important;
+  align-self:start!important;
+  position:relative!important;
+  min-width:280px!important;
+}
+.org-managed-top-card{
+  min-width:280px!important;
+  max-width:420px!important;
+  width:max-content!important;
+}
+.org-managed-role-only[hidden]{display:none!important;}
+@media(max-width:900px){
+  .org-division-row{display:block!important;min-width:0!important;}
+  .org-managed-top-row{display:none!important;}
+}
+
+/* v3.7.26: топ-руководитель как отдельный управленческий уровень над закреплёнными отделениями */
+.org-managed-top-row{
+  margin:10px 0 0!important;
+  padding-top:0!important;
+  padding-bottom:34px!important;
+  position:relative!important;
+  z-index:3!important;
+}
+.org-managed-top-item{
+  display:flex!important;
+  justify-content:center!important;
+  align-items:flex-start!important;
+  min-width:0!important;
+}
+.org-managed-top-card{
+  width:auto!important;
+  min-width:300px!important;
+  max-width:460px!important;
+  box-sizing:border-box!important;
+  text-align:center!important;
+}
+.org-division-row{
+  padding-top:0!important;
+}
+.org-division-card[data-manager-id]:not([data-manager-id="0"]){
+  position:relative!important;
+}
+
+/* v3.7.27: топ-руководители под исполнительным директором — один командный уровень + заместители */
+.org-managed-top-row{
+  align-items:start!important;
+  grid-auto-rows:auto!important;
+}
+.org-managed-top-item{
+  grid-row:1!important;
+  align-self:start!important;
+  justify-self:center!important;
+  display:flex!important;
+  justify-content:center!important;
+  align-items:flex-start!important;
+  min-width:0!important;
+}
+.org-managed-top-group{
+  position:relative!important;
+  display:grid!important;
+  gap:0!important;
+  justify-items:center!important;
+  width:max-content!important;
+  min-width:300px!important;
+  max-width:460px!important;
+}
+.org-managed-top-group>.org-managed-top-card{
+  width:100%!important;
+  min-width:300px!important;
+  max-width:460px!important;
+  box-sizing:border-box!important;
+}
+.org-managed-top-group .org-deputy-row{
+  width:100%!important;
+  min-width:300px!important;
+  box-sizing:border-box!important;
+}
+.org-managed-top-group .org-deputy-card{
+  min-height:38px!important;
+  padding:7px 10px!important;
+}
+.org-managed-top-add{
+  left:-16px!important;
+  top:30px!important;
+  transform:translateY(-50%)!important;
+}
+.org-managed-top-edit{
+  right:-14px!important;
+  top:30px!important;
+  transform:translateY(-50%)!important;
+}
+.org-scheme-page[data-org-mode="view"] .org-managed-top-add,
+.org-scheme-page[data-org-mode="view"] .org-managed-top-group .org-deputy-add-item,
+.org-scheme-page:not([data-org-mode="edit"]) .org-managed-top-add,
+.org-scheme-page:not([data-org-mode="edit"]) .org-managed-top-group .org-deputy-add-item{
+  display:none!important;
+}
+.org-managed-top-group:has(.org-deputy-row:not(.is-empty)) > .org-managed-top-card{
+  border-bottom-left-radius:0!important;
+  border-bottom-right-radius:0!important;
+}
+@media(max-width:900px){
+  .org-managed-top-group,
+  .org-managed-top-group>.org-managed-top-card,
+  .org-managed-top-group .org-deputy-row{
+    min-width:0!important;
+    width:100%!important;
+  }
+}
+
+/* v3.7.28: цветовая логика блоков.
+   У выбранного цвета рамка становится темнее, а заместители наследуют
+   чуть более светлый цвет своего начальника без отдельного выбора фона. */
+.org-management-card[style],
+.org-top-card[style],
+.org-managed-top-card[style],
+.org-division-head[style],
+.org-ckp-bar[style]{
+  border-color:var(--org-node-border)!important;
+}
+.org-deputy-row[style]{
+  background:var(--org-node-color)!important;
+  border-color:var(--org-node-border)!important;
+}
+.org-deputy-row[style] .org-deputy-card{
+  background:var(--org-node-color)!important;
+  border-color:var(--org-node-border)!important;
+  border-right-color:var(--org-node-border)!important;
+}
+.org-deputy-row[style] .org-deputy-card.is-empty{
+  background:var(--org-node-color)!important;
+  opacity:.72;
+}
+
+
+/* v3.7.30: жёстко скрываем служебные поля у заместителей.
+   В модалках были общие CSS display:grid для label/grid, из-за этого HTML hidden
+   мог перебиваться стилями браузера/темы. */
+.org-modal [hidden],
+.org-node-deputy-hidden{
+  display:none!important;
+}
+
+/* v3.7.31: убираем скачок иконок при наведении и чинем нижние углы составных блоков */
+.org-action-icon{
+  transition:background .14s ease,color .14s ease,box-shadow .14s ease!important;
+}
+.org-action-icon:hover{
+  background:#fff7ed!important;
+  color:#9a4f12!important;
+  box-shadow:0 10px 22px rgba(245,158,11,.20)!important;
+}
+.org-founder-edit:hover,
+.org-top-add:hover,
+.org-top-edit:hover,
+.org-deputy-edit:hover,
+.org-managed-top-add:hover,
+.org-managed-top-edit:hover,
+.org-division-edit:hover{
+  transform:translateY(-50%)!important;
+}
+.org-department-add:hover{
+  transform:translateX(-50%)!important;
+}
+.org-department-edit:hover,
+.org-section-edit:hover{
+  transform:none!important;
+}
+.org-top-group:has(.org-deputy-row:not(.is-empty)),
+.org-managed-top-group:has(.org-deputy-row:not(.is-empty)){
+  border-radius:12px!important;
+}
+.org-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-row,
+.org-managed-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-row{
+  overflow:hidden!important;
+  border-radius:0 0 12px 12px!important;
+}
+.org-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-card,
+.org-managed-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-card{
+  border-radius:0!important;
+}
+.org-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-card:first-child,
+.org-managed-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-card:first-child{
+  border-bottom-left-radius:12px!important;
+}
+.org-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-card:last-child,
+.org-managed-top-group:has(.org-deputy-row:not(.is-empty)) .org-deputy-card:last-child{
+  border-bottom-right-radius:12px!important;
+}
+html.asr-dark .org-action-icon:hover{
+  background:#211914!important;
+  color:#FDBA74!important;
+}
+
+
+/* v3.7.32: верхний уровень — типографика, подсказки и лишние иконки */
+.org-managed-top-edit{
+  display:none!important;
+}
+.org-top-card .org-node-title{
+  font-size:13px!important;
+  font-weight:760!important;
+  line-height:1.16!important;
+}
+.org-top-card .org-node-person{
+  font-size:11px!important;
+  font-weight:620!important;
+  line-height:1.16!important;
+  margin-top:5px!important;
+}
+.org-deputy-card .org-node-title,
+.org-managed-top-group .org-deputy-card .org-node-title{
+  font-size:13px!important;
+  font-weight:780!important;
+  line-height:1.15!important;
+}
+.org-deputy-card .org-node-person,
+.org-managed-top-group .org-deputy-card .org-node-person{
+  font-size:11px!important;
+  font-weight:620!important;
+  line-height:1.15!important;
+  margin-top:4px!important;
+}
+.org-founder-card .org-node-title,
+.org-top-card .org-node-title,
+.org-managed-top-card .org-node-title,
+.org-deputy-card .org-node-title{
+  cursor:help;
+}
+
+
+/* v3.7.33: доводка верхних блоков и явные подсказки */
+.org-managed-top-edit,
+.org-managed-top-group > .org-action-icon.is-edit,
+.org-managed-top-group .org-top-edit{
+  display:none!important;
+}
+.org-scheme-page .org-top-zone > .org-top-group > .org-top-card .org-node-title{
+  font-size:13px!important;
+  font-weight:780!important;
+  line-height:1.16!important;
+}
+.org-scheme-page .org-top-zone > .org-top-group > .org-top-card .org-node-person{
+  font-size:12px!important;
+  font-weight:620!important;
+  line-height:1.16!important;
+}
+.org-scheme-page .org-deputy-card .org-node-title,
+.org-scheme-page .org-managed-top-group .org-deputy-card .org-node-title{
+  font-size:14px!important;
+  font-weight:820!important;
+  line-height:1.14!important;
+}
+.org-scheme-page .org-deputy-card .org-node-person,
+.org-scheme-page .org-managed-top-group .org-deputy-card .org-node-person{
+  font-size:12px!important;
+  font-weight:650!important;
+  line-height:1.14!important;
+  margin-top:4px!important;
+}
+.org-founder-card .org-node-title,
+.org-top-card .org-node-title,
+.org-managed-top-card .org-node-title,
+.org-deputy-card .org-node-title{
+  position:relative;
+  cursor:help;
+}
+.org-founder-card .org-node-title[data-org-tooltip]:hover::after,
+.org-top-card .org-node-title[data-org-tooltip]:hover::after,
+.org-managed-top-card .org-node-title[data-org-tooltip]:hover::after,
+.org-deputy-card .org-node-title[data-org-tooltip]:hover::after{
+  content:attr(data-org-tooltip);
+  position:absolute;
+  left:50%;
+  bottom:calc(100% + 10px);
+  transform:translateX(-50%);
+  z-index:80;
+  width:max-content;
+  max-width:360px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:#111827;
+  color:#fff;
+  box-shadow:0 16px 36px rgba(15,23,42,.24);
+  font-size:12px;
+  font-weight:650;
+  line-height:1.35;
+  text-align:left;
+  white-space:pre-line;
+  pointer-events:none;
+}
+.org-founder-card .org-node-title[data-org-tooltip]:hover::before,
+.org-top-card .org-node-title[data-org-tooltip]:hover::before,
+.org-managed-top-card .org-node-title[data-org-tooltip]:hover::before,
+.org-deputy-card .org-node-title[data-org-tooltip]:hover::before{
+  content:"";
+  position:absolute;
+  left:50%;
+  bottom:calc(100% + 4px);
+  transform:translateX(-50%);
+  z-index:81;
+  border:6px solid transparent;
+  border-top-color:#111827;
+  pointer-events:none;
+}
+
+
+/* v3.7.34: жёсткая доводка верхнего уровня по последнему ТЗ */
+/* 1) У блоков топ-руководителей убираем правые служебные иконки; редактирование остаётся кликом по самому блоку. */
+.org-managed-top-group > .org-action-icon.is-edit,
+.org-managed-top-group > .org-managed-top-edit,
+.org-managed-top-group > .org-top-edit,
+.org-managed-top-group .org-managed-top-card ~ .org-action-icon,
+.org-managed-top-item > .org-action-icon.is-edit{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+.org-managed-top-group > .org-managed-top-add{
+  display:inline-flex!important;
+}
+.org-scheme-page:not([data-org-mode="edit"]) .org-managed-top-group > .org-managed-top-add,
+.org-scheme-page[data-org-mode="view"] .org-managed-top-group > .org-managed-top-add{
+  display:none!important;
+}
+
+/* 2–3) Типографика: директор не огромный; у заместителей должность крупнее ФИО. */
+.org-scheme-page .org-top-zone > .org-top-group > .org-top-card .org-node-title{
+  font-size:15px!important;
+  font-weight:820!important;
+  line-height:1.12!important;
+  letter-spacing:-.01em!important;
+}
+.org-scheme-page .org-top-zone > .org-top-group > .org-top-card .org-node-person{
+  font-size:13px!important;
+  font-weight:650!important;
+  line-height:1.16!important;
+  margin-top:5px!important;
+}
+.org-scheme-page .org-deputy-card .org-node-title,
+.org-scheme-page .org-managed-top-group .org-deputy-card .org-node-title{
+  font-size:15px!important;
+  font-weight:840!important;
+  line-height:1.12!important;
+  letter-spacing:-.005em!important;
+}
+.org-scheme-page .org-deputy-card .org-node-person,
+.org-scheme-page .org-managed-top-group .org-deputy-card .org-node-person{
+  font-size:13px!important;
+  font-weight:660!important;
+  line-height:1.14!important;
+  margin-top:4px!important;
+}
+.org-scheme-page .org-managed-top-card .org-node-title{
+  font-size:23px!important;
+  font-weight:880!important;
+  line-height:1.1!important;
+  letter-spacing:-.03em!important;
+}
+.org-scheme-page .org-managed-top-card .org-node-person{
+  font-size:13px!important;
+  font-weight:680!important;
+  line-height:1.15!important;
+  margin-top:6px!important;
+}
+
+/* 4) Подсказка показывается именно у названия должности, а не нативным browser-title на всём блоке. */
+.org-founder-card .org-node-title,
+.org-top-card .org-node-title,
+.org-managed-top-card .org-node-title,
+.org-deputy-card .org-node-title{
+  cursor:help!important;
+  position:relative!important;
+}
+.org-founder-card .org-node-title[data-org-tooltip]::before,
+.org-founder-card .org-node-title[data-org-tooltip]::after,
+.org-top-card .org-node-title[data-org-tooltip]::before,
+.org-top-card .org-node-title[data-org-tooltip]::after,
+.org-managed-top-card .org-node-title[data-org-tooltip]::before,
+.org-managed-top-card .org-node-title[data-org-tooltip]::after,
+.org-deputy-card .org-node-title[data-org-tooltip]::before,
+.org-deputy-card .org-node-title[data-org-tooltip]::after{
+  display:none!important;
+  content:none!important;
+}
+.org-floating-tooltip{
+  position:fixed;
+  z-index:99999;
+  max-width:380px;
+  padding:10px 12px;
+  border-radius:14px;
+  background:#111827;
+  color:#fff;
+  box-shadow:0 18px 44px rgba(15,23,42,.28);
+  font-size:12px;
+  font-weight:650;
+  line-height:1.38;
+  white-space:pre-line;
+  text-align:left;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .08s ease;
+}
+.org-floating-tooltip.is-visible{opacity:1;}
+html.asr-dark .org-floating-tooltip{background:#F9FAFB;color:#111827;}
+
+/* 5) В модалке заместителя порядок/ставки/цвет убираются без права CSS перебить hidden. */
+#orgNodeModal form.org-node-modal-is-deputy #orgNodeMetaGrid,
+#orgNodeModal form.org-node-modal-is-deputy #orgNodeColorLabel,
+#orgNodeMetaGrid.org-node-deputy-hidden,
+#orgNodeColorLabel.org-node-deputy-hidden{
+  display:none!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+#orgNodePerson,
+#orgRolePerson,
+#orgTopPerson{
+  white-space:nowrap!important;
+}

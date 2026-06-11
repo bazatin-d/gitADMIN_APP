@@ -31,6 +31,7 @@ function asr_module_action_order(string $id): int {
         'menu' => 70,
         'settings' => 80,
         'telegram_bots' => 85,
+        'org_structure' => 88,
         'users' => 90,
         'url_shortener' => 100,
     ];

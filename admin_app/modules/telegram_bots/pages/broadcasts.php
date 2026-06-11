@@ -1324,3 +1324,75 @@ function adminIcon(name){
         scheduleCount();
     })();
     </script>
+
+<style>
+/* v3.6.55 dark residual fix: broadcasts */
+html.asr-dark .tg-broadcast-shell,
+html.asr-dark .tg-broadcast-shell * { border-color: #2B313A; }
+html.asr-dark .tg-broadcast-shell,
+html.asr-dark .tg-broadcast-top,
+html.asr-dark .tg-broadcast-steps,
+html.asr-dark .tg-broadcast-left,
+html.asr-dark .tg-broadcast-right,
+html.asr-dark .tg-broadcast-footer,
+html.asr-dark .tg-step-side,
+html.asr-dark .tg-step-panel { background: #191D23 !important; color: #E5E7EB !important; border-color: #2B313A !important; }
+html.asr-dark .tg-broadcast-shell h1,
+html.asr-dark .tg-broadcast-shell h2,
+html.asr-dark .tg-broadcast-shell h3,
+html.asr-dark .tg-broadcast-shell h4,
+html.asr-dark .tg-broadcast-shell .tg-step { color: #F3F4F6 !important; }
+html.asr-dark .tg-broadcast-shell p,
+html.asr-dark .tg-broadcast-shell label,
+html.asr-dark .tg-broadcast-shell .text-gray-400,
+html.asr-dark .tg-broadcast-shell .text-gray-500,
+html.asr-dark .tg-broadcast-shell .text-gray-600,
+html.asr-dark .tg-broadcast-shell .tg-form-label,
+html.asr-dark .tg-broadcast-shell .tg-preview-platform-note,
+html.asr-dark .tg-broadcast-shell .tg-macro-token,
+html.asr-dark .tg-broadcast-shell .tg-macro-group { color: #A9B4C2 !important; }
+html.asr-dark .tg-message-card,
+html.asr-dark .tg-condition-card,
+html.asr-dark .tg-card-toolbar,
+html.asr-dark .tg-editor-wrap,
+html.asr-dark .tg-preview-phone,
+html.asr-dark .tg-report-phone,
+html.asr-dark .tg-card-preview-media,
+html.asr-dark .tg-report-media,
+html.asr-dark .tg-add-condition-menu,
+html.asr-dark .tg-macro-menu,
+html.asr-dark .tg-emoji-menu,
+html.asr-dark .tg-button-modal,
+html.asr-dark .tg-alert-modal,
+html.asr-dark .tg-date-modal { background: #14181E !important; border-color: #303844 !important; color: #E5E7EB !important; }
+html.asr-dark .tg-card-toolbar button,
+html.asr-dark .tg-mini-btn,
+html.asr-dark .tg-card-type-btn,
+html.asr-dark .tg-add-condition-menu button,
+html.asr-dark .tg-macro-item,
+html.asr-dark .tg-channel-picker-button,
+html.asr-dark .tg-form-field,
+html.asr-dark .tg-button-select,
+html.asr-dark .tg-message-button,
+html.asr-dark .tg-message-button-add,
+html.asr-dark .tg-button-muted,
+html.asr-dark .tg-draft-choice-muted,
+html.asr-dark .tg-preview-button,
+html.asr-dark .tg-report-button { background: #222832 !important; border-color: #303844 !important; color: #D7DEE8 !important; }
+html.asr-dark .tg-card-editor,
+html.asr-dark .tg-preview-bubble,
+html.asr-dark .tg-report-bubble { background: #222832 !important; color: #E5E7EB !important; box-shadow: none !important; }
+html.asr-dark .tg-card-editor:empty:before { color: #7F8A99 !important; }
+html.asr-dark .tg-vk-plain-notice,
+html.asr-dark .tg-help,
+html.asr-dark .tg-card-editor blockquote,
+html.asr-dark .tg-preview-bubble blockquote { background: rgba(255,160,72,.10) !important; border-color: rgba(255,160,72,.24) !important; color: #FDBA74 !important; }
+html.asr-dark .tg-step-line,
+html.asr-dark .tg-toolbar-sep { background: #303844 !important; }
+html.asr-dark .tg-toggle { background: #303844 !important; }
+html.asr-dark .tg-toggle:after { background: #D7DEE8 !important; }
+html.asr-dark .tg-broadcast-shell .bg-white,
+html.asr-dark .tg-broadcast-shell .bg-gray-50,
+html.asr-dark .tg-broadcast-shell .bg-gray-50\/50 { background-color: #191D23 !important; }
+</style>
+

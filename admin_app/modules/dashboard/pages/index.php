@@ -59,6 +59,18 @@ $quickLinks = [
 <style>
 .asr-dashboard h2,.asr-dashboard h3{color:#2f343d;font-weight:700;letter-spacing:.01em}.asr-dashboard .dash-card{background:#fff;border:1px solid #eef0f3;border-radius:24px;box-shadow:0 12px 34px rgba(15,23,42,.04)}.asr-dashboard .dash-muted{color:#737b86}.asr-dashboard .dash-accent{color:#d98537}.asr-dashboard .dash-btn{background:#FFA048;color:#fff}.asr-dashboard .dash-btn:hover{background:#ec8f33}.asr-dashboard .dash-soft-btn{background:#fff7ed;color:#b96b25;border:1px solid #fed7aa}.asr-dashboard .dash-soft-btn:hover{background:#ffedd5}.asr-dashboard .dash-olive{background:#f4f6ec;color:#687731;border:1px solid #dde6bf}@media(max-width:767px){.asr-dashboard .dash-grid{grid-template-columns:1fr!important}.asr-dashboard .dash-pad{padding:18px!important}}
 </style>
+
+<style>
+html.asr-dark .asr-dashboard h2,
+html.asr-dark .asr-dashboard h3{color:#F3F4F6!important}
+html.asr-dark .asr-dashboard .dash-card{background:#191D23!important;border-color:#2B313A!important;box-shadow:0 18px 48px rgba(0,0,0,.28)!important}
+html.asr-dark .asr-dashboard .dash-muted{color:#A9B4C2!important}
+html.asr-dark .asr-dashboard .dash-accent{color:#FFA048!important}
+html.asr-dark .asr-dashboard .dash-soft-btn{background:rgba(255,160,72,.12)!important;color:#FFA048!important;border-color:rgba(255,160,72,.28)!important}
+html.asr-dark .asr-dashboard .dash-soft-btn:hover{background:rgba(255,160,72,.18)!important}
+html.asr-dark .asr-dashboard .dash-olive{background:#26301D!important;color:#D6E7A7!important;border-color:#41502E!important}
+</style>
+
 <div class="asr-dashboard text-left space-y-6">
     <div class="dash-card dash-pad p-7 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
         <div>

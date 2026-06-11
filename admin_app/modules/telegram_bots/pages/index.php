@@ -3215,3 +3215,559 @@ $dialogBroadcastDiag = null;
 })();
 </script>
 </div>
+
+<style>
+/* v3.6.55 dark residual fix: channels + dialogs */
+html.asr-dark .tg-module,
+html.asr-dark .tg-module * { border-color: #2B313A; }
+html.asr-dark .tg-module .tg-channel-board,
+html.asr-dark .tg-module .tg-channel-table,
+html.asr-dark .tg-module .tg-channel-table-head,
+html.asr-dark .tg-module .tg-channel-top,
+html.asr-dark .tg-module .tg-channel-row,
+html.asr-dark .tg-module .tg-channel-empty,
+html.asr-dark .tg-module .tg-channel-menu,
+html.asr-dark .tg-module .tg-channel-modal,
+html.asr-dark .tg-module .tg-channel-form-section,
+html.asr-dark .tg-module .tg-channel-help-card {
+    background: #191D23 !important;
+    border-color: #2B313A !important;
+    color: #E5E7EB !important;
+}
+html.asr-dark .tg-module .tg-channel-row:nth-child(even),
+html.asr-dark .tg-module .tg-channel-row:hover { background: #1E242D !important; }
+html.asr-dark .tg-module .tg-channel-row.is-selected,
+html.asr-dark .tg-module .tg-channel-row.is-active { background: rgba(255,160,72,.08) !important; }
+html.asr-dark .tg-module .tg-channel-heading,
+html.asr-dark .tg-module .tg-channel-title,
+html.asr-dark .tg-module .tg-channel-name,
+html.asr-dark .tg-module .tg-channel-cell-name,
+html.asr-dark .tg-module .tg-channel-form-section-title,
+html.asr-dark .tg-module .tg-channel-modal-title { color: #F3F4F6 !important; }
+html.asr-dark .tg-module .tg-channel-meta,
+html.asr-dark .tg-module .tg-channel-username-muted,
+html.asr-dark .tg-module .tg-channel-note,
+html.asr-dark .tg-module .tg-channel-form-section-sub,
+html.asr-dark .tg-module .tg-channel-modal-text,
+html.asr-dark .tg-module .tg-channel-table-head,
+html.asr-dark .tg-module .tg-channel-table th { color: #A9B4C2 !important; }
+html.asr-dark .tg-module .tg-channel-service-icon,
+html.asr-dark .tg-module .tg-contact-avatar,
+html.asr-dark .tg-module .tg-dialog-avatar { background: #222832 !important; color: #D7DEE8 !important; }
+html.asr-dark .tg-module .tg-channel-dots,
+html.asr-dark .tg-module .tg-channel-help-btn,
+html.asr-dark .tg-module .tg-channel-secondary,
+html.asr-dark .tg-module .tg-channel-action:not(.tg-channel-primary) { background: #222832 !important; border-color: #303844 !important; color: #D7DEE8 !important; }
+
+html.asr-dark body.asr-dialogs-fullscreen,
+html.asr-dark .asr-dialogs-main,
+html.asr-dark .tg-contact-page,
+html.asr-dark .tg-contact-shell,
+html.asr-dark .tg-contact-chat,
+html.asr-dark .tg-contact-side,
+html.asr-dark .tg-contact-head,
+html.asr-dark .tg-contact-person { background: #111317 !important; color: #E5E7EB !important; }
+html.asr-dark .tg-contact-shell,
+html.asr-dark .tg-contact-chat,
+html.asr-dark .tg-contact-side,
+html.asr-dark .tg-contact-head,
+html.asr-dark .tg-contact-person,
+html.asr-dark .tg-dialog-card-link,
+html.asr-dark .tg-chat-feed,
+html.asr-dark .tg-chat-compose { background: #191D23 !important; border-color: #2B313A !important; }
+html.asr-dark .tg-dialog-card-link:hover,
+html.asr-dark .tg-dialog-card-link.is-active,
+html.asr-dark .tg-dialog-card-link.active { background: rgba(255,160,72,.10) !important; }
+html.asr-dark .tg-dialog-bubble:not(.is-out),
+html.asr-dark .tg-chat-bubble:not(.is-out) { background: #222832 !important; color: #E5E7EB !important; box-shadow: none !important; }
+html.asr-dark .tg-dialog-bubble.is-out,
+html.asr-dark .tg-chat-bubble.is-out { background: rgba(255,160,72,.12) !important; border-color: rgba(255,160,72,.28) !important; color: #FDE7D1 !important; box-shadow: none !important; }
+html.asr-dark .tg-chat-day,
+html.asr-dark .tg-chat-system-note,
+html.asr-dark .tg-dialog-broadcast-context { background: #222832 !important; border-color: #303844 !important; color: #A9B4C2 !important; }
+html.asr-dark .tg-dialog-action-btn,
+html.asr-dark .tg-dialog-assign-select,
+html.asr-dark .tg-chat-tool,
+html.asr-dark .tg-chat-tool--icon,
+html.asr-dark .tg-chat-macro-menu,
+html.asr-dark .tg-chat-emoji-menu,
+html.asr-dark .tg-chat-macro-search { background: #222832 !important; border-color: #303844 !important; color: #D7DEE8 !important; }
+html.asr-dark .tg-chat-send { background: #FFA048 !important; color: #fff !important; }
+html.asr-dark .tg-contact-name,
+html.asr-dark .tg-dialog-assignee,
+html.asr-dark .tg-dialog-broadcast-context-title,
+html.asr-dark .tg-chat-file-name { color: #F3F4F6 !important; }
+html.asr-dark .tg-contact-muted,
+html.asr-dark .tg-contact-sub,
+html.asr-dark .tg-dialog-assigned-line,
+html.asr-dark .tg-dialog-bubble-meta,
+html.asr-dark .tg-chat-meta,
+html.asr-dark .tg-dialog-broadcast-context-meta,
+html.asr-dark .tg-dialog-channel { color: #A9B4C2 !important; }
+html.asr-dark .tg-contact-side .bg-gray-50,
+html.asr-dark .tg-contact-side [class*="bg-gray-50"],
+html.asr-dark .tg-contact-side [style*="background:#f"],
+html.asr-dark .tg-contact-side [style*="background: #f"] { background: #222832 !important; color: #D7DEE8 !important; border-color: #303844 !important; }
+html.asr-dark .tg-contact-side h3,
+html.asr-dark .tg-contact-side h4,
+html.asr-dark .tg-contact-side .font-semibold,
+html.asr-dark .tg-contact-side .font-bold { color: #F3F4F6 !important; }
+
+html.asr-dark .tg-module .bg-white,
+html.asr-dark .tg-module section.bg-white,
+html.asr-dark .tg-module div.bg-white { background-color: #191D23 !important; border-color: #2B313A !important; }
+html.asr-dark .tg-module .bg-gray-50,
+html.asr-dark .tg-module .bg-gray-50\/50,
+html.asr-dark .tg-module .bg-gray-100 { background-color: #222832 !important; }
+</style>
+<style>
+/* v3.6.57 Dark Audit fixes: dialogs and channel edit exact selectors */
+html.asr-dark section.tg-dialogs-shell,
+html.asr-dark .tg-dialogs-shell{
+    background:#111317!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+    box-shadow:none!important;
+}
+html.asr-dark .tg-dialog-tabs,
+html.asr-dark .tg-dialogs-head,
+html.asr-dark .tg-dialog-list,
+html.asr-dark .tg-dialog-main,
+html.asr-dark .tg-dialog-side,
+html.asr-dark .tg-dialog-list-tools,
+html.asr-dark .tg-dialog-chat-head,
+html.asr-dark .tg-dialog-compose,
+html.asr-dark .tg-dialog-mobile-switch,
+html.asr-dark .tg-dialog-side-head,
+html.asr-dark .tg-dialog-side-section{
+    background:#191D23!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-dialog-chat-body,
+html.asr-dark main.tg-dialog-main{
+    background:#111317!important;
+}
+html.asr-dark .tg-dialog-empty{
+    background:#191D23!important;
+    border-color:#303844!important;
+    color:#A9B4C2!important;
+}
+html.asr-dark .tg-dialog-tab{
+    background:#191D23!important;
+    border-color:#303844!important;
+    color:#C8D0DA!important;
+}
+html.asr-dark a.tg-dialog-tab.is-active,
+html.asr-dark .tg-dialog-tab.is-active{
+    background:rgba(255,160,72,.14)!important;
+    border-color:rgba(255,160,72,.36)!important;
+    color:#FFA048!important;
+}
+html.asr-dark .tg-dialog-search input,
+html.asr-dark .tg-dialog-tool-btn,
+html.asr-dark .tg-dialog-filter-panel,
+html.asr-dark .tg-dialog-item,
+html.asr-dark .tg-dialog-card-link,
+html.asr-dark .tg-dialog-info-row,
+html.asr-dark .tg-dialog-member-item,
+html.asr-dark .tg-dialog-compose-box,
+html.asr-dark .tg-dialog-assign-select,
+html.asr-dark .tg-dialog-icon-btn,
+html.asr-dark .tg-dialog-dropdown-menu{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-dialog-bubble,
+html.asr-dark .tg-chat-bubble{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+    box-shadow:none!important;
+}
+html.asr-dark .tg-dialog-person-name,
+html.asr-dark .tg-dialog-chat-person h4,
+html.asr-dark .tg-dialog-side h3,
+html.asr-dark .tg-dialog-side h4,
+html.asr-dark .tg-dialog-member-title{
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-dialog-person-sub,
+html.asr-dark .tg-dialog-card-sub,
+html.asr-dark .tg-dialog-member-meta,
+html.asr-dark .tg-dialog-info-row span:first-child{
+    color:#A9B4C2!important;
+}
+html.asr-dark .tg-channel-welcome-toggle{
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-channel-welcome-toggle small{
+    color:#A9B4C2!important;
+}
+html.asr-dark .tg-channel-welcome-disabled textarea{
+    background:#14181E!important;
+    color:#7F8A99!important;
+    border-color:#303844!important;
+}
+html.asr-dark .tg-channel-form-section,
+html.asr-dark .tg-channel-help-card,
+html.asr-dark .tg-channel-note{
+    background:#191D23!important;
+    border-color:#2B313A!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-channel-field input,
+html.asr-dark .tg-channel-field textarea,
+html.asr-dark .tg-channel-field select{
+    background:#14181E!important;
+    border-color:#303844!important;
+    color:#EEF2F7!important;
+}
+html.asr-dark .tg-channel-form-section-title,
+html.asr-dark .tg-channel-help-card h3{
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-channel-form-section-sub,
+html.asr-dark .tg-channel-help-card ol,
+html.asr-dark .tg-channel-help-card ul{
+    color:#A9B4C2!important;
+}
+</style>
+
+<style>
+/* v3.6.58 dark audit precise fixes: dialogs/sidebar/contact/channel residuals */
+html.asr-dark .tg-dialogs-shell,
+html.asr-dark .tg-dialog-tabs,
+html.asr-dark .tg-dialog-list,
+html.asr-dark .tg-dialog-main,
+html.asr-dark .tg-dialog-side,
+html.asr-dark .tg-dialog-chat-head,
+html.asr-dark .tg-dialog-list-scroll,
+html.asr-dark .tg-contact-page,
+html.asr-dark .tg-contact-shell,
+html.asr-dark .tg-contact-chat,
+html.asr-dark .tg-contact-side,
+html.asr-dark .tg-contact-head {
+    background:#151A21!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-dialog-tabs,
+html.asr-dark .tg-dialog-mobile-switch {
+    background:#191D23!important;
+    border-color:#2B313A!important;
+}
+html.asr-dark .tg-dialog-empty {
+    background:#1F2630!important;
+    border-color:#303844!important;
+    color:#A9B4C2!important;
+}
+html.asr-dark .tg-dialog-tab,
+html.asr-dark .tg-dialog-desktop-menu-button,
+html.asr-dark .tg-dialog-action-btn,
+html.asr-dark .tg-dialog-assign-select,
+html.asr-dark .tg-dialog-refresh,
+html.asr-dark .tg-dialog-settings-open,
+html.asr-dark .tg-contact-delete,
+html.asr-dark .tg-chat-tool,
+html.asr-dark .tg-chat-tool--icon {
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-dialog-tab.is-active {
+    background:rgba(255,160,72,.14)!important;
+    border-color:rgba(255,160,72,.32)!important;
+    color:#FFA048!important;
+}
+html.asr-dark .tg-dialog-card-link,
+html.asr-dark .tg-dialog-row,
+html.asr-dark .tg-dialog-card,
+html.asr-dark .tg-contact-person {
+    background:#1B212A!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-dialog-card-link:hover,
+html.asr-dark .tg-dialog-card-link.is-active,
+html.asr-dark .tg-dialog-card-link.active {
+    background:rgba(255,160,72,.10)!important;
+}
+html.asr-dark .tg-dialog-bubble,
+html.asr-dark .tg-chat-bubble {
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+    box-shadow:none!important;
+}
+html.asr-dark .tg-dialog-bubble.is-out,
+html.asr-dark .tg-chat-bubble.is-out {
+    background:rgba(255,160,72,.12)!important;
+    border-color:rgba(255,160,72,.30)!important;
+    color:#FDE7D1!important;
+}
+html.asr-dark .tg-chat-broadcast {
+    background:rgba(255,160,72,.12)!important;
+    border-color:rgba(255,160,72,.35)!important;
+    color:#FDE7D1!important;
+}
+html.asr-dark .tg-chat-broadcast * {
+    color:#FDE7D1!important;
+}
+html.asr-dark .tg-dialog-side-section,
+html.asr-dark .tg-info-form,
+html.asr-dark .tg-info-list,
+html.asr-dark .tg-scenario-state-box,
+html.asr-dark .tg-scenario-journal-box {
+    background:transparent!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-dialog-side-form.tg-dialog-custom-values-form,
+html.asr-dark form.tg-info-form.tg-custom-values-form,
+html.asr-dark .tg-custom-values-form {
+    background:#1B212A!important;
+    border-color:rgba(255,160,72,.28)!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-dialog-side-form input,
+html.asr-dark .tg-dialog-side-form textarea,
+html.asr-dark .tg-dialog-side-form select,
+html.asr-dark .tg-info-form input,
+html.asr-dark .tg-info-form textarea,
+html.asr-dark .tg-info-form select,
+html.asr-dark .tg-custom-values-form input,
+html.asr-dark .tg-custom-values-form textarea,
+html.asr-dark .tg-custom-values-form select {
+    background:#11161D!important;
+    border-color:#303844!important;
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-dialog-tag,
+html.asr-dark .tg-contact-tag {
+    background:rgba(255,160,72,.14)!important;
+    border-color:rgba(255,160,72,.32)!important;
+    color:#FDBA74!important;
+}
+html.asr-dark .tg-info-row,
+html.asr-dark .tg-scenario-state-summary,
+html.asr-dark .tg-scenario-journal-card {
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-scenario-state-item,
+html.asr-dark .tg-scenario-state-item.is-error {
+    background:#1B212A!important;
+    border-color:#303844!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-scenario-state-error {
+    background:rgba(239,68,68,.12)!important;
+    border-color:rgba(248,113,113,.34)!important;
+    color:#FCA5A5!important;
+}
+html.asr-dark .tg-scenario-state-stop,
+html.asr-dark .tg-scenario-journal-open {
+    background:rgba(255,160,72,.14)!important;
+    border-color:rgba(255,160,72,.32)!important;
+    color:#FDBA74!important;
+}
+html.asr-dark .tg-scenario-state-badge {
+    background:#303844!important;
+    color:#D7DEE8!important;
+    border-color:#3C4654!important;
+}
+html.asr-dark .tg-info-row b,
+html.asr-dark .tg-info-row strong,
+html.asr-dark .tg-info-row span:last-child,
+html.asr-dark .tg-info-list b,
+html.asr-dark .tg-info-list strong,
+html.asr-dark .tg-dialog-side h3,
+html.asr-dark .tg-dialog-side h4,
+html.asr-dark .tg-contact-side h3,
+html.asr-dark .tg-contact-side h4 {
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-info-row span:first-child,
+html.asr-dark .tg-dialog-side label span,
+html.asr-dark .tg-contact-side label span,
+html.asr-dark .tg-dialog-side .text-gray-500,
+html.asr-dark .tg-contact-side .text-gray-500 {
+    color:#A9B4C2!important;
+}
+
+/* Channel edit/start message residuals */
+html.asr-dark .tg-channel-board,
+html.asr-dark .tg-channel-table,
+html.asr-dark .tg-channel-table-head,
+html.asr-dark .tg-channel-top,
+html.asr-dark .tg-channel-row,
+html.asr-dark .tg-channel-modal,
+html.asr-dark .tg-channel-form,
+html.asr-dark .tg-channel-form-section,
+html.asr-dark .tg-channel-welcome-toggle,
+html.asr-dark .tg-channel-help-card {
+    background:#191D23!important;
+    border-color:#2B313A!important;
+    color:#E5E7EB!important;
+}
+html.asr-dark .tg-channel-row:nth-child(even),
+html.asr-dark .tg-channel-row:hover {
+    background:#1F2630!important;
+}
+html.asr-dark .tg-channel-welcome-disabled,
+html.asr-dark .tg-channel-note,
+html.asr-dark .tg-channel-help-warning {
+    background:#222832!important;
+    border-color:#303844!important;
+    color:#D7DEE8!important;
+}
+html.asr-dark .tg-channel-field input,
+html.asr-dark .tg-channel-field textarea,
+html.asr-dark .tg-channel-field select,
+html.asr-dark .tg-channel-welcome-disabled textarea {
+    background:#11161D!important;
+    border-color:#303844!important;
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-channel-heading,
+html.asr-dark .tg-channel-name,
+html.asr-dark .tg-channel-title,
+html.asr-dark .tg-channel-form-section-title,
+html.asr-dark .tg-channel-modal-title {
+    color:#F3F4F6!important;
+}
+html.asr-dark .tg-channel-meta,
+html.asr-dark .tg-channel-username-muted,
+html.asr-dark .tg-channel-form-section-sub,
+html.asr-dark .tg-channel-modal-text {
+    color:#A9B4C2!important;
+}
+</style>
+
+
+<style>
+/* v3.6.59 Dark Audit targeted fixes: dialog side/contact residuals */
+html.asr-dark .tg-dialog-side-form.tg-dialog-custom-values-form,
+html.asr-dark .tg-info-form.tg-custom-values-form,
+html.asr-dark .tg-custom-values-form,
+html.asr-dark form.tg-info-form,
+html.asr-dark form.tg-dialog-side-form {
+    background: #14181E !important;
+    border-color: #303844 !important;
+    color: #E5E7EB !important;
+    box-shadow: none !important;
+}
+html.asr-dark .tg-dialog-side-form.tg-dialog-custom-values-form label,
+html.asr-dark .tg-dialog-side-form.tg-dialog-custom-values-form span,
+html.asr-dark .tg-info-form.tg-custom-values-form label,
+html.asr-dark .tg-info-form.tg-custom-values-form span,
+html.asr-dark .tg-info-form label,
+html.asr-dark .tg-info-form span {
+    color: #A9B4C2 !important;
+}
+html.asr-dark .tg-dialog-side-form.tg-dialog-custom-values-form input,
+html.asr-dark .tg-dialog-side-form.tg-dialog-custom-values-form select,
+html.asr-dark .tg-dialog-side-form.tg-dialog-custom-values-form textarea,
+html.asr-dark .tg-info-form.tg-custom-values-form input,
+html.asr-dark .tg-info-form.tg-custom-values-form select,
+html.asr-dark .tg-info-form.tg-custom-values-form textarea,
+html.asr-dark .tg-info-form input,
+html.asr-dark .tg-info-form select,
+html.asr-dark .tg-info-form textarea {
+    background: #0F141B !important;
+    border-color: #303844 !important;
+    color: #EEF2F7 !important;
+}
+html.asr-dark .tg-dialog-tag,
+html.asr-dark .tg-contact-tag,
+html.asr-dark .tg-tag-list .tg-contact-tag,
+html.asr-dark .tg-dialog-tag-list .tg-dialog-tag {
+    background: rgba(255,160,72,.12) !important;
+    border-color: rgba(255,160,72,.28) !important;
+    color: #FDBA74 !important;
+}
+html.asr-dark .tg-dialog-desktop-menu-button,
+html.asr-dark .tg-dialog-mobile-menu-button,
+html.asr-dark .tg-dialog-tabs .tg-dialog-desktop-menu-button,
+html.asr-dark .tg-contact-delete,
+html.asr-dark .tg-scenario-journal-open,
+html.asr-dark .tg-scenario-state-stop {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #D7DEE8 !important;
+}
+html.asr-dark .tg-contact-delete:hover,
+html.asr-dark .tg-scenario-journal-open:hover,
+html.asr-dark .tg-scenario-state-stop:hover {
+    background: rgba(255,160,72,.12) !important;
+    border-color: rgba(255,160,72,.32) !important;
+    color: #FDBA74 !important;
+}
+html.asr-dark .tg-chat-broadcast,
+html.asr-dark .tg-chat-feed .tg-chat-broadcast {
+    background: #1B222C !important;
+    border-color: #3A4656 !important;
+    color: #D7DEE8 !important;
+    box-shadow: none !important;
+}
+html.asr-dark .tg-chat-broadcast-title,
+html.asr-dark .tg-chat-broadcast b,
+html.asr-dark .tg-chat-broadcast strong {
+    color: #FDBA74 !important;
+}
+html.asr-dark .tg-chat-broadcast-meta,
+html.asr-dark .tg-chat-broadcast small {
+    color: #A9B4C2 !important;
+}
+html.asr-dark .tg-info-row,
+html.asr-dark .tg-info-list .tg-info-row,
+html.asr-dark .tg-contact-side .tg-info-row {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #D7DEE8 !important;
+}
+html.asr-dark .tg-info-row span,
+html.asr-dark .tg-info-row small,
+html.asr-dark .tg-info-row .tg-info-label {
+    color: #A9B4C2 !important;
+}
+html.asr-dark .tg-info-row b,
+html.asr-dark .tg-info-row strong,
+html.asr-dark .tg-info-row .tg-info-value {
+    color: #F3F4F6 !important;
+}
+html.asr-dark .tg-scenario-state-item,
+html.asr-dark .tg-scenario-state-item.is-error,
+html.asr-dark .tg-scenario-journal-card {
+    background: #191D23 !important;
+    border-color: #3A4656 !important;
+    color: #E5E7EB !important;
+}
+html.asr-dark .tg-scenario-state-summary,
+html.asr-dark .tg-scenario-state-box .tg-scenario-state-summary {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #D7DEE8 !important;
+}
+html.asr-dark .tg-scenario-state-error {
+    background: rgba(248,113,113,.12) !important;
+    border-color: rgba(248,113,113,.32) !important;
+    color: #FCA5A5 !important;
+}
+html.asr-dark .tg-scenario-state-badge {
+    background: #222832 !important;
+    border-color: #303844 !important;
+    color: #C8D0DA !important;
+}
+html.asr-dark .tg-scenario-state-badge.is-error,
+html.asr-dark .tg-scenario-state-item.is-error .tg-scenario-state-badge {
+    background: rgba(248,113,113,.12) !important;
+    border-color: rgba(248,113,113,.32) !important;
+    color: #FCA5A5 !important;
+}
+</style>

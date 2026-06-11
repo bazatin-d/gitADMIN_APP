@@ -48,6 +48,8 @@ function asr_default_admin_menu_items(): array {
         ['id' => -34, 'parent_id' => -30, 'title' => 'Сценарии', 'href' => 'admin.php?tab=telegram_bots&page=flows', 'item_type' => 'internal', 'target' => '_self', 'permission_key' => 'telegram_bots.flows', 'sort_order' => 40, 'is_active' => 1, 'is_system' => 1, 'icon_key' => 'dot'],
         ['id' => -35, 'parent_id' => -30, 'title' => 'Каналы', 'href' => 'admin.php?tab=telegram_bots&page=bots', 'item_type' => 'internal', 'target' => '_self', 'permission_key' => 'telegram_bots.view', 'sort_order' => 50, 'is_active' => 1, 'is_system' => 1, 'icon_key' => 'dot'],
 
+        ['id' => -40, 'parent_id' => null, 'title' => 'Оргсхемы', 'href' => 'admin.php?tab=org_structure', 'item_type' => 'internal', 'target' => '_self', 'permission_key' => 'admin', 'sort_order' => 29, 'is_active' => 1, 'is_system' => 1, 'icon_key' => 'org'],
+
         ['id' => -8, 'parent_id' => null, 'title' => 'Настройки', 'href' => '', 'item_type' => 'group', 'target' => '_self', 'permission_key' => 'admin', 'sort_order' => 30, 'is_active' => 1, 'is_system' => 1, 'icon_key' => 'settings'],
         ['id' => -9, 'parent_id' => -8, 'title' => 'Настройки системы', 'href' => 'admin.php?tab=settings', 'item_type' => 'internal', 'target' => '_self', 'permission_key' => 'admin', 'sort_order' => 10, 'is_active' => 1, 'is_system' => 1, 'icon_key' => 'dot'],
         ['id' => -10, 'parent_id' => -8, 'title' => 'Пользователи', 'href' => 'admin.php?tab=users', 'item_type' => 'internal', 'target' => '_self', 'permission_key' => 'admin', 'sort_order' => 20, 'is_active' => 1, 'is_system' => 1, 'icon_key' => 'dot'],

@@ -64,6 +64,40 @@ $workFilters = [
 .tg-scenario-name-link{display:inline-flex;text-decoration:none;color:#1f2937}.tg-scenario-name-link:hover{color:#e98222}
 </style>
 
+<style>
+html.asr-dark .tg-scenarios-page,
+html.asr-dark .tg-scenario-menu,
+html.asr-dark .tg-scenario-modal{background:#191D23!important;border-color:#2B313A!important;box-shadow:0 18px 48px rgba(0,0,0,.28)!important}
+html.asr-dark .tg-scenarios-top,
+html.asr-dark .tg-scenarios-filter,
+html.asr-dark .tg-scenario-table th,
+html.asr-dark .tg-scenario-table td,
+html.asr-dark .tg-scenario-modal-head{border-color:#2B313A!important}
+html.asr-dark .tg-scenarios-filter{background:#222832!important}
+html.asr-dark .tg-scenarios-title,
+html.asr-dark .tg-scenario-name,
+html.asr-dark .tg-scenario-modal-title{color:#F3F4F6!important}
+html.asr-dark .tg-scenarios-note,
+html.asr-dark .tg-scenario-desc,
+html.asr-dark .tg-scenario-muted,
+html.asr-dark .tg-scenario-meta,
+html.asr-dark .tg-scenario-channels,
+html.asr-dark .tg-scenario-field span,
+html.asr-dark .tg-scenario-bot-meta{color:#A9B4C2!important}
+html.asr-dark .tg-scenarios-filter a,
+html.asr-dark .tg-scenario-more,
+html.asr-dark .tg-scenario-icon-btn,
+html.asr-dark .tg-scenario-close,
+html.asr-dark .tg-scenario-btn--ghost,
+html.asr-dark .tg-scenario-menu button,
+html.asr-dark .tg-scenario-menu a{background:#222832!important;border-color:#303844!important;color:#D7DEE8!important}
+html.asr-dark .tg-scenario-table tr:hover td{background:#222832!important}
+html.asr-dark .tg-scenario-bot-row{background:#222832!important;border-color:#303844!important}
+html.asr-dark .tg-scenario-bot-title{color:#E5E7EB!important}
+html.asr-dark .tg-scenario-help{background:rgba(255,160,72,.10)!important;border-color:rgba(255,160,72,.24)!important;color:#FDBA74!important}
+</style>
+
+
 <section class="tg-scenarios-page">
     <div class="tg-scenarios-top">
         <div>
@@ -300,3 +334,14 @@ $workFilters = [
     });
 })();
 </script>
+
+<style>
+/* v3.6.55 dark residual fix: scenarios table header */
+html.asr-dark .tg-scenario-table thead,
+html.asr-dark .tg-scenario-table th { background: #222832 !important; color: #A9B4C2 !important; border-color: #2B313A !important; }
+html.asr-dark .tg-scenario-table tr,
+html.asr-dark .tg-scenario-table td { background: transparent !important; border-color: #2B313A !important; }
+html.asr-dark .tg-scenario-table tr:hover td { background: #222832 !important; }
+html.asr-dark .tg-scenario-status--active { background: rgba(16,185,129,.14) !important; color: #86EFAC !important; border-color: rgba(74,222,128,.28) !important; }
+</style>
+
